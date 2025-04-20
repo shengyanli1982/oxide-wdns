@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
-use tracing::{debug, warn};
+use tracing::{debug, warn, info};
 use crate::common::error::{AppError, Result};
 use crate::common::consts::{
     CONTENT_TYPE_DNS_JSON, 
@@ -134,24 +134,54 @@ async fn handle_dns_json_query(
     // 创建 DNS 查询消息
     let query_message = match create_dns_message_from_json_request(&params) {
         Ok(msg) => msg,
-        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        Err(e) => {
+            // 记录请求错误
+            info!(
+                name = %params.name,
+                type_value = params.type_value,
+                client_ip = ?client_ip,
+                error = %e,
+                "DNS-over-HTTPS request parameter error"
+            );
+            return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+        }
     };
     
     // 发送/接收 DNS 查询响应
-    let response_message = match process_query(
+    let (response_message, is_cached) = match process_query(
         state.upstream.as_ref(),
         state.cache.as_ref(),
         &query_message,
         client_ip,
     ).await {
-        Ok(msg) => msg,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok((msg, cached)) => (msg, cached),
+        Err(e) => {
+            // 记录处理错误
+            info!(
+                name = %params.name,
+                type_value = params.type_value,
+                client_ip = ?client_ip,
+                error = %e,
+                "DNS-over-HTTPS query processing failed"
+            );
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
     };
     
     // 转换为 JSON 响应
     let json_response = match dns_message_to_json_response(&response_message) {
         Ok(resp) => resp,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => {
+            // 记录响应转换错误
+            info!(
+                name = %params.name,
+                type_value = params.type_value,
+                client_ip = ?client_ip,
+                error = %e,
+                "DNS-over-HTTPS response conversion failed"
+            );
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
     };
     
     // 更新响应指标
@@ -161,6 +191,37 @@ async fn handle_dns_json_query(
         u16::from(response_message.response_code().low()),
         duration,
     );
+    
+    // 记录请求完成的详细日志
+    let answer_count = json_response.answer.len();
+    let rcode = response_message.response_code();
+    let query_time_ms = duration.as_millis();
+    
+    info!(
+        name = %params.name,
+        type_value = params.type_value,
+        client_ip = ?client_ip,
+        response_code = ?rcode,
+        answer_count = answer_count,
+        dnssec_validated = response_message.authentic_data(),
+        query_time_ms = query_time_ms,
+        is_cached = is_cached,
+        "DNS-over-HTTPS request completed"
+    );
+    
+    // 如果有记录，提供更多详细信息
+    if !json_response.answer.is_empty() {
+        let record_details: Vec<String> = json_response.answer.iter()
+            .map(|ans| format!("{}({}): {}", ans.name, RecordType::from(ans.type_value), ans.data))
+            .collect();
+            
+        info!(
+            name = %params.name,
+            client_ip = ?client_ip,
+            records = ?record_details,
+            "DNS-over-HTTPS response record details"
+        );
+    }
     
     // 返回 JSON 响应
     (
@@ -200,10 +261,10 @@ async fn process_query(
     cache: &DnsCache,
     query_message: &Message,
     _client_ip: IpAddr,
-) -> Result<Message> {
+) -> Result<(Message, bool)> {  // 返回元组，第二个参数表示是否缓存命中
     // 检查查询消息是否有效
     if query_message.message_type() != MessageType::Query {
-        return Err(AppError::Http("不是查询类型的消息".to_string()));
+        return Err(AppError::Http("Not a query message type".to_string()));
     }
     
     // 从查询消息构建缓存键
@@ -217,7 +278,8 @@ async fn process_query(
         // 创建新的响应消息，更新 ID 与查询消息匹配
         let mut response = cached_response.clone();
         response.set_id(query_message.id());
-        return Ok(response);
+        
+        return Ok((response, true));  // 返回缓存命中标记
     }
     
     // 缓存未命中，转发到上游服务器
@@ -251,11 +313,11 @@ async fn process_query(
         // 记录错误响应类型
         debug!(
             rcode = ?response.response_code(),
-            "DNS 错误响应"
+            "DNS error response"
         );
     }
     
-    Ok(response)
+    Ok((response, false))  // 返回非缓存命中标记
 }
 
 /// 从 JSON 请求创建 DNS 查询消息
@@ -264,14 +326,14 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
     let name = match Name::parse(&request.name, None) {
         Ok(name) => name,
         Err(e) => {
-            return Err(AppError::Http(format!("无效的域名: {}", e)));
+            return Err(AppError::Http(format!("Invalid domain name: {}", e)));
         }
     };
     
     // 解析记录类型
     let rtype = match RecordType::from(request.type_value) {
         RecordType::Unknown(..) => {
-            return Err(AppError::Http(format!("无效的记录类型: {}", request.type_value)));
+            return Err(AppError::Http(format!("Invalid record type: {}", request.type_value)));
         }
         rt => rt,
     };
@@ -281,7 +343,7 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
         Some(class) => {
             // 检查是否为未知类型（由于API变更，需要通过其他方式检测）
             if class > 0 && class != 1 && class != 3 && class != 4 && class != 254 && class != 255 {
-                return Err(AppError::Http(format!("无效的 DNS 类: {}", class)));
+                return Err(AppError::Http(format!("Invalid DNS class: {}", class)));
             }
             DNSClass::from_u16(class)
         },
