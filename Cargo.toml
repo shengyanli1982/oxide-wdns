@@ -22,6 +22,23 @@ name = "owdns-cli"
 path = "src/bin/owdns_cli.rs"
 
 [dependencies]
-# TODO: Add dependencies here as needed
-# Server dependencies might include: axum, tokio, tracing, serde, serde_yaml, thiserror, moka, trust-dns-proto, trust-dns-resolver, prometheus, etc.
-# Client dependencies might include: reqwest, clap, tokio, trust-dns-proto, serde_json, thiserror, etc.
+tokio = { version = "1.38", features = ["full"] }
+axum = "0.7"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+hyper = { version = "1.4", features = ["http1", "http2"] }
+tower = "0.4"
+
+# 以下依赖已经从注释变为实际依赖，需要统一版本格式
+trust-dns-proto = "0.23"
+trust-dns-resolver = { version = "0.23", features = ["dns-over-https", "dns-over-tls", "dnssec-openssl", "tokio-runtime"] }
+moka = { version = "0.12", features = ["future"] }
+prometheus = "0.13"
+tower-governor = "0.1"
+mimalloc = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] } # For integration tests
