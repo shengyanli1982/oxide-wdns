@@ -23,7 +23,7 @@ static GLOBAL: MiMalloc = MiMalloc;
     name = "oxide-wdns",
     author,
     version,
-    about = "High-performance DNS-over-HTTPS (DoH) server\n\n\
+    about = "High-performance DNS-over-HTTPS (DoH) gateway\n\n\
              Key Features:\n\
              - Standard DNS-over-HTTPS Wireformat support (RFC 8484)\n\
              - Google/Cloudflare DoH JSON format support\n\
