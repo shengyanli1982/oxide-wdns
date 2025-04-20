@@ -1,0 +1,54 @@
+# Oxide WDNS 默认配置文件
+
+# 服务器监听地址
+listen_addr: 127.0.0.1:3053
+
+# 日志配置
+log:
+  level: info
+  json: false
+
+# TLS 配置 (可选)
+# tls:
+#   cert_path: ./cert.pem
+#   key_path: ./key.pem
+
+# 上游 DNS 服务器配置
+upstream:
+  # 是否启用 DNSSEC
+  enable_dnssec: true
+
+  # 查询超时时间（秒）
+  query_timeout: 5
+
+  # 上游解析器列表
+  resolvers:
+    # Cloudflare DNS
+    - address: 1.1.1.1:53
+      protocol: udp
+
+    # Google DNS
+    - address: 8.8.8.8:53
+      protocol: udp
+
+    # Cloudflare DoH (示例)
+    # - address: cloudflare-dns.com/dns-query
+    #   protocol: doh
+
+    # Google DoT (示例)
+    # - address: dns.google@8.8.8.8:853
+    #   protocol: dot
+
+# 缓存配置
+cache:
+  enabled: true
+  size: 10000 # 缓存条目数
+  min_ttl: 60 # 最小 TTL（秒）
+  max_ttl: 86400 # 最大 TTL（秒）
+  negative_ttl: 300 # 负缓存 TTL（秒）
+
+# 速率限制配置
+rate_limit:
+  enabled: true
+  per_ip_rate: 100 # 每个 IP 每秒最大请求数
+  per_ip_concurrent: 10 # 单个 IP 的并发请求数限制
