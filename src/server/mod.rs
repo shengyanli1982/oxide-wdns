@@ -12,11 +12,12 @@ pub mod upstream;
 use std::sync::Arc;
 use std::time::Duration;
 use axum::{middleware, Router};
+use axum::http::StatusCode;
 use tokio::net::TcpListener;
 use tokio::signal::ctrl_c;
 use tokio::sync::oneshot;
 use tokio::time;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use crate::common::error::Result;
 use crate::server::cache::DnsCache;
 use crate::server::config::ServerConfig;
@@ -65,18 +66,21 @@ impl DoHServer {
             metrics: metrics.clone(),
         };
         
-        // 创建路由
-        let mut app = Router::new()
-            .merge(doh_routes(state))
-            .merge(health_routes())
-            .merge(metrics_routes())
-            .layer(middleware::from_fn(validate_input));
-            
-        // 添加速率限制（如果启用）
-        if let Some(rate_limit) = rate_limit_layer(&self.config.rate_limit) {
-            app = app.layer(rate_limit);
-        }
+        // 创建 DoH 路由并应用相关中间件
+        let mut doh_specific_routes = doh_routes(state);
+            // .layer(middleware::from_fn(validate_input)); // 将 validate_input 应用于 DoH 路由
+
+        // // 添加速率限制（如果启用）到 DoH 路由
+        // if let Some(rate_limit) = rate_limit_layer(&self.config.rate_limit) {
+        //     doh_specific_routes = doh_specific_routes.layer(rate_limit);
+        // }
         
+        // 创建主应用路由，合并所有路由
+        let app = Router::new()
+            .merge(health_routes()) // 添加健康检查路由 
+            .merge(metrics_routes()) // 添加指标收集路由
+            .merge(doh_specific_routes); // 合并已应用中间件的 DoH 路由
+            
         // 创建 TCP 监听器
         let addr = self.config.listen_addr;
         let listener = TcpListener::bind(addr).await?;
@@ -136,7 +140,7 @@ impl DoHServer {
         cache: Arc<DnsCache>,
         metrics: Arc<DnsMetrics>,
     ) {
-        let mut interval = time::interval(Duration::from_secs(10));
+        let mut interval = time::interval(Duration::from_secs(15));
         
         loop {
             interval.tick().await;
@@ -144,8 +148,6 @@ impl DoHServer {
             // 获取并更新缓存大小
             let cache_size = cache.len().await;
             metrics.record_cache_size(cache_size);
-            
-            debug!(cache_size, "Cache metrics updated");
         }
     }
     

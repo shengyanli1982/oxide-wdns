@@ -1,18 +1,13 @@
 // src/bin/owdns.rs
 
-// 标准库导入
 use std::path::PathBuf;
 use std::process::exit;
-
-// 第三方库导入
 use anyhow::Result;
 use clap::{Parser, ArgAction};
 use mimalloc::MiMalloc;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info};
 use tracing_subscriber::{prelude::*, EnvFilter, fmt};
-
-// 本地模块导入
 use oxide_wdns::common::consts::DEFAULT_CONFIG_PATH;
 use oxide_wdns::server::config::ServerConfig;
 use oxide_wdns::server::DoHServer;
@@ -22,7 +17,7 @@ use oxide_wdns::server::signal;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-/// Oxide WDNS Command Line Arguments
+/// Oxide WDNS 命令行参数
 #[derive(Parser, Debug)]
 #[command(
     name = "oxide-wdns",
@@ -41,7 +36,7 @@ static GLOBAL: MiMalloc = MiMalloc;
              - Rate limiting and input validation for enhanced security"
 )]
 struct CliArgs {
-    /// Configuration file path
+    /// 配置文件路径
     #[arg(
         short = 'c',
         long = "config",
@@ -50,7 +45,7 @@ struct CliArgs {
     )]
     config: PathBuf,
     
-    /// Test configuration
+    /// 测试配置
     #[arg(
         short = 't', 
         long = "test", 
@@ -59,7 +54,7 @@ struct CliArgs {
     )]
     test_config: bool,
     
-    /// Enable debug logging
+    /// 启用调试日志
     #[arg(
         short = 'd',
         long = "debug",
@@ -70,7 +65,7 @@ struct CliArgs {
 }
 
 impl CliArgs {
-    /// Validate command line arguments
+    /// 验证命令行参数
     pub fn validate(&self) -> Result<()> {
         // 配置文件路径必须存在
         if !self.config.exists() {
@@ -84,33 +79,32 @@ impl CliArgs {
     }
 }
 
-/// Initialize logging system
+/// 初始化日志系统
 fn init_logging(args: &CliArgs) {
-    // Get log level from environment variable, or set based on debug parameter
+    // 从环境变量获取日志级别，或根据调试参数设置
     let filter = if let Ok(filter) = EnvFilter::try_from_default_env() {
         filter
     } else if args.debug {
-        // Enable debug mode, show more detailed logs
-        EnvFilter::new("oxide_wdns=debug,tower_http=debug,info")
+        // 启用调试模式，显示更详细的日志
+        EnvFilter::new("oxide_wdns=debug,tower_http=debug,owdns=debug,info")
     } else {
-        // Normal mode, only show info level and above
-        EnvFilter::new("oxide_wdns=info")
+        // 正常模式，仅显示 info 级别及以上
+        EnvFilter::new("oxide_wdns=info,owdns=info")
     };
     
-    // Create log formatter
+    // 创建日志格式化器
     let fmt_layer = fmt::layer()
         .with_target(true)
         .with_level(true)
-        .with_thread_ids(args.debug) // Show thread IDs in debug mode
-        .with_thread_names(args.debug); // Show thread names in debug mode
+        .with_ansi(false); // 关闭彩色输出
         
-    // Register log subscriber
+    // 注册日志订阅器
     tracing_subscriber::registry()
         .with(filter)
         .with(fmt_layer)
         .init();
     
-    // If debug mode is enabled, output debug info
+    // 如果启用调试模式，输出调试信息
     if args.debug {
         debug!("Debug logging level enabled");
     }
@@ -119,40 +113,42 @@ fn init_logging(args: &CliArgs) {
 // 使用 tokio::main 宏让tokio自动决定线程数量
 #[tokio::main]
 async fn main() {
-    // Parse command line arguments
+    // 解析命令行参数
     let args = CliArgs::parse();
     
-    // Validate command line arguments
+    // 验证命令行参数
     if let Err(e) = args.validate() {
         eprintln!("Parameter validation error: {}", e);
         exit(1);
     }
     
-    // Initialize logging
+    // 初始化日志
     init_logging(&args);
     
-    // Load configuration
+    // 加载配置
     let config = match ServerConfig::from_file(&args.config) {
         Ok(config) => {
             info!(
+                target: "owdns",
                 config_path = ?args.config,
                 dns_servers = config.upstream.resolvers.len(),
                 listen_addr = %config.listen_addr,
-                "Configuration loaded successfully"
+                "Configuration loaded successfully,",
             );
             config
         },
         Err(e) => {
             error!(
+                target: "owdns",
                 config_path = ?args.config,
                 error = %e,
-                "Failed to load configuration file"
+                "Failed to load configuration file,",
             );
             exit(1);
         }
     };
     
-    // If only testing configuration
+    // 如果仅测试配置
     if args.test_config {
         match config.test() {
             Ok(_) => {
@@ -166,17 +162,17 @@ async fn main() {
         }
     }
     
-    // Create shutdown signal channel
+    // 创建关闭信号通道
     let (shutdown_tx, _) = broadcast::channel::<()>(1);
     
-    // Set up signal handlers
+    // 设置信号处理程序
     let signal_handler = signal::setup_signal_handlers(shutdown_tx.clone()).await;
     
-    // Start server
+    // 启动服务器
     info!("Starting Oxide WDNS server...");
     let mut server = DoHServer::new(config);
     
-    // Run server, wait for signal handler or server completion
+    // 运行服务器，等待信号处理程序或服务器完成
     tokio::select! {
         result = server.start() => {
             if let Err(e) = result {

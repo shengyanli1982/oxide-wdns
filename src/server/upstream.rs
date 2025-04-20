@@ -34,7 +34,7 @@ impl UpstreamManager {
         info!(
             resolvers_count = upstream_config.resolvers.len(),
             dnssec_enabled = upstream_config.enable_dnssec,
-            "Upstream resolver manager created"
+            "Upstream resolver manager created,"
         );
         
         Ok(Self {

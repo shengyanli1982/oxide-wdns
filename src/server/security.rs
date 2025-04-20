@@ -38,7 +38,7 @@ pub fn rate_limit_layer(config: &RateLimitConfig) -> Option<GovernorLayer<PeerIp
         .burst_size(burst_size)
         .finish()
         .unwrap();
-        
+
     // 将config用Arc包装并使用结构体字段初始化
     Some(GovernorLayer {
         config: Arc::new(governor_conf),
