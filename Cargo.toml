@@ -42,6 +42,7 @@ prometheus = "0.13"
 tower_governor = { version = "0.7", features = ["axum"], default-features = false }
 mimalloc = { version = "0.1", default-features = false }
 thiserror = "1.0"
+anyhow = "1.0"  # 错误处理库
 fastrand = "2.0"
 governor = "0.8"
 

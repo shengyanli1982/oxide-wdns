@@ -112,7 +112,6 @@ pub struct DnsJsonAnswer {
 pub fn doh_routes(state: ServerState) -> Router {
     Router::new()
         .route("/dns-query", get(handle_dns_json_query).post(handle_dns_message_query))
-        .route("/resolve", get(handle_dns_json_query).post(handle_dns_message_query))
         .with_state(state)
 }
 
@@ -299,7 +298,7 @@ async fn process_query(
     
     // 尝试从缓存获取响应
     if let Some(cached_response) = cache.get(&cache_key).await {
-        debug!(?cache_key, "缓存命中");
+        debug!(?cache_key, "Cache hit");
         METRICS.with(|m| m.cache_hits.inc());
         
         // 创建新的响应消息，更新 ID 与查询消息匹配
@@ -309,7 +308,7 @@ async fn process_query(
     }
     
     // 缓存未命中，转发到上游服务器
-    debug!(?cache_key, "缓存未命中，查询上游服务器");
+    debug!(?cache_key, "Cache miss, querying upstream server");
     METRICS.with(|m| m.cache_misses.inc());
     
     // 执行上游查询
@@ -333,7 +332,7 @@ async fn process_query(
     let rcode = response.response_code();
     if rcode == ResponseCode::NoError || rcode == ResponseCode::NXDomain {
         if let Err(e) = cache.put(cache_key, response.clone()).await {
-            warn!(error = ?e, "缓存响应失败");
+            warn!(error = ?e, "Cache response failed");
         }
     } else {
         // 记录错误响应类型
@@ -440,4 +439,4 @@ fn default_record_type() -> u16 {
 
 fn default_dns_class() -> Option<u16> {
     Some(1) // IN 类
-} 
+}

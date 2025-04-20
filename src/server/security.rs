@@ -31,7 +31,7 @@ pub fn rate_limit_layer(config: &RateLimitConfig) -> Option<GovernorLayer<PeerIp
     debug!(
         per_second,
         burst_size,
-        "创建速率限制层"
+        "Creating rate limit layer"
     );
     
     // 创建 Governor 配置
@@ -78,7 +78,7 @@ pub async fn validate_input(req: Request, next: Next) -> Response {
             if let Ok(size) = length.parse::<usize>() {
                 // 限制请求体大小为 4KB
                 if size > 4096 {
-                    warn!(size, "请求体过大");
+                    warn!(size, "Request body too large");
                     return StatusCode::PAYLOAD_TOO_LARGE.into_response();
                 }
             }

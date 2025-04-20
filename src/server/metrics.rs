@@ -53,7 +53,7 @@ impl DnsMetrics {
         // 创建总请求计数指标
         let total_requests = IntCounter::new(
             "doh_requests_total",
-            "DNS-over-HTTPS 总请求数",
+            "Total number of DNS-over-HTTPS requests",
         )
         .unwrap();
         
@@ -61,7 +61,7 @@ impl DnsMetrics {
         let requests_by_method_type = IntCounterVec::new(
             Opts::new(
                 "doh_requests_by_method_type", 
-                "按 HTTP 方法和内容类型分类的请求计数"
+                "Request count by HTTP method and content type"
             ),
             &["method", "content_type"],
         )
@@ -71,7 +71,7 @@ impl DnsMetrics {
         let responses_by_status = IntCounterVec::new(
             Opts::new(
                 "doh_responses_by_status", 
-                "按状态码分类的响应计数"
+                "Response count by status code"
             ),
             &["method", "status"],
         )
@@ -81,7 +81,7 @@ impl DnsMetrics {
         let request_duration = HistogramVec::new(
             HistogramOpts::new(
                 "doh_request_duration_seconds",
-                "DNS-over-HTTPS 请求处理时间（秒）",
+                "DNS-over-HTTPS request processing time in seconds",
             )
             .buckets(vec![
                 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
@@ -91,13 +91,13 @@ impl DnsMetrics {
         .unwrap();
         
         // 创建缓存相关指标
-        let cache_hits = IntCounter::new("doh_cache_hits", "缓存命中计数").unwrap();
-        let cache_misses = IntCounter::new("doh_cache_misses", "缓存未命中计数").unwrap();
-        let cache_size = IntGauge::new("doh_cache_size", "缓存当前条目数").unwrap();
+        let cache_hits = IntCounter::new("doh_cache_hits", "Number of cache hits").unwrap();
+        let cache_misses = IntCounter::new("doh_cache_misses", "Number of cache misses").unwrap();
+        let cache_size = IntGauge::new("doh_cache_size", "Current number of cache entries").unwrap();
         
         // 创建错误计数指标
         let errors = IntCounterVec::new(
-            Opts::new("doh_errors", "按错误类型分类的错误计数"),
+            Opts::new("doh_errors", "Error count by error type"),
             &["type"],
         )
         .unwrap();
@@ -105,19 +105,19 @@ impl DnsMetrics {
         // 创建 DNSSEC 相关指标
         let dnssec_validation_success = IntCounter::new(
             "doh_dnssec_validation_success",
-            "DNSSEC 验证成功计数",
+            "Number of successful DNSSEC validations",
         )
         .unwrap();
         
         let dnssec_validation_failure = IntCounter::new(
             "doh_dnssec_validation_failure",
-            "DNSSEC 验证失败计数",
+            "Number of failed DNSSEC validations",
         )
         .unwrap();
         
         // 创建上游解析器相关指标
         let upstream_queries = IntCounterVec::new(
-            Opts::new("doh_upstream_queries", "按上游解析器分类的查询计数"),
+            Opts::new("doh_upstream_queries", "Query count by upstream resolver"),
             &["resolver"],
         )
         .unwrap();
@@ -125,7 +125,7 @@ impl DnsMetrics {
         let upstream_query_duration = HistogramVec::new(
             HistogramOpts::new(
                 "doh_upstream_query_duration_seconds",
-                "上游解析器查询时间（秒）",
+                "Upstream resolver query time in seconds",
             )
             .buckets(vec![
                 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
@@ -138,7 +138,7 @@ impl DnsMetrics {
         let dns_responses_by_rcode = IntCounterVec::new(
             Opts::new(
                 "doh_dns_responses_by_rcode", 
-                "按响应代码分类的 DNS 响应计数"
+                "DNS response count by response code"
             ),
             &["rcode"],
         )
@@ -260,3 +260,4 @@ pub fn metrics_routes() -> Router {
         }),
     )
 } 
+

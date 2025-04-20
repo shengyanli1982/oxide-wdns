@@ -64,12 +64,12 @@ impl DnsCache {
                 .as_secs();
                 
             if now < entry.expires_at {
-                trace!(?key, expires_in = entry.expires_at - now, "缓存命中");
+                trace!(?key, expires_in = entry.expires_at - now, "Cache hit");
                 return Some(entry.message);
             } else {
                 // 惰性删除过期条目
                 self.cache.remove(key).await;
-                trace!(?key, "缓存条目已过期");
+                trace!(?key, "Cache entry expired");
             }
         }
         
@@ -103,7 +103,7 @@ impl DnsCache {
         debug!(
             key = ?key_clone,
             ttl,
-            "缓存 DNS 响应"
+            "Caching DNS response"
         );
         
         Ok(())
@@ -135,7 +135,7 @@ impl DnsCache {
     /// 清除所有缓存条目
     pub async fn clear(&self) {
         self.cache.invalidate_all();
-        debug!("清除所有缓存条目");
+        debug!("Clearing all cache entries");
     }
     
     /// 获取当前缓存条目数

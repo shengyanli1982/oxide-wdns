@@ -3,15 +3,8 @@
 # 服务器监听地址
 listen_addr: 127.0.0.1:3053
 
-# 日志配置
-log:
-  level: info
-  json: false
-
-# TLS 配置 (可选)
-# tls:
-#   cert_path: ./cert.pem
-#   key_path: ./key.pem
+# 工作线程数（范围：1-65536）
+threads: 16
 
 # 上游 DNS 服务器配置
 upstream:
@@ -19,40 +12,60 @@ upstream:
   enable_dnssec: true
 
   # 查询超时时间（秒）
-  query_timeout: 5
+  query_timeout: 30
 
   # 上游解析器列表
   resolvers:
-    # Cloudflare DNS
+    # Cloudflare DNS (UDP)
     - address: 1.1.1.1:53
       protocol: udp
 
-    # Google DNS
+    # Google DNS (UDP)
     - address: 8.8.8.8:53
       protocol: udp
 
     # Cloudflare DNS-over-TLS
+    # 格式：域名@IP:端口
     - address: cloudflare-dns.com@1.1.1.1:853
       protocol: dot
 
-    # Cloudflare DoH (示例)
+    # Cloudflare DNS-over-HTTPS
+    # 必须以 https:// 开头
     - address: https://cloudflare-dns.com/dns-query
       protocol: doh
 
-    # Google DoT (示例)
+    # Google DNS TCP（示例）
+    # - address: 8.8.8.8:53
+    #   protocol: tcp
+
+    # Google DoT（示例）
     # - address: dns.google@8.8.8.8:853
     #   protocol: dot
 
 # 缓存配置
 cache:
+  # 是否启用缓存
   enabled: true
-  size: 10000 # 缓存条目数
-  min_ttl: 60 # 最小 TTL（秒）
-  max_ttl: 86400 # 最大 TTL（秒）
-  negative_ttl: 300 # 负缓存 TTL（秒）
+
+  # 缓存条目数量上限
+  size: 10000
+
+  # 最小 TTL（秒）
+  min_ttl: 60
+
+  # 最大 TTL（秒，1天）
+  max_ttl: 86400
+
+  # 负缓存 TTL（秒，5分钟）
+  negative_ttl: 300
 
 # 速率限制配置
 rate_limit:
+  # 是否启用速率限制
   enabled: true
-  per_ip_rate: 100 # 每个 IP 每秒最大请求数
-  per_ip_concurrent: 10 # 单个 IP 的并发请求数限制
+
+  # 每个 IP 每秒最大请求数
+  per_ip_rate: 100
+
+  # 单个 IP 的并发请求数限制
+  per_ip_concurrent: 10

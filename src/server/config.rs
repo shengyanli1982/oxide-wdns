@@ -15,13 +15,9 @@ pub struct ServerConfig {
     #[serde(default = "default_listen_addr")]
     pub listen_addr: SocketAddr,
     
-    /// TLS 配置
-    #[serde(default)]
-    pub tls: Option<TlsConfig>,
-    
-    /// 日志配置
-    #[serde(default)]
-    pub log: LogConfig,
+    /// 工作线程数
+    #[serde(default = "default_threads")]
+    pub threads: usize,
     
     /// 上游 DNS 服务器配置
     pub upstream: UpstreamConfig,
@@ -33,28 +29,6 @@ pub struct ServerConfig {
     /// 速率限制配置
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
-}
-
-/// TLS 配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TlsConfig {
-    /// 证书文件路径
-    pub cert_path: String,
-    
-    /// 密钥文件路径
-    pub key_path: String,
-}
-
-/// 日志配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LogConfig {
-    /// 日志级别
-    #[serde(default = "default_log_level")]
-    pub level: String,
-    
-    /// 是否以 JSON 格式输出
-    #[serde(default)]
-    pub json: bool,
 }
 
 /// 上游 DNS 服务器配置
@@ -142,8 +116,8 @@ fn default_listen_addr() -> SocketAddr {
     "127.0.0.1:3053".parse().unwrap()
 }
 
-fn default_log_level() -> String {
-    "info".to_string()
+fn default_threads() -> usize {
+    16 // 默认工作线程数
 }
 
 fn default_resolver_protocol() -> ResolverProtocol {
@@ -151,7 +125,7 @@ fn default_resolver_protocol() -> ResolverProtocol {
 }
 
 fn default_query_timeout() -> u64 {
-    5
+    30
 }
 
 fn default_cache_enabled() -> bool {
@@ -186,10 +160,10 @@ impl ServerConfig {
     /// 从配置文件加载配置
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let contents = fs::read_to_string(path)
-            .map_err(|e| AppError::Config(format!("无法读取配置文件: {}", e)))?;
+            .map_err(|e| AppError::Config(format!("Failed to read config file: {}", e)))?;
         
         let config: ServerConfig = serde_yaml::from_str(&contents)
-            .map_err(|e| AppError::Config(format!("配置文件格式错误: {}", e)))?;
+            .map_err(|e| AppError::Config(format!("Invalid config file format: {}", e)))?;
         
         Ok(config)
     }
@@ -201,9 +175,17 @@ impl ServerConfig {
     
     /// 测试配置的有效性
     pub fn test(&self) -> Result<()> {
+        // 验证线程数范围
+        if self.threads < 2 || self.threads > 65536 {
+            return Err(AppError::Config(format!(
+                "Thread count must be between 2-65536, current value: {}", 
+                self.threads
+            )));
+        }
+        
         // 检查上游解析器列表
         if self.upstream.resolvers.is_empty() {
-            return Err(AppError::Config("上游解析器列表不能为空".to_string()));
+            return Err(AppError::Config("Upstream resolver list cannot be empty".to_string()));
         }
         
         // 验证上游解析器配置
@@ -213,7 +195,7 @@ impl ServerConfig {
                     // 验证地址格式
                     if let Err(e) = resolver.address.parse::<SocketAddr>() {
                         return Err(AppError::Config(format!(
-                            "上游解析器 #{} 地址无效 ({}): {}",
+                            "Upstream resolver #{} has invalid address ({}): {}",
                             idx + 1, resolver.address, e
                         )));
                     }
@@ -223,14 +205,14 @@ impl ServerConfig {
                     let parts: Vec<&str> = resolver.address.split('@').collect();
                     if parts.len() != 2 {
                         return Err(AppError::Config(format!(
-                            "上游解析器 #{} DoT 地址格式错误，应为 '域名@IP:端口': {}",
+                            "Upstream resolver #{} DoT address format error, should be 'domain@IP:port': {}",
                             idx + 1, resolver.address
                         )));
                     }
                     
                     if let Err(e) = parts[1].parse::<SocketAddr>() {
                         return Err(AppError::Config(format!(
-                            "上游解析器 #{} DoT 地址无效 ({}): {}",
+                            "Upstream resolver #{} DoT has invalid address ({}): {}",
                             idx + 1, parts[1], e
                         )));
                     }
@@ -239,7 +221,7 @@ impl ServerConfig {
                     // 验证 DoH URL 格式
                     if !resolver.address.starts_with("https://") {
                         return Err(AppError::Config(format!(
-                            "上游解析器 #{} DoH 地址必须以 https:// 开头: {}",
+                            "Upstream resolver #{} DoH address must start with https://: {}",
                             idx + 1, resolver.address
                         )));
                     }
@@ -250,12 +232,12 @@ impl ServerConfig {
         // 验证缓存配置
         if self.cache.enabled {
             if self.cache.size == 0 {
-                return Err(AppError::Config("缓存大小不能为0".to_string()));
+                return Err(AppError::Config("Cache size cannot be zero".to_string()));
             }
             
             if self.cache.min_ttl > self.cache.max_ttl {
                 return Err(AppError::Config(format!(
-                    "缓存最小 TTL ({}) 不能大于最大 TTL ({})",
+                    "Cache min TTL ({}) cannot be greater than max TTL ({})",
                     self.cache.min_ttl, self.cache.max_ttl
                 )));
             }
@@ -264,24 +246,15 @@ impl ServerConfig {
         // 验证速率限制
         if self.rate_limit.enabled {
             if self.rate_limit.per_ip_rate == 0 {
-                return Err(AppError::Config("每 IP 速率限制不能为0".to_string()));
+                return Err(AppError::Config("Per-IP rate limit cannot be zero".to_string()));
             }
             
             if self.rate_limit.per_ip_concurrent == 0 {
-                return Err(AppError::Config("每 IP 并发请求数限制不能为0".to_string()));
+                return Err(AppError::Config("Per-IP concurrent requests limit cannot be zero".to_string()));
             }
         }
         
         Ok(())
-    }
-}
-
-impl Default for LogConfig {
-    fn default() -> Self {
-        LogConfig {
-            level: default_log_level(),
-            json: false,
-        }
     }
 }
 
@@ -306,6 +279,3 @@ impl Default for RateLimitConfig {
         }
     }
 }
-
-// TODO: Implement configuration loading (YAML, Serde)
-// TODO: Implement clap for config testing (`-t`) 
