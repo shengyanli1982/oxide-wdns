@@ -23,6 +23,10 @@ pub fn default_listen_addr() -> SocketAddr {
 
 // 默认服务器连接超时
 pub const DEFAULT_LISTEN_TIMEOUT: u64 = 120;
+
+// 最大请求大小
+pub const MAX_REQUEST_SIZE: usize = 16 * 1024; // 16KB
+
 //
 // DNS 常量
 //

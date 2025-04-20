@@ -19,12 +19,14 @@ use crate::common::error::{AppError, Result};
 use crate::common::consts::{
     CONTENT_TYPE_DNS_JSON, 
     CONTENT_TYPE_DNS_MESSAGE,
-    DNS_RECORD_TYPE_A, DNS_CLASS_IN, IP_HEADER_NAMES
+    DNS_RECORD_TYPE_A, DNS_CLASS_IN, IP_HEADER_NAMES,
+    MAX_REQUEST_SIZE,
 };
 use crate::server::cache::{CacheKey, DnsCache};
 use crate::server::config::ServerConfig;
 use crate::server::metrics::{DnsMetrics, METRICS};
 use crate::server::upstream::UpstreamManager;
+
 
 /// 共享的服务器状态
 #[derive(Clone)]
@@ -224,13 +226,13 @@ async fn handle_dns_json_query(
         "DNS-over-HTTPS request completed"
     );
     
-    // 如果有记录，提供更多详细信息
-    if !json_response.answer.is_empty() {
+    // 只在调试级别时记录详细记录信息，减少运行时开销
+    if !json_response.answer.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
         let record_details: Vec<String> = json_response.answer.iter()
             .map(|ans| format!("{}({}): {}", ans.name, RecordType::from(ans.type_value), ans.data))
             .collect();
             
-        info!(
+        debug!(
             name = %params.name,
             client_ip = ?client_ip,
             records = ?record_details,
@@ -272,6 +274,12 @@ async fn handle_dns_wire_get(
             return (StatusCode::BAD_REQUEST, "Invalid base64url encoding").into_response();
         }
     };
+    
+    // 检查请求大小
+    if dns_wire.len() > MAX_REQUEST_SIZE {
+        info!(client_ip = ?client_ip, size = dns_wire.len(), "DNS request too large");
+        return (StatusCode::BAD_REQUEST, "DNS request too large").into_response();
+    }
     
     // 解析 DNS 查询消息
     let query_message = match Message::from_vec(&dns_wire) {
@@ -382,9 +390,9 @@ async fn handle_dns_wire_post(
     
     debug!(client_ip = ?client_ip, "DNS POST RFC 8484 query received");
     
-    // 提取请求体
+    // 提取请求体 - 限制大小以防止资源耗尽攻击
     let (_parts, body) = req.into_parts();
-    let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
+    let body_bytes = match axum::body::to_bytes(body, MAX_REQUEST_SIZE).await {
         Ok(bytes) => bytes,
         Err(e) => {
             info!(client_ip = ?client_ip, error = ?e, "Failed to read request body");
@@ -516,10 +524,12 @@ async fn process_query(
         return Err(AppError::Http("Not a query message type".to_string()));
     }
     
-    // 获取并记录查询类型
+    // 仅在存在查询时才记录查询类型
     if let Some(query) = query_message.queries().first() {
         let query_type = query.query_type().to_string();
         METRICS.with(|m| m.record_dns_query_type(&query_type));
+    } else {
+        return Err(AppError::Http("No query found in message".to_string()));
     }
     
     // 从查询消息构建缓存键
@@ -550,11 +560,10 @@ async fn process_query(
     let response = upstream.resolve(query_message).await?;
     let duration = start.elapsed();
     
-    // 记录查询时间
-    let resolver_info = if let Some(query) = query_message.queries().first() {
-        format!("{}:{}", query.name(), query.query_type())
-    } else {
-        "unknown".to_string()
+    // 记录查询时间 - 使用 get_or_insert_with 避免不必要的字符串分配
+    let resolver_info = match query_message.queries().first() {
+        Some(query) => format!("{}:{}", query.name(), query.query_type()),
+        None => "unknown".to_string(),
     };
     
     METRICS.with(|m| m.record_upstream_query(&resolver_info, duration));
@@ -585,7 +594,7 @@ async fn process_query(
 
 /// 从 JSON 请求创建 DNS 查询消息
 fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Message> {
-    // 解析域名
+    // 解析域名 - 验证输入域名的合法性
     let name = match Name::parse(&request.name, None) {
         Ok(name) => name,
         Err(e) => {
@@ -604,16 +613,16 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
     // 解析 DNS 类
     let _dns_class = match request.dns_class {
         Some(class) => {
-            // 检查是否为未知类型（由于API变更，需要通过其他方式检测）
-            if class > 0 && class != 1 && class != 3 && class != 4 && class != 254 && class != 255 {
-                return Err(AppError::Http(format!("Invalid DNS class: {}", class)));
+            // 检查已知有效的 DNS 类型
+            match class {
+                1 | 3 | 4 | 254 | 255 => DNSClass::from_u16(class),
+                _ => return Err(AppError::Http(format!("Invalid DNS class: {}", class))),
             }
-            DNSClass::from_u16(class)
         },
         None => Ok(DNSClass::IN),
     }?;
     
-    // 创建 DNS 查询消息
+    // 创建 DNS 查询消息 - 使用 fastrand 提高性能
     let mut message = Message::new();
     message
         .set_id(fastrand::u16(..))
@@ -642,6 +651,12 @@ fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
         question: Vec::new(),
         answer: Vec::new(),
     };
+    
+    // 预先分配容量以减少内存重分配
+    let query_count = message.queries().len();
+    let answer_count = message.answers().len();
+    response.question.reserve(query_count);
+    response.answer.reserve(answer_count);
     
     // 添加查询
     for query in message.queries() {

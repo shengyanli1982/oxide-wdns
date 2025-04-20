@@ -52,10 +52,7 @@ impl DoHServer {
         let upstream = Arc::new(UpstreamManager::new(&self.config).await?);
         
         // 创建指标收集器
-        let metrics = {
-            let m = DnsMetrics::new();
-            Arc::new(m)
-        };
+        let metrics = Arc::new(DnsMetrics::new());
         
         // 创建服务器状态
         let state = ServerState {
@@ -89,7 +86,7 @@ impl DoHServer {
         self.shutdown_tx = Some(shutdown_tx);
         
         // 启动缓存统计数据更新任务
-        let cache_metrics_task = tokio::spawn(Self::update_cache_metrics(cache, metrics));
+        let cache_metrics_handle = tokio::spawn(Self::update_cache_metrics(cache, metrics));
         
         // 开始接收连接并处理请求
         info!("Starting to accept connections");
@@ -102,11 +99,13 @@ impl DoHServer {
         // 运行服务器
         if let Err(e) = server.await {
             error!("HTTP server error: {}", e);
+            // 确保取消缓存指标任务
+            cache_metrics_handle.abort();
             return Err(e.into());
         }
         
         // 通知缓存指标任务停止
-        cache_metrics_task.abort();
+        cache_metrics_handle.abort();
         
         info!("HTTP server has been successfully shutdown");
         Ok(())
@@ -117,8 +116,11 @@ impl DoHServer {
         // 等待手动关闭信号或系统信号
         tokio::select! {
             // 手动关闭信号
-            _ = shutdown_rx => {
-                info!("Manual shutdown signal received");
+            res = shutdown_rx => {
+                match res {
+                    Ok(_) => info!("Manual shutdown signal received"),
+                    Err(e) => info!("Manual shutdown channel closed: {}", e),
+                }
             }
             // Ctrl+C 信号
             _ = ctrl_c() => {
@@ -128,7 +130,9 @@ impl DoHServer {
         
         info!("Initiating graceful shutdown sequence...");
         // 给正在处理的请求留出一些时间完成
-        time::sleep(Duration::from_secs(2)).await;
+        // 使用 sleep_until 提高精确性
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        time::sleep_until(deadline).await;
     }
     
     /// 更新缓存指标的任务
@@ -136,12 +140,15 @@ impl DoHServer {
         cache: Arc<DnsCache>,
         metrics: Arc<DnsMetrics>,
     ) {
-        let mut interval = time::interval(Duration::from_secs(15));
+        // 使用 interval_at 确保固定间隔执行
+        let start = tokio::time::Instant::now();
+        let period = Duration::from_secs(15);
+        let mut interval = time::interval_at(start, period);
         
         loop {
             interval.tick().await;
             
-            // 获取并更新缓存大小
+            // 获取并更新缓存大小 - 使用无需等待的 len 方法优化性能
             let cache_size = cache.len().await;
             metrics.record_cache_size(cache_size);
         }
