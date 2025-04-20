@@ -83,7 +83,8 @@ impl UpstreamManager {
             .set_authoritative(false) // 我们不是权威服务器
             .set_recursion_desired(query_message.recursion_desired())
             .set_recursion_available(true) // 我们支持递归查询
-            .set_authentic_data(false) // 暂时不处理DNSSEC
+            // 使用返回结果中的 DNSSEC 验证状态
+            .set_authentic_data(response.as_lookup().authentic_data())
             .set_checking_disabled(query_message.checking_disabled());
             
         // 添加原始查询到响应
