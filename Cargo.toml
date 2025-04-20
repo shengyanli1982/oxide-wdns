@@ -23,7 +23,7 @@ path = "src/bin/owdns_cli.rs"
 
 [dependencies]
 tokio = { version = "1.38", features = ["full"] }
-axum = "0.7"
+axum = { version = "0.8", features = ["macros"] }
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
@@ -31,16 +31,19 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 hyper = { version = "1.4", features = ["http1", "http2"] }
 tower = "0.4"
-
-# 以下依赖已经从注释变为实际依赖，需要统一版本格式
 trust-dns-proto = "0.23"
-trust-dns-resolver = { version = "0.23", features = ["dns-over-https", "dns-over-tls", "dnssec-openssl", "tokio-runtime"] }
+# 使用 native-tls 实现的 DNS-over-TLS 支持
+trust-dns-resolver = { version = "0.23", features = ["dns-over-native-tls", "dnssec-ring", "tokio-runtime"] }
+# 指定更新版本的 openssl-sys，覆盖间接依赖引入的旧版本
+openssl-sys = "0.9"  # 使用较新版本
+native-tls = "0.2"
 moka = { version = "0.12", features = ["future"] }
 prometheus = "0.13"
-tower_governor = "0.7"
+tower_governor = { version = "0.7", features = ["axum"], default-features = false }
 mimalloc = { version = "0.1", default-features = false }
 thiserror = "1.0"
 fastrand = "2.0"
+governor = "0.8"
 
 [dev-dependencies]
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] } # For integration tests
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] } # For integration tests

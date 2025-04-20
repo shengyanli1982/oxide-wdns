@@ -7,8 +7,12 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use std::net::IpAddr;
+use std::sync::Arc;
+use governor::middleware::NoOpMiddleware;
 use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError,
+    governor::GovernorConfigBuilder,
+    key_extractor::{KeyExtractor, PeerIpKeyExtractor},
+    GovernorError,
     GovernorLayer,
 };
 use tracing::{debug, warn};
@@ -16,7 +20,7 @@ use tracing::{debug, warn};
 use crate::server::config::RateLimitConfig;
 
 /// 创建速率限制层
-pub fn rate_limit_layer(config: &RateLimitConfig) -> Option<GovernorLayer> {
+pub fn rate_limit_layer(config: &RateLimitConfig) -> Option<GovernorLayer<PeerIpKeyExtractor, NoOpMiddleware>> {
     if !config.enabled {
         return None;
     }
@@ -37,28 +41,10 @@ pub fn rate_limit_layer(config: &RateLimitConfig) -> Option<GovernorLayer> {
         .finish()
         .unwrap();
         
+    // 将config用Arc包装并使用结构体字段初始化
     Some(GovernorLayer {
-        config: governor_conf,
-        key_extractor: RemoteIpKeyExtractor,
+        config: Arc::new(governor_conf),
     })
-}
-
-/// 自定义 IP 提取器，用于速率限制
-#[derive(Clone, Copy, Default)]
-pub struct RemoteIpKeyExtractor;
-
-impl KeyExtractor for RemoteIpKeyExtractor {
-    type Key = IpAddr;
-    
-    fn extract(&self, req: &Request) -> Result<Self::Key, GovernorError> {
-        // 从请求头中提取客户端 IP
-        if let Some(ip) = extract_client_ip(req.headers()) {
-            return Ok(ip);
-        }
-        
-        // 如果无法获取有效 IP，使用默认值
-        Ok(IpAddr::from([127, 0, 0, 1]))
-    }
 }
 
 /// 从请求头中提取客户端 IP

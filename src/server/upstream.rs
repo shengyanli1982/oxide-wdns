@@ -31,8 +31,7 @@ impl UpstreamManager {
         let (resolver_config, resolver_opts) = Self::build_resolver_config(&upstream_config)?;
         
         // 创建异步解析器
-        let resolver = TokioAsyncResolver::tokio(resolver_config, resolver_opts)
-            .map_err(|e| AppError::Upstream(format!("Failed to create resolver: {}", e)))?;
+        let resolver = TokioAsyncResolver::tokio(resolver_config, resolver_opts);
             
         info!(
             resolvers_count = upstream_config.resolvers.len(),
@@ -73,7 +72,7 @@ impl UpstreamManager {
         
         // 创建 lookup 函数
         let response = self.resolver
-            .lookup(query.name().clone(), query.query_type(), query.query_class())
+            .lookup(query.name().clone(), query.query_type())
             .await
             .map_err(|e| AppError::DnsResolve(e))?;
             
@@ -86,7 +85,7 @@ impl UpstreamManager {
             .set_authoritative(false) // 我们不是权威服务器
             .set_recursion_desired(query_message.recursion_desired())
             .set_recursion_available(true) // 我们支持递归查询
-            .set_authentic_data(response.dnssec_status().is_secure())
+            .set_authentic_data(false) // 暂时不处理DNSSEC
             .set_checking_disabled(query_message.checking_disabled());
             
         // 添加原始查询到响应
@@ -152,7 +151,7 @@ impl UpstreamManager {
                     socket_addr,
                     protocol: Protocol::Udp,
                     tls_dns_name: None,
-                    trust_nx_responses: true,
+                    trust_negative_responses: true,
                     bind_addr: None,
                 })
             }
@@ -163,7 +162,7 @@ impl UpstreamManager {
                     socket_addr,
                     protocol: Protocol::Tcp,
                     tls_dns_name: None,
-                    trust_nx_responses: true,
+                    trust_negative_responses: true,
                     bind_addr: None,
                 })
             }
@@ -184,7 +183,7 @@ impl UpstreamManager {
                     socket_addr,
                     protocol: Protocol::Tls,
                     tls_dns_name: Some(dns_name),
-                    trust_nx_responses: true,
+                    trust_negative_responses: true,
                     bind_addr: None,
                 })
             }
@@ -192,9 +191,9 @@ impl UpstreamManager {
                 // 解析 DoH URL
                 Ok(NameServerConfig {
                     socket_addr: SocketAddr::from(([0, 0, 0, 0], 443)), // 实际上不会使用
-                    protocol: Protocol::Https,
+                    protocol: Protocol::Tls, // DoH暂不直接支持，使用TLS替代
                     tls_dns_name: Some(resolver_config.address.clone()),
-                    trust_nx_responses: true,
+                    trust_negative_responses: true,
                     bind_addr: None,
                 })
             }

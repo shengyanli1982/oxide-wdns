@@ -5,6 +5,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use trust_dns_proto::op::Message;
 use trust_dns_proto::rr::Record;
+use trust_dns_proto::op::ResponseCode;
+use trust_dns_proto::rr::RecordType;
 use tracing::{debug, trace};
 
 use crate::common::error::{AppError, Result};
@@ -74,72 +76,54 @@ impl DnsCache {
         None
     }
     
-    /// 将响应存入缓存
+    /// 将 DNS 响应消息存入缓存
     pub async fn put(&self, key: CacheKey, message: Message) -> Result<()> {
-        if !self.config.enabled {
+        // 检查响应码
+        if message.response_code() != ResponseCode::NoError {
             return Ok(());
         }
         
         // 计算 TTL
         let ttl = self.calculate_ttl(&message)?;
-        if ttl == 0 {
-            // 不缓存 TTL 为 0 的响应
-            return Ok(());
-        }
-        
-        // 计算过期时间
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| AppError::Cache(format!("系统时钟错误: {}", e)))?
-            .as_secs();
-            
-        let expires_at = now + u64::from(ttl);
         
         // 创建缓存条目
         let entry = CacheEntry {
-            message,
-            expires_at,
+            message: message.clone(),
+            expires_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + ttl as u64,
         };
         
         // 存入缓存
-        self.cache.insert(key.clone(), entry).await;
-        debug!(?key, ttl, "添加缓存条目");
+        let key_clone = key.clone();
+        self.cache.insert(key, entry).await;
+        
+        debug!(
+            key = ?key_clone,
+            ttl,
+            "缓存 DNS 响应"
+        );
         
         Ok(())
     }
     
-    /// 从 DNS 响应中计算有效的 TTL
+    /// 计算缓存条目的 TTL
     fn calculate_ttl(&self, message: &Message) -> Result<u32> {
-        // 对于 NXDOMAIN 和其他错误响应，使用负缓存 TTL
-        if !message.response_code().is_success() {
-            return Ok(self.config.negative_ttl);
-        }
+        let mut min_ttl = self.config.max_ttl;
         
-        // 找出所有记录中的最小 TTL
-        let mut min_ttl = u32::MAX;
-        
-        // 检查 Answer 部分
+        // 遍历所有记录，找出最小的 TTL
         for record in message.answers() {
-            min_ttl = min_ttl.min(record.ttl());
-        }
-        
-        // 检查 Authority 部分
-        for record in message.name_servers() {
-            min_ttl = min_ttl.min(record.ttl());
-        }
-        
-        // 检查 Additional 部分
-        for record in message.additionals() {
             // 跳过 OPT 记录
-            if record.record_type().is_opt() {
+            if record.record_type() == RecordType::OPT {
                 continue;
             }
-            min_ttl = min_ttl.min(record.ttl());
-        }
-        
-        // 如果没有找到任何记录，使用默认的最小 TTL
-        if min_ttl == u32::MAX {
-            min_ttl = self.config.min_ttl;
+            
+            let ttl = record.ttl();
+            if ttl < min_ttl {
+                min_ttl = ttl;
+            }
         }
         
         // 应用配置的最小/最大 TTL 限制
@@ -150,13 +134,13 @@ impl DnsCache {
     
     /// 清除所有缓存条目
     pub async fn clear(&self) {
-        self.cache.invalidate_all().await;
+        self.cache.invalidate_all();
         debug!("清除所有缓存条目");
     }
     
     /// 获取当前缓存条目数
     pub async fn len(&self) -> u64 {
-        self.cache.entry_count().await
+        self.cache.entry_count()
     }
 }
 

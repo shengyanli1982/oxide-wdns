@@ -2,7 +2,7 @@
 
 use axum::{routing::get, Router};
 use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
+    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry, Encoder,
 };
 use std::time::Duration;
 use std::thread_local;
@@ -237,7 +237,7 @@ impl DnsMetrics {
     }
 }
 
-/// 创建指标路由
+/// 提供指标导出路由
 pub fn metrics_routes() -> Router {
     Router::new().route(
         "/metrics",
@@ -248,17 +248,15 @@ pub fn metrics_routes() -> Router {
             let metric_families = METRICS.with(|m| m.registry().gather());
             
             // 编码为文本格式
-            let mut buffer = Vec::new();
-            encoder.encode(&metric_families, &mut buffer).unwrap();
+            let mut buffer = String::new();
+            encoder.encode_utf8(&metric_families, &mut buffer).unwrap();
             
             // 返回响应
-            let response_text = String::from_utf8(buffer).unwrap_or_else(|_| "编码指标失败".to_string());
-            
             (
                 axum::http::StatusCode::OK,
                 [(axum::http::header::CONTENT_TYPE, prometheus::TEXT_FORMAT)],
-                response_text
+                buffer
             )
-        })
+        }),
     )
 } 

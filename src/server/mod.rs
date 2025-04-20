@@ -15,7 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use axum::{middleware, Router};
 use tokio::net::TcpListener;
-use tokio::signal;
+use tokio::signal as tokio_signal;
+use tokio::signal::ctrl_c;
 use tokio::sync::oneshot;
 use tokio::time;
 use tracing::{debug, error, info};
@@ -54,8 +55,11 @@ impl DoHServer {
         // 初始化上游管理器
         let upstream = Arc::new(UpstreamManager::new(&self.config).await?);
         
-        // 初始化指标
-        let metrics = Arc::new(METRICS.with(|m| m.clone()));
+        // 创建指标收集器
+        let metrics = {
+            let m = DnsMetrics::new();
+            Arc::new(m)
+        };
         
         // 创建服务器状态
         let state = ServerState {
@@ -123,7 +127,7 @@ impl DoHServer {
                 info!("Received manual shutdown signal");
             }
             // Ctrl+C 信号
-            _ = signal::ctrl_c() => {
+            _ = ctrl_c() => {
                 info!("Received Ctrl+C signal");
             }
         }

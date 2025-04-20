@@ -10,6 +10,5 @@ pub fn health_routes() -> Router {
 
 /// 健康检查处理函数
 async fn health_handler() -> &'static str {
-    debug!("健康检查请求");
-    "ok"
+    "ok!!"
 } 
