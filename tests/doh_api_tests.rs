@@ -143,7 +143,7 @@ async fn test_dns_wire_get_request() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     
     // 验证响应是一个有效的DNS消息
-    let response_message = Message::from_vec(&body).expect("应该是有效的DNS消息");
+    let response_message = Message::from_vec(&body).expect("Should be a valid DNS message");
     assert_eq!(response_message.message_type(), MessageType::Response);
     assert_eq!(response_message.id(), message.id()); // ID应该匹配
 }
@@ -183,7 +183,7 @@ async fn test_dns_wire_post_request() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     
     // 验证响应是一个有效的DNS消息
-    let response_message = Message::from_vec(&body).expect("应该是有效的DNS消息");
+    let response_message = Message::from_vec(&body).expect("Should be a valid DNS message");
     assert_eq!(response_message.message_type(), MessageType::Response);
     assert_eq!(response_message.id(), message.id()); // ID应该匹配
 }

@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use axum::{
     extract::{Query, State},
-    http::{header, StatusCode, Request, Method},
+    http::{header, StatusCode, Request},
     response::IntoResponse,
     routing::{get, post},
     Router, Json,
@@ -383,7 +383,7 @@ async fn handle_dns_wire_post(
     debug!(client_ip = ?client_ip, "DNS POST RFC 8484 query received");
     
     // 提取请求体
-    let (parts, body) = req.into_parts();
+    let (_parts, body) = req.into_parts();
     let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(bytes) => bytes,
         Err(e) => {
