@@ -13,9 +13,8 @@ use governor::{
     clock::DefaultClock,
 };
 use std::num::NonZeroU32;
-use std::collections::HashMap;
-use std::sync::Mutex;
 use tracing::{warn, debug, info};
+use dashmap::DashMap;
 
 use crate::server::config::RateLimitConfig;
 use crate::common::consts::IP_HEADER_NAMES;
@@ -57,8 +56,8 @@ pub fn extract_client_ip<B>(
 pub struct RateLimitManager {
     /// 请求速率限制器（每秒请求数）
     requests_limiter: Arc<RateLimiter<String, governor::state::keyed::DashMapStateStore<String>, DefaultClock>>,
-    /// 并发请求限制器
-    concurrency_limiter: Arc<Mutex<HashMap<String, usize>>>,
+    /// 并发请求计数器 (使用 DashMap 替代 Mutex<HashMap>)
+    concurrency_limiter: Arc<DashMap<String, usize>>,
     /// 配置
     config: RateLimitConfig,
 }
@@ -77,13 +76,18 @@ impl RateLimitManager {
         
         Self {
             requests_limiter: Arc::new(limiter),
-            concurrency_limiter: Arc::new(Mutex::new(HashMap::new())),
+            concurrency_limiter: Arc::new(DashMap::new()),
             config,
         }
     }
     
     /// 检查请求是否超过速率限制
     pub fn check_rate_limit(&self, client_ip: &str) -> bool {
+        // 如果速率限制被禁用，总是允许请求
+        if !self.config.enabled {
+            return true;
+        }
+        
         // 转换为 String 类型以匹配 check_key 的参数类型
         let ip_string = client_ip.to_string();
         self.requests_limiter.check_key(&ip_string).is_ok()
@@ -91,29 +95,56 @@ impl RateLimitManager {
     
     /// 尝试增加并发请求计数，如果超过限制则返回 false
     pub fn try_acquire_concurrency(&self, client_ip: &str) -> bool {
-        let mut concurrency_map = self.concurrency_limiter.lock().unwrap();
-        let count = concurrency_map.entry(client_ip.to_string()).or_insert(0);
-        
-        if *count >= self.config.per_ip_concurrent as usize {
-            return false;
+        // 如果速率限制被禁用，总是允许请求
+        if !self.config.enabled {
+            return true;
         }
         
-        *count += 1;
-        true
+        // 原子地增加并发计数
+        let result = self.concurrency_limiter.entry(client_ip.to_string())
+            .and_modify(|count| {
+                if *count < self.config.per_ip_concurrent as usize {
+                    *count += 1;
+                }
+            })
+            .or_insert(1);
+            
+        // 检查计数是否在限制内
+        *result <= self.config.per_ip_concurrent as usize
     }
     
     /// 减少并发请求计数
     pub fn release_concurrency(&self, client_ip: &str) {
-        let mut concurrency_map = self.concurrency_limiter.lock().unwrap();
-        if let Some(count) = concurrency_map.get_mut(client_ip) {
-            if *count > 0 {
-                *count -= 1;
-            }
+        // 如果速率限制被禁用，不需要处理
+        if !self.config.enabled {
+            return;
+        }
+        
+        // 原子地减少并发计数
+        self.concurrency_limiter.entry(client_ip.to_string())
+            .and_modify(|count| {
+                if *count > 0 {
+                    *count -= 1;
+                }
+                
+                // 如果计数为0，移除该项（在闭包外处理）
+            });
             
-            // 如果计数为0，移除该IP项以节省内存
-            if *count == 0 {
-                concurrency_map.remove(client_ip);
-            }
+        // 尝试删除计数为0的条目
+        self.concurrency_limiter.remove_if(client_ip, |_, count| *count == 0);
+    }
+    
+    /// 清理过期的速率限制条目
+    pub fn clean_expired_entries(&self) {
+        // 移除15分钟内没有请求的IP (将在定期任务中调用)
+        let stale_ips: Vec<String> = self.concurrency_limiter.iter()
+            .filter(|entry| *entry.value() == 0)
+            .map(|entry| entry.key().clone())
+            .collect();
+            
+        for ip in stale_ips {
+            self.concurrency_limiter.remove(&ip);
+            debug!(client_ip = %ip, "Removed stale rate limit entry");
         }
     }
 }
@@ -181,6 +212,11 @@ impl RateLimitLayer {
         Self {
             manager: Arc::new(RateLimitManager::new(config)),
         }
+    }
+    
+    /// 获取速率限制管理器的引用
+    pub fn get_manager(&self) -> Arc<RateLimitManager> {
+        self.manager.clone()
     }
 }
 

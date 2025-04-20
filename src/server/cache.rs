@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use moka::future::Cache;
 use trust_dns_proto::op::{Message, ResponseCode};
 use trust_dns_proto::rr::RecordType;
-use tracing::{debug, trace};
+use tracing::{debug, trace, warn};
 use crate::common::error::Result;
 use crate::server::config::CacheConfig;
 
@@ -40,7 +40,10 @@ impl DnsCache {
     /// 创建新的 DNS 缓存
     pub fn new(config: CacheConfig) -> Self {
         // 创建 Moka 缓存，设置最大容量
-        let cache = Cache::new(config.size as u64);
+        let cache = Cache::builder()
+            .max_capacity(config.size as u64)
+            .time_to_idle(std::time::Duration::from_secs(300)) // 5分钟内未使用的条目将被移除
+            .build();
         
         DnsCache { cache, config }
     }
@@ -66,7 +69,19 @@ impl DnsCache {
                     expires_in_secs = entry.expires_at - now,
                     "Cache hit for DNS record"
                 );
-                return Some(entry.message);
+                
+                // 克隆响应消息并更新 TTL
+                let mut response = entry.message.clone();
+                
+                // 更新响应中的 TTL，使其反映剩余的生存时间
+                let remaining_ttl = (entry.expires_at - now) as u32;
+                for record in response.answers_mut() {
+                    if record.record_type() != RecordType::OPT {
+                        record.set_ttl(remaining_ttl);
+                    }
+                }
+                
+                return Some(response);
             } else {
                 // 惰性删除过期条目
                 self.cache.remove(key).await;
@@ -83,8 +98,48 @@ impl DnsCache {
     
     /// 将 DNS 响应消息存入缓存
     pub async fn put(&self, key: CacheKey, message: Message) -> Result<()> {
+        // 如果缓存被禁用，直接返回
+        if !self.config.enabled {
+            return Ok(());
+        }
+        
+        // 检查缓存大小
+        let current_size = self.cache.entry_count();
+        if current_size >= self.config.size as u64 {
+            warn!(
+                current_size = current_size,
+                max_size = self.config.size,
+                "Cache is full, consider increasing the cache size"
+            );
+        }
+        
         // 检查响应码
         if message.response_code() != ResponseCode::NoError {
+            // 对于非成功响应，使用负缓存TTL
+            if message.response_code() == ResponseCode::NXDomain {
+                let ttl = self.config.ttl.negative;
+                
+                // 创建缓存条目
+                let entry = CacheEntry {
+                    message: message.clone(),
+                    expires_at: SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs()
+                        + ttl as u64,
+                };
+                
+                // 存入缓存
+                let key_clone = key.clone();
+                self.cache.insert(key, entry).await;
+                
+                debug!(
+                    name = ?key_clone.name,
+                    type_value = ?key_clone.record_type,
+                    ttl_seconds = ttl,
+                    "Negative DNS response added to cache"
+                );
+            }
             return Ok(());
         }
         
@@ -94,9 +149,9 @@ impl DnsCache {
         // 创建缓存条目
         let entry = CacheEntry {
             message: message.clone(),
-            expires_at: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
+            expires_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
                 .as_secs()
                 + ttl as u64,
         };
@@ -130,6 +185,11 @@ impl DnsCache {
             if ttl < min_ttl {
                 min_ttl = ttl;
             }
+        }
+        
+        // 如果没有找到任何记录，使用最大 TTL
+        if message.answer_count() == 0 {
+            min_ttl = self.config.ttl.min;
         }
         
         // 应用配置的最小/最大 TTL 限制
