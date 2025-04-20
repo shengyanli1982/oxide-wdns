@@ -84,7 +84,7 @@ impl DoHServer {
         // 创建 TCP 监听器
         let addr = self.config.listen_addr;
         let listener = TcpListener::bind(addr).await?;
-        info!("Oxide WDNS server started, listening on: {}", addr);
+        info!("DNS-over-HTTPS server is now active on: {}", addr);
         
         // 创建关闭信号
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -99,14 +99,14 @@ impl DoHServer {
             
         // 等待服务器完成
         if let Err(e) = server.await {
-            error!("Server error: {}", e);
+            error!("HTTP server error: {}", e);
             return Err(e.into());
         }
         
         // 通知缓存指标任务停止
         cache_metrics_task.abort();
         
-        info!("Server shutdown complete");
+        info!("HTTP server has been successfully shutdown");
         Ok(())
     }
     
@@ -114,7 +114,7 @@ impl DoHServer {
     pub fn shutdown(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
-            info!("Server shutdown signal sent");
+            info!("Shutdown signal sent to HTTP server");
         }
     }
     
@@ -124,7 +124,7 @@ impl DoHServer {
         tokio::select! {
             // 手动关闭信号
             _ = shutdown_rx => {
-                info!("Received manual shutdown signal");
+                info!("Manual shutdown signal received");
             }
             // Ctrl+C 信号
             _ = ctrl_c() => {
@@ -132,7 +132,7 @@ impl DoHServer {
             }
         }
         
-        info!("Graceful shutdown in progress...");
+        info!("Initiating graceful shutdown sequence...");
     }
     
     /// 定期更新缓存指标

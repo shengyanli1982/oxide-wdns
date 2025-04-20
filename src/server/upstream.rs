@@ -34,7 +34,7 @@ impl UpstreamManager {
         info!(
             resolvers_count = upstream_config.resolvers.len(),
             dnssec_enabled = upstream_config.enable_dnssec,
-            "Upstream resolver manager created,"
+            "Upstream resolver manager initialized"
         );
         
         Ok(Self {
@@ -62,10 +62,10 @@ impl UpstreamManager {
             None => return Err(AppError::Upstream("No Query section in query message".to_string())),
         };
         
-        debug!(
+        debug!(   
             name = ?query.name(),
             type_value = ?query.query_type(),
-            "Processing upstream query"
+            "Processing DNS query via upstream resolvers"
         );
         
         // 创建 lookup 函数
@@ -120,7 +120,7 @@ impl UpstreamManager {
                     debug!(
                         address = ?resolver.address,
                         protocol = ?resolver.protocol,
-                        "Added upstream resolver"
+                        "Added upstream resolver,"
                     );
                 }
                 Err(e) => {
@@ -128,7 +128,7 @@ impl UpstreamManager {
                         address = ?resolver.address,
                         protocol = ?resolver.protocol,
                         error = ?e,
-                        "Invalid upstream resolver configuration, skipped"
+                        "Invalid upstream resolver configuration - skipping,"
                     );
                 }
             }
@@ -198,10 +198,10 @@ impl UpstreamManager {
         }
     }
     
-    /// 解析 IP:端口 格式的地址
+    /// 解析套接字地址
     fn parse_socket_addr(addr_str: &str) -> Result<SocketAddr> {
-        addr_str
-            .parse::<SocketAddr>()
-            .map_err(|e| AppError::Config(format!("Invalid IP:port address ({}): {}", addr_str, e)))
+        addr_str.parse().map_err(|e| {
+            AppError::Config(format!("Invalid socket address '{}': {}", addr_str, e))
+        })
     }
 } 

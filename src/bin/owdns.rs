@@ -106,7 +106,7 @@ fn init_logging(args: &CliArgs) {
     
     // 如果启用调试模式，输出调试信息
     if args.debug {
-        debug!("Debug logging level enabled");
+        debug!("Debug logging enabled - verbose output mode active");
     }
 } 
 
@@ -129,7 +129,6 @@ async fn main() {
     let config = match ServerConfig::from_file(&args.config) {
         Ok(config) => {
             info!(
-                target: "owdns",
                 config_path = ?args.config,
                 dns_servers = config.upstream.resolvers.len(),
                 listen_addr = %config.listen_addr,
@@ -139,7 +138,6 @@ async fn main() {
         },
         Err(e) => {
             error!(
-                target: "owdns",
                 config_path = ?args.config,
                 error = %e,
                 "Failed to load configuration file,",
@@ -169,7 +167,7 @@ async fn main() {
     let signal_handler = signal::setup_signal_handlers(shutdown_tx.clone()).await;
     
     // 启动服务器
-    info!("Starting Oxide WDNS server...");
+    info!("Initializing Oxide WDNS server...");
     let mut server = DoHServer::new(config);
     
     // 运行服务器，等待信号处理程序或服务器完成
@@ -181,11 +179,11 @@ async fn main() {
             }
         }
         _ = signal_handler => {
-            info!("Received interrupt signal, shutting down server");
+            info!("Interrupt signal received, initiating shutdown");
             server.shutdown();
         }
     }
     
-    info!("Server shutdown completed");
+    info!("Oxide WDNS has been shut down successfully");
 }
 
