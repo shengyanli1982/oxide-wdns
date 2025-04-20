@@ -25,10 +25,8 @@ static GLOBAL: MiMalloc = MiMalloc;
     version,
     about = "High-performance DNS-over-HTTPS (DoH) server\n\n\
              Key Features:\n\
-             - Standard DNS-over-HTTPS protocol support (RFC 8484)\n\
-             - DoH JSON format and Wireformat support\n\
-             - GET and POST request methods\n\
-             - HTTP/1.1 and HTTP/2.0 support\n\
+             - Standard DNS-over-HTTPS Wireformat support (RFC 8484)\n\
+             - Google/Cloudflare DoH JSON format support\n\
              - DNSSEC validation\n\
              - Multiple upstream DNS protocols: UDP, TCP, DoT (DNS-over-TLS), DoH (DNS-over-HTTPS)\n\
              - Built-in LRU cache for performance optimization\n\

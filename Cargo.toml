@@ -30,7 +30,7 @@ serde_yaml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 hyper = { version = "1.4", features = ["http1", "http2"] }
-tower = "0.4"
+tower = { version = "0.4", features = ["util"] }
 trust-dns-proto = "0.23"
 # 使用 native-tls 实现的 DNS-over-TLS 支持
 trust-dns-resolver = { version = "0.23", features = ["dns-over-native-tls", "dnssec-ring", "tokio-runtime"] }
@@ -45,6 +45,7 @@ thiserror = "1.0"
 anyhow = "1.0"  # 错误处理库
 fastrand = "2.0"
 governor = "0.8"
+base64 = "0.22"  # 用于 DoH GET 请求中的 Base64url 编码/解码
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] } # For integration tests

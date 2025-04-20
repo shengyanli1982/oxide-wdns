@@ -4,9 +4,9 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use axum::{
     extract::{Query, State},
-    http::{header, StatusCode, Request},
+    http::{header, StatusCode, Request, Method},
     response::IntoResponse,
-    routing::{get},
+    routing::{get, post},
     Router, Json,
 };
 use serde::{Deserialize, Serialize};
@@ -14,9 +14,11 @@ use tokio::time::Instant;
 use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
 use tracing::{debug, warn, info};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
 use crate::common::error::{AppError, Result};
 use crate::common::consts::{
     CONTENT_TYPE_DNS_JSON, 
+    CONTENT_TYPE_DNS_MESSAGE,
     DNS_RECORD_TYPE_A, DNS_CLASS_IN, IP_HEADER_NAMES
 };
 use crate::server::cache::{CacheKey, DnsCache};
@@ -54,6 +56,13 @@ pub struct DnsJsonRequest {
     /// 是否启用检查禁用
     #[serde(default)]
     pub cd: bool,
+}
+
+/// DNS-over-HTTPS GET 请求参数（RFC 8484）
+#[derive(Debug, Deserialize)]
+pub struct DnsMsgGetRequest {
+    /// DNS 请求的 Base64url 编码
+    pub dns: String,
 }
 
 /// DNS-over-HTTPS JSON 响应格式
@@ -110,18 +119,24 @@ pub struct DnsJsonAnswer {
 /// 创建 DoH 路由
 pub fn doh_routes(state: ServerState) -> Router {
     Router::new()
-        .route("/dns-query", get(handle_dns_json_query))
+        // JSON API 路由（兼容性）
+        .route("/resolve", get(handle_dns_json_query))
+        // RFC 8484 标准路由
+        .route("/dns-query", get(handle_dns_wire_get))
+        .route("/dns-query", post(handle_dns_wire_post))
+        // 添加状态
         .with_state(state)
 }
 
-/// 处理 DNS JSON 查询 (GET 请求)
+/// 处理 DNS JSON 查询 (GET 请求，application/dns-json 兼容格式)
 #[axum::debug_handler]
 async fn handle_dns_json_query(
     State(state): State<ServerState>,
     Query(params): Query<DnsJsonRequest>,
+    req: Request<axum::body::Body>,
 ) -> impl IntoResponse {
     // 提取客户端 IP
-    let client_ip = get_client_ip_from_request(&Request::new(()));
+    let client_ip = get_client_ip_from_request(&req);
     
     // 记录开始时间
     let start = Instant::now();
@@ -228,6 +243,240 @@ async fn handle_dns_json_query(
         StatusCode::OK,
         [(header::CONTENT_TYPE, CONTENT_TYPE_DNS_JSON)],
         Json(json_response),
+    ).into_response()
+}
+
+/// 处理 DNS-over-HTTPS GET 请求 (RFC 8484 标准，application/dns-message)
+#[axum::debug_handler]
+async fn handle_dns_wire_get(
+    State(state): State<ServerState>,
+    Query(params): Query<DnsMsgGetRequest>,
+    req: Request<axum::body::Body>,
+) -> impl IntoResponse {
+    // 提取客户端 IP
+    let client_ip = get_client_ip_from_request(&req);
+    
+    // 记录开始时间
+    let start = Instant::now();
+    
+    // 更新请求指标
+    state.metrics.record_request("GET", CONTENT_TYPE_DNS_MESSAGE);
+    
+    debug!(client_ip = ?client_ip, "DNS GET RFC 8484 query received");
+    
+    // 解码 Base64url 查询参数
+    let dns_wire = match BASE64_ENGINE.decode(&params.dns) {
+        Ok(wire) => wire,
+        Err(e) => {
+            info!(client_ip = ?client_ip, error = ?e, "Invalid base64url encoding in DNS parameter");
+            return (StatusCode::BAD_REQUEST, "Invalid base64url encoding").into_response();
+        }
+    };
+    
+    // 解析 DNS 查询消息
+    let query_message = match Message::from_vec(&dns_wire) {
+        Ok(msg) => msg,
+        Err(e) => {
+            info!(client_ip = ?client_ip, error = ?e, "Invalid DNS message in request");
+            return (StatusCode::BAD_REQUEST, "Invalid DNS message format").into_response();
+        }
+    };
+    
+    // 处理查询
+    let query_name = query_message.queries().first().map_or("unknown".to_string(), |q| q.name().to_string());
+    let query_type = query_message.queries().first().map_or(0, |q| q.query_type().into());
+    
+    // 发送/接收 DNS 查询响应
+    let (response_message, is_cached) = match process_query(
+        state.upstream.as_ref(),
+        state.cache.as_ref(),
+        &query_message,
+        client_ip,
+    ).await {
+        Ok((msg, cached)) => (msg, cached),
+        Err(e) => {
+            // 记录处理错误
+            info!(
+                name = %query_name,
+                type_value = query_type,
+                client_ip = ?client_ip,
+                error = %e,
+                "DNS-over-HTTPS wire query processing failed"
+            );
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+    };
+    
+    // 序列化响应
+    let response_wire = match response_message.to_vec() {
+        Ok(wire) => wire,
+        Err(e) => {
+            info!(
+                name = %query_name,
+                type_value = query_type,
+                client_ip = ?client_ip,
+                error = ?e,
+                "Failed to serialize DNS response"
+            );
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to serialize DNS response").into_response();
+        }
+    };
+    
+    // 更新响应指标
+    let duration = start.elapsed();
+    state.metrics.record_response(
+        "GET",
+        u16::from(response_message.response_code().low()),
+        duration,
+    );
+    
+    // 记录请求完成的详细日志
+    let answer_count = response_message.answer_count();
+    let rcode = response_message.response_code();
+    let query_time_ms = duration.as_millis();
+    
+    info!(
+        name = %query_name,
+        type_value = query_type,
+        client_ip = ?client_ip,
+        response_code = ?rcode,
+        answer_count = answer_count,
+        dnssec_validated = response_message.authentic_data(),
+        query_time_ms = query_time_ms,
+        is_cached = is_cached,
+        "DNS-over-HTTPS RFC 8484 GET request completed"
+    );
+    
+    // 返回二进制响应
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)],
+        response_wire,
+    ).into_response()
+}
+
+/// 处理 DNS-over-HTTPS POST 请求 (RFC 8484 标准，application/dns-message)
+#[axum::debug_handler]
+async fn handle_dns_wire_post(
+    State(state): State<ServerState>,
+    req: Request<axum::body::Body>,
+) -> impl IntoResponse {
+    // 提取客户端 IP
+    let client_ip = get_client_ip_from_request(&req);
+    
+    // 检查 Content-Type
+    let content_type = req.headers().get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+        
+    if content_type != CONTENT_TYPE_DNS_MESSAGE {
+        info!(client_ip = ?client_ip, content_type = %content_type, "Invalid Content-Type in DNS POST request");
+        return (StatusCode::BAD_REQUEST, "Invalid Content-Type, expected application/dns-message").into_response();
+    }
+    
+    // 记录开始时间
+    let start = Instant::now();
+    
+    // 更新请求指标
+    state.metrics.record_request("POST", CONTENT_TYPE_DNS_MESSAGE);
+    
+    debug!(client_ip = ?client_ip, "DNS POST RFC 8484 query received");
+    
+    // 提取请求体
+    let (parts, body) = req.into_parts();
+    let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            info!(client_ip = ?client_ip, error = ?e, "Failed to read request body");
+            return (StatusCode::BAD_REQUEST, "Failed to read request body").into_response();
+        }
+    };
+    
+    // 如果请求体为空，返回错误
+    if body_bytes.is_empty() {
+        info!(client_ip = ?client_ip, "Empty request body");
+        return (StatusCode::BAD_REQUEST, "Empty request body").into_response();
+    }
+    
+    // 解析 DNS 查询消息
+    let query_message = match Message::from_vec(&body_bytes) {
+        Ok(msg) => msg,
+        Err(e) => {
+            info!(client_ip = ?client_ip, error = ?e, "Invalid DNS message in POST request body");
+            return (StatusCode::BAD_REQUEST, "Invalid DNS message format").into_response();
+        }
+    };
+    
+    // 处理查询
+    let query_name = query_message.queries().first().map_or("unknown".to_string(), |q| q.name().to_string());
+    let query_type = query_message.queries().first().map_or(0, |q| q.query_type().into());
+    
+    // 发送/接收 DNS 查询响应
+    let (response_message, is_cached) = match process_query(
+        state.upstream.as_ref(),
+        state.cache.as_ref(),
+        &query_message,
+        client_ip,
+    ).await {
+        Ok((msg, cached)) => (msg, cached),
+        Err(e) => {
+            // 记录处理错误
+            info!(
+                name = %query_name,
+                type_value = query_type,
+                client_ip = ?client_ip,
+                error = %e,
+                "DNS-over-HTTPS wire query processing failed"
+            );
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+    };
+    
+    // 序列化响应
+    let response_wire = match response_message.to_vec() {
+        Ok(wire) => wire,
+        Err(e) => {
+            info!(
+                name = %query_name,
+                type_value = query_type,
+                client_ip = ?client_ip,
+                error = ?e,
+                "Failed to serialize DNS response"
+            );
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to serialize DNS response").into_response();
+        }
+    };
+    
+    // 更新响应指标
+    let duration = start.elapsed();
+    state.metrics.record_response(
+        "POST",
+        u16::from(response_message.response_code().low()),
+        duration,
+    );
+    
+    // 记录请求完成的详细日志
+    let answer_count = response_message.answer_count();
+    let rcode = response_message.response_code();
+    let query_time_ms = duration.as_millis();
+    
+    info!(
+        name = %query_name,
+        type_value = query_type,
+        client_ip = ?client_ip,
+        response_code = ?rcode,
+        answer_count = answer_count,
+        dnssec_validated = response_message.authentic_data(),
+        query_time_ms = query_time_ms,
+        is_cached = is_cached,
+        "DNS-over-HTTPS RFC 8484 POST request completed"
+    );
+    
+    // 返回二进制响应
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)],
+        response_wire,
     ).into_response()
 }
 
