@@ -15,6 +15,13 @@ overflow-checks = false
 
 [[bin]]
 name = "owdns"
-path = "src/main.rs"
+path = "src/bin/owdns.rs"
+
+[[bin]]
+name = "owdns-cli"
+path = "src/bin/owdns_cli.rs"
 
 [dependencies]
+# TODO: Add dependencies here as needed
+# Server dependencies might include: axum, tokio, tracing, serde, serde_yaml, thiserror, moka, trust-dns-proto, trust-dns-resolver, prometheus, etc.
+# Client dependencies might include: reqwest, clap, tokio, trust-dns-proto, serde_json, thiserror, etc.

@@ -1,10 +1,10 @@
-# 构建阶段
-FROM rust:1.84.1-alpine AS builder
+# Stage 1: Build static binaries using Rust MUSL target
+FROM rust:1.78-alpine AS builder # Use an appropriate Rust version like 1.78 or newer
 
-# 设置构建环境
+# 设置构建环境 (静态链接)
 ENV RUSTFLAGS="-C target-feature=+crt-static"
 
-# 安装必要的构建依赖
+# 安装必要的构建依赖 (Alpine)
 RUN apk add --no-cache \
     build-base \
     openssl-dev \
@@ -20,16 +20,22 @@ WORKDIR /build
 # 复制项目文件
 COPY . .
 
-# 安装特定的目标
+# 安装 MUSL target
 RUN rustup target add x86_64-unknown-linux-musl
 
-# 构建项目
-RUN cargo build --target x86_64-unknown-linux-musl --release
+# 构建静态 Server 二进制
+RUN cargo build --bin owdns --target x86_64-unknown-linux-musl --release
 
-# 运行阶段
+# 构建静态 Client 二进制
+RUN cargo build --bin owdns-cli --target x86_64-unknown-linux-musl --release
+
+
+# Stage 2: Create final minimal image
+# 使用 alpine 作为基础镜像。可以考虑换成 gcr.io/distroless/static-debian11 以获得更小的镜像尺寸和更高的安全性，
+# 但 alpine 包含 shell，可能便于调试。
 FROM alpine:3.19
 
-# 设置时区为上海
+# 设置时区为上海 (可选)
 RUN apk add --no-cache tzdata && \
     cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/Shanghai" > /etc/timezone && \
@@ -39,12 +45,21 @@ RUN apk add --no-cache tzdata && \
 WORKDIR /app
 
 # 从构建阶段复制编译好的二进制文件
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/owdns /app/
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/owdns /app/owdns
+COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/owdns-cli /app/owdns-cli
 
-# 设置运行用户
+# (可选) 复制默认配置文件
+# COPY config.default.yaml /app/config.yaml
+
+# 设置运行用户 (保持不变)
 RUN adduser -D -u 1000 appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-# 运行程序
-CMD ["./owdns"] 
+# (可选) 暴露端口 (如果 owdns 监听端口)
+# EXPOSE 8080
+
+# 默认运行服务端程序。
+# 客户端可以通过 `docker exec <container_id> /app/owdns-cli ...` 来运行。
+# 假设服务端需要一个配置文件
+CMD ["/app/owdns", "-c", "/app/config.yaml"] # 如果有默认配置文件路径，请修改 

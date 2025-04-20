@@ -3,6 +3,7 @@
 
 # 二进制名称
 BINARY_NAME := owdns
+CLI_BINARY_NAME := owdns-cli
 
 # 基本构建命令
 CARGO := cargo
@@ -47,12 +48,14 @@ default: build
 # 构建调试版本
 .PHONY: build
 build:
-	$(CARGO) build --target $(TARGET)
+	$(CARGO) build --bin $(BINARY_NAME) --target $(TARGET)
+	$(CARGO) build --bin $(CLI_BINARY_NAME) --target $(TARGET)
 
 # 构建发布版本
 .PHONY: build-release
 build-release:
-	$(CARGO) build --release --target $(TARGET)
+	$(CARGO) build --release --bin $(BINARY_NAME) --target $(TARGET)
+	$(CARGO) build --release --bin $(CLI_BINARY_NAME) --target $(TARGET)
 
 # 跨平台构建
 .PHONY: build-all
