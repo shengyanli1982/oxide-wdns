@@ -2,11 +2,10 @@
 
 use axum::{routing::get, Router};
 use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry, Encoder,
+    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
 };
 use std::time::Duration;
 use std::thread_local;
-use tracing::debug;
 
 // 线程本地存储的指标实例
 thread_local! {

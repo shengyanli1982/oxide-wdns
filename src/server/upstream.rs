@@ -1,14 +1,12 @@
 // src/server/upstream.rs
 
-use std::net::{IpAddr, SocketAddr};
-use std::str::FromStr;
-use std::sync::Arc;
-use trust_dns_proto::op::{Message, MessageType, OpCode, Query};
+use std::net::SocketAddr;
+use trust_dns_proto::op::{Message, MessageType, OpCode};
 use trust_dns_resolver::config::{
-    NameServerConfig, NameServerConfigGroup, Protocol, ResolverConfig, ResolverOpts,
+    NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
 use trust_dns_resolver::TokioAsyncResolver;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::common::error::{AppError, Result};
 use crate::server::config::{ResolverProtocol, ServerConfig, UpstreamConfig};
@@ -18,7 +16,7 @@ pub struct UpstreamManager {
     /// 内部 TokioAsyncResolver
     resolver: TokioAsyncResolver,
     /// 上游配置
-    config: UpstreamConfig,
+    _config: UpstreamConfig,
 }
 
 impl UpstreamManager {
@@ -41,7 +39,7 @@ impl UpstreamManager {
         
         Ok(Self {
             resolver,
-            config: upstream_config,
+            _config: upstream_config,
         })
     }
     

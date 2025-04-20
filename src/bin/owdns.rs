@@ -1,14 +1,19 @@
 // src/bin/owdns.rs
 
+// 标准库导入
+use std::path::PathBuf;
+use std::process::exit;
+
+// 第三方库导入
 use anyhow::Result;
 use clap::{Parser, ArgAction};
 use mimalloc::MiMalloc;
-use std::net::SocketAddr;
-use std::path::PathBuf;
-use std::process::exit;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info};
 use tracing_subscriber::{prelude::*, EnvFilter, fmt};
+
+// 本地模块导入
+use oxide_wdns::common::consts::DEFAULT_CONFIG_PATH;
 use oxide_wdns::server::config::ServerConfig;
 use oxide_wdns::server::DoHServer;
 use oxide_wdns::server::signal;
@@ -16,13 +21,6 @@ use oxide_wdns::server::signal;
 // 使用 mimalloc 作为全局内存分配器
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
-
-// 范围限制常量
-const MIN_THREADS: usize = 1;             // 最小线程数
-const MAX_THREADS: usize = 65536;         // 最大线程数
-
-// 默认值常量
-const DEFAULT_CONFIG_PATH: &str = "config.yaml";      // 默认配置文件路径
 
 /// Oxide WDNS Command Line Arguments
 #[derive(Parser, Debug)]
@@ -57,8 +55,7 @@ struct CliArgs {
         short = 't', 
         long = "test", 
         action = ArgAction::SetTrue, 
-        help = "Test configuration file for validity and exit (requires -c option)",
-        requires = "config"
+        help = "Test configuration file for validity and exit"
     )]
     test_config: bool,
     

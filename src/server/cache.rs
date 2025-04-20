@@ -1,15 +1,11 @@
 // src/server/cache.rs
 
+use std::time::{SystemTime, UNIX_EPOCH};
 use moka::future::Cache;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use trust_dns_proto::op::Message;
-use trust_dns_proto::rr::Record;
-use trust_dns_proto::op::ResponseCode;
+use trust_dns_proto::op::{Message, ResponseCode};
 use trust_dns_proto::rr::RecordType;
 use tracing::{debug, trace};
-
-use crate::common::error::{AppError, Result};
+use crate::common::error::Result;
 use crate::server::config::CacheConfig;
 
 /// 缓存条目

@@ -2,19 +2,17 @@
 
 use axum::{
     extract::Request,
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use std::net::IpAddr;
 use std::sync::Arc;
-use governor::middleware::NoOpMiddleware;
 use tower_governor::{
     governor::GovernorConfigBuilder,
-    key_extractor::{KeyExtractor, PeerIpKeyExtractor},
-    GovernorError,
+    key_extractor::PeerIpKeyExtractor,
     GovernorLayer,
 };
+use governor::middleware::NoOpMiddleware;
 use tracing::{debug, warn};
 
 use crate::server::config::RateLimitConfig;
@@ -45,29 +43,6 @@ pub fn rate_limit_layer(config: &RateLimitConfig) -> Option<GovernorLayer<PeerIp
     Some(GovernorLayer {
         config: Arc::new(governor_conf),
     })
-}
-
-/// 从请求头中提取客户端 IP
-fn extract_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
-    // 尝试从各种可能的请求头中提取 IP
-    for header_name in &[
-        "X-Forwarded-For",
-        "X-Real-IP",
-        "Forwarded",
-        "True-Client-IP",
-    ] {
-        if let Some(header_value) = headers.get(*header_name) {
-            if let Ok(value_str) = header_value.to_str() {
-                // X-Forwarded-For 可能包含多个 IP，我们取第一个
-                let ip_str = value_str.split(',').next().unwrap_or("").trim();
-                if let Ok(ip) = ip_str.parse::<IpAddr>() {
-                    return Some(ip);
-                }
-            }
-        }
-    }
-    
-    None
 }
 
 /// 输入验证中间件

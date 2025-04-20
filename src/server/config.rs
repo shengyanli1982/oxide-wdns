@@ -1,12 +1,22 @@
 // src/server/config.rs
 
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
-
+use serde::{Deserialize, Serialize};
 use crate::common::error::{AppError, Result};
+use crate::common::consts::{
+    // 服务器配置相关常量
+    default_listen_addr, MIN_THREADS, MAX_THREADS, DEFAULT_THREADS, 
+    // 上游服务器相关常量
+    DEFAULT_QUERY_TIMEOUT,
+    // 缓存相关常量
+    DEFAULT_CACHE_ENABLED, DEFAULT_CACHE_SIZE, DEFAULT_MIN_TTL, 
+    DEFAULT_MAX_TTL, DEFAULT_NEGATIVE_TTL,
+    // 速率限制相关常量
+    DEFAULT_PER_IP_RATE, DEFAULT_PER_IP_CONCURRENT
+};
 
 /// 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,13 +121,9 @@ pub struct RateLimitConfig {
     pub per_ip_concurrent: u32,
 }
 
-// 默认值函数
-fn default_listen_addr() -> SocketAddr {
-    "127.0.0.1:3053".parse().unwrap()
-}
-
+// 默认值函数 - 使用 consts 中定义的常量
 fn default_threads() -> usize {
-    16 // 默认工作线程数
+    DEFAULT_THREADS
 }
 
 fn default_resolver_protocol() -> ResolverProtocol {
@@ -125,35 +131,35 @@ fn default_resolver_protocol() -> ResolverProtocol {
 }
 
 fn default_query_timeout() -> u64 {
-    30
+    DEFAULT_QUERY_TIMEOUT
 }
 
 fn default_cache_enabled() -> bool {
-    true
+    DEFAULT_CACHE_ENABLED
 }
 
 fn default_cache_size() -> usize {
-    10000
+    DEFAULT_CACHE_SIZE
 }
 
 fn default_min_ttl() -> u32 {
-    60
+    DEFAULT_MIN_TTL
 }
 
 fn default_max_ttl() -> u32 {
-    86400 // 1 day
+    DEFAULT_MAX_TTL
 }
 
 fn default_negative_ttl() -> u32 {
-    300 // 5 minutes
+    DEFAULT_NEGATIVE_TTL
 }
 
 fn default_per_ip_rate() -> u32 {
-    100
+    DEFAULT_PER_IP_RATE
 }
 
 fn default_per_ip_concurrent() -> u32 {
-    10
+    DEFAULT_PER_IP_CONCURRENT
 }
 
 impl ServerConfig {
@@ -176,10 +182,10 @@ impl ServerConfig {
     /// 测试配置的有效性
     pub fn test(&self) -> Result<()> {
         // 验证线程数范围
-        if self.threads < 2 || self.threads > 65536 {
+        if self.threads < MIN_THREADS || self.threads > MAX_THREADS {
             return Err(AppError::Config(format!(
-                "Thread count must be between 2-65536, current value: {}", 
-                self.threads
+                "Thread count must be between {}-{}, current value: {}", 
+                MIN_THREADS, MAX_THREADS, self.threads
             )));
         }
         

@@ -1,6 +1,5 @@
 // src/server/mod.rs
 
-// Declare server submodules
 pub mod cache;
 pub mod config;
 pub mod doh_handler;
@@ -10,23 +9,20 @@ pub mod security;
 pub mod signal;
 pub mod upstream;
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use axum::{middleware, Router};
 use tokio::net::TcpListener;
-use tokio::signal as tokio_signal;
 use tokio::signal::ctrl_c;
 use tokio::sync::oneshot;
 use tokio::time;
 use tracing::{debug, error, info};
-
 use crate::common::error::Result;
 use crate::server::cache::DnsCache;
 use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};
 use crate::server::health::health_routes;
-use crate::server::metrics::{metrics_routes, DnsMetrics, METRICS};
+use crate::server::metrics::{metrics_routes, DnsMetrics};
 use crate::server::security::{rate_limit_layer, validate_input};
 use crate::server::upstream::UpstreamManager;
 

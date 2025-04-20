@@ -1,13 +1,20 @@
 // src/common/error.rs
 
+// 标准库导入
+use std::io;
+use std::result;
+
+// 第三方库导入
 use thiserror::Error;
+use trust_dns_proto::error::ProtoError;
+use trust_dns_resolver::error::ResolveError;
 
 /// 应用程序错误类型
 #[derive(Debug, Error)]
 pub enum AppError {
     /// IO 错误
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] io::Error),
 
     /// 配置错误
     #[error("Config error: {0}")]
@@ -15,11 +22,11 @@ pub enum AppError {
 
     /// DNS 解析错误
     #[error("DNS resolve error: {0}")]
-    DnsResolve(#[from] trust_dns_resolver::error::ResolveError),
+    DnsResolve(#[from] ResolveError),
     
     /// DNS 协议错误
     #[error("DNS protocol error: {0}")]
-    DnsProto(#[from] trust_dns_proto::error::ProtoError),
+    DnsProto(#[from] ProtoError),
     
     /// 序列化/反序列化错误
     #[error("Serialization error: {0}")]
@@ -43,4 +50,4 @@ pub enum AppError {
 }
 
 /// 结果类型别名
-pub type Result<T> = std::result::Result<T, AppError>; 
+pub type Result<T> = result::Result<T, AppError>; 

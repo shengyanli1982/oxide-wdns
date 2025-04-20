@@ -1,25 +1,24 @@
 // src/server/doh_handler.rs
 
-use axum::{
-    body::{Bytes, to_bytes},
-    extract::{Path, Query, State},
-    http::{header, StatusCode, Request},
-    response::{IntoResponse, Response},
-    routing::{get, post},
-    Router, Json, body::Body,
-};
-use hyper;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
+use axum::{
+    extract::{Query, State},
+    http::{header, StatusCode, Request},
+    response::IntoResponse,
+    routing::{get},
+    Router, Json,
+};
+use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
-use tracing::{debug, error, info, trace, warn};
-use std::str::FromStr;
-
+use tracing::{debug, warn};
 use crate::common::error::{AppError, Result};
+use crate::common::consts::{
+    CONTENT_TYPE_DNS_JSON, 
+    DNS_RECORD_TYPE_A, DNS_CLASS_IN, IP_HEADER_NAMES
+};
 use crate::server::cache::{CacheKey, DnsCache};
 use crate::server::config::ServerConfig;
 use crate::server::metrics::{DnsMetrics, METRICS};
@@ -111,7 +110,7 @@ pub struct DnsJsonAnswer {
 /// 创建 DoH 路由
 pub fn doh_routes(state: ServerState) -> Router {
     Router::new()
-        .route("/dns-query", get(handle_dns_json_query).post(handle_dns_message_query))
+        .route("/dns-query", get(handle_dns_json_query))
         .with_state(state)
 }
 
@@ -128,7 +127,7 @@ async fn handle_dns_json_query(
     let start = Instant::now();
     
     // 更新请求指标
-    state.metrics.record_request("GET", "application/dns-json");
+    state.metrics.record_request("GET", CONTENT_TYPE_DNS_JSON);
     
     debug!(name = %params.name, type_value = params.type_value, client_ip = ?client_ip, "DNS JSON query received");
     
@@ -166,90 +165,8 @@ async fn handle_dns_json_query(
     // 返回 JSON 响应
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/dns-json")],
+        [(header::CONTENT_TYPE, CONTENT_TYPE_DNS_JSON)],
         Json(json_response),
-    ).into_response()
-}
-
-/// 处理 DNS 二进制消息查询 (POST 请求)
-#[axum::debug_handler]
-async fn handle_dns_message_query(
-    State(state): State<ServerState>,
-    req: Request<Body>,
-) -> impl IntoResponse {
-    // 提取客户端 IP
-    let client_ip = get_client_ip_from_request(&req);
-    
-    // 记录开始时间
-    let start = Instant::now();
-    
-    // 更新请求指标
-    state.metrics.record_request("POST", "application/dns-message");
-    
-    // 提取请求体
-    let bytes = match to_bytes(req.into_body(), 4096).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            error!(error = ?e, "Failed to read request body");
-            state.metrics.record_error("read_body");
-            return (StatusCode::BAD_REQUEST, format!("Failed to read request body: {}", e)).into_response();
-        }
-    };
-    
-    // 解析 DNS 查询消息
-    let query_message = match Message::from_vec(&bytes) {
-        Ok(msg) => msg,
-        Err(e) => {
-            error!(error = ?e, "Failed to parse DNS query message");
-            state.metrics.record_error("decode_request");
-            return (StatusCode::BAD_REQUEST, format!("Failed to parse DNS query message: {}", e)).into_response();
-        }
-    };
-    
-    // 记录查询信息
-    if let Some(query) = query_message.queries().first() {
-        debug!(
-            name = %query.name(),
-            type_value = ?query.query_type(),
-            client_ip = ?client_ip,
-            "DNS wire format query received"
-        );
-    }
-    
-    // 处理 DNS 查询
-    let response_message = match process_query(
-        state.upstream.as_ref(),
-        state.cache.as_ref(),
-        &query_message,
-        client_ip,
-    ).await {
-        Ok(msg) => msg,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
-    };
-    
-    // 将响应消息转换为字节
-    let response_bytes = match response_message.to_vec() {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            error!(error = ?e, "Failed to encode DNS response message");
-            state.metrics.record_error("encode_response");
-            return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to encode DNS response message: {}", e)).into_response();
-        }
-    };
-    
-    // 更新响应指标
-    let duration = start.elapsed();
-    state.metrics.record_response(
-        "POST",
-        u16::from(response_message.response_code().low()),
-        duration,
-    );
-    
-    // 返回二进制响应
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/dns-message")],
-        response_bytes,
     ).into_response()
 }
 
@@ -258,11 +175,7 @@ fn get_client_ip_from_request<T>(req: &Request<T>) -> IpAddr {
     // 尝试从 X-Forwarded-For 等头部提取客户端 IP
     let headers = req.headers();
     
-    for header_name in &[
-        "X-Forwarded-For",
-        "X-Real-IP",
-        "CF-Connecting-IP",
-    ] {
+    for header_name in &IP_HEADER_NAMES {
         if let Some(value) = headers.get(*header_name) {
             if let Ok(value_str) = value.to_str() {
                 if let Some(ip) = value_str.split(',').next() {
@@ -286,7 +199,7 @@ async fn process_query(
     upstream: &UpstreamManager,
     cache: &DnsCache,
     query_message: &Message,
-    client_ip: IpAddr,
+    _client_ip: IpAddr,
 ) -> Result<Message> {
     // 检查查询消息是否有效
     if query_message.message_type() != MessageType::Query {
@@ -364,7 +277,7 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
     };
     
     // 解析 DNS 类
-    let dns_class = match request.dns_class {
+    let _dns_class = match request.dns_class {
         Some(class) => {
             // 检查是否为未知类型（由于API变更，需要通过其他方式检测）
             if class > 0 && class != 1 && class != 3 && class != 4 && class != 254 && class != 255 {
@@ -434,9 +347,9 @@ fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
 
 // 默认值函数
 fn default_record_type() -> u16 {
-    1 // A 记录
+    DNS_RECORD_TYPE_A
 }
 
 fn default_dns_class() -> Option<u16> {
-    Some(1) // IN 类
+    Some(DNS_CLASS_IN)
 }
