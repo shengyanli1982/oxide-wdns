@@ -19,3 +19,8 @@ target/
 # Added by cargo
 
 /target
+
+.cursorrules
+.vscode/
+.idea/
+.DS_Store
