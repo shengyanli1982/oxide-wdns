@@ -11,7 +11,8 @@ use axum::body::to_bytes;
 
 use oxide_wdns::common::consts::{CONTENT_TYPE_DNS_MESSAGE, CONTENT_TYPE_DNS_JSON};
 use oxide_wdns::server::cache::DnsCache;
-use oxide_wdns::server::config::{ServerConfig, CacheConfig, RateLimitConfig, UpstreamConfig, ResolverConfig, ResolverProtocol};
+use oxide_wdns::server::config::{ServerConfig, CacheConfig, RateLimitConfig, UpstreamConfig, 
+    ResolverConfig, ResolverProtocol, HttpServerConfig, DnsResolverConfig};
 use oxide_wdns::server::doh_handler::{doh_routes, ServerState};
 use oxide_wdns::server::metrics::DnsMetrics;
 use oxide_wdns::server::upstream::UpstreamManager;
@@ -20,25 +21,29 @@ use oxide_wdns::server::upstream::UpstreamManager;
 async fn create_test_state() -> ServerState {
     // 创建基本配置
     let config = ServerConfig {
-        listen_addr: "127.0.0.1:3053".parse().unwrap(),
-        listen_timeout: 120,
-        upstream: UpstreamConfig {
-            resolvers: vec![
-                ResolverConfig {
-                    address: "8.8.8.8:53".to_string(),
-                    protocol: ResolverProtocol::Udp,
-                }
-            ],
-            enable_dnssec: false,
-            query_timeout: 30,
+        http: HttpServerConfig {
+            listen_addr: "127.0.0.1:3053".parse().unwrap(),
+            timeout: 120,
+            rate_limit: RateLimitConfig::default(),
         },
-        cache: CacheConfig::default(),
-        rate_limit: RateLimitConfig::default(),
-        http_client: Default::default(),
+        dns: DnsResolverConfig {
+            upstream: UpstreamConfig {
+                resolvers: vec![
+                    ResolverConfig {
+                        address: "8.8.8.8:53".to_string(),
+                        protocol: ResolverProtocol::Udp,
+                    }
+                ],
+                enable_dnssec: false,
+                query_timeout: 30,
+            },
+            http_client: Default::default(),
+            cache: CacheConfig::default(),
+        },
     };
     
     // 创建缓存
-    let cache = Arc::new(DnsCache::new(CacheConfig::default()));
+    let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
     
     // 创建上游管理器 - 使用默认配置创建
     let upstream = Arc::new(UpstreamManager::new(&config).await.unwrap());

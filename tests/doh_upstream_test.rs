@@ -3,7 +3,7 @@ use tokio::test;
 use trust_dns_proto::op::{Message, MessageType, OpCode};
 use trust_dns_proto::rr::{Name, RecordType};
 
-use oxide_wdns::server::config::{ServerConfig, UpstreamConfig, ResolverConfig, ResolverProtocol};
+use oxide_wdns::server::config::{ServerConfig, UpstreamConfig, ResolverConfig, ResolverProtocol, HttpServerConfig, DnsResolverConfig};
 use oxide_wdns::server::upstream::UpstreamManager;
 
 // 创建测试DNS查询
@@ -34,32 +34,36 @@ async fn test_doh_upstream_resolver() {
 
     // 创建测试配置
     let config = ServerConfig {
-        listen_addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
-        listen_timeout: 120, // 添加服务器连接超时
-        upstream: UpstreamConfig {
-            resolvers: vec![
-                // Cloudflare DoH服务器
-                ResolverConfig {
-                    address: "https://cloudflare-dns.com/dns-query".to_string(),
-                    protocol: ResolverProtocol::Doh,
-                },
-                // Google DoH服务器作为备份
-                ResolverConfig {
-                    address: "https://dns.google/dns-query".to_string(),
-                    protocol: ResolverProtocol::Doh,
-                },
-                // 标准UDP解析器作为后备
-                ResolverConfig {
-                    address: "8.8.8.8:53".to_string(),
-                    protocol: ResolverProtocol::Udp,
-                },
-            ],
-            enable_dnssec: true,
-            query_timeout: 5,
+        http: HttpServerConfig {
+            listen_addr: "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+            timeout: 120, // 服务器连接超时
+            rate_limit: Default::default(),
         },
-        cache: Default::default(),
-        rate_limit: Default::default(),
-        http_client: Default::default(), // 添加HTTP客户端配置
+        dns: DnsResolverConfig {
+            upstream: UpstreamConfig {
+                resolvers: vec![
+                    // Cloudflare DoH服务器
+                    ResolverConfig {
+                        address: "https://cloudflare-dns.com/dns-query".to_string(),
+                        protocol: ResolverProtocol::Doh,
+                    },
+                    // Google DoH服务器作为备份
+                    ResolverConfig {
+                        address: "https://dns.google/dns-query".to_string(),
+                        protocol: ResolverProtocol::Doh,
+                    },
+                    // 标准UDP解析器作为后备
+                    ResolverConfig {
+                        address: "8.8.8.8:53".to_string(),
+                        protocol: ResolverProtocol::Udp,
+                    },
+                ],
+                enable_dnssec: true,
+                query_timeout: 5,
+            },
+            http_client: Default::default(),
+            cache: Default::default(),
+        },
     };
     
     // 创建上游管理器
