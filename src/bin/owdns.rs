@@ -31,6 +31,7 @@ static GLOBAL: MiMalloc = MiMalloc;
              - Multiple upstream DNS protocols: UDP, TCP, DoT (DNS-over-TLS), DoH (DNS-over-HTTPS)\n\
              - Built-in LRU cache for performance optimization\n\
              - Prometheus metrics monitoring\n\
+             - Kubernetes Health Probe\n\
              - Rate limiting and input validation for enhanced security"
 )]
 struct CliArgs {
