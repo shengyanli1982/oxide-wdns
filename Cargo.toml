@@ -1,5 +1,5 @@
 [package]
-name = "oxide-web-dns"
+name = "oxide-wdns"
 version = "0.1.0"
 edition = "2021"
 
