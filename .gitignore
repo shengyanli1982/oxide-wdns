@@ -18,8 +18,7 @@ target/
 
 # Added by cargo
 
-/target
-
+test/
 .cursorrules
 .vscode/
 .idea/
