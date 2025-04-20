@@ -11,8 +11,7 @@ pub mod upstream;
 
 use std::sync::Arc;
 use std::time::Duration;
-use axum::{middleware, Router};
-use axum::http::StatusCode;
+use axum::Router;
 use tokio::net::TcpListener;
 use tokio::signal::ctrl_c;
 use tokio::sync::oneshot;
@@ -24,7 +23,7 @@ use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};
 use crate::server::health::health_routes;
 use crate::server::metrics::{metrics_routes, DnsMetrics};
-use crate::server::security::{rate_limit_layer, validate_input};
+use crate::server::security::rate_limit_layer;
 use crate::server::upstream::UpstreamManager;
 
 /// DNS-over-HTTPS 服务器
@@ -66,14 +65,13 @@ impl DoHServer {
             metrics: metrics.clone(),
         };
         
-        // 创建 DoH 路由并应用相关中间件
+        // 创建 DoH 路由
         let mut doh_specific_routes = doh_routes(state);
-            // .layer(middleware::from_fn(validate_input)); // 将 validate_input 应用于 DoH 路由
 
-        // // 添加速率限制（如果启用）到 DoH 路由
-        // if let Some(rate_limit) = rate_limit_layer(&self.config.rate_limit) {
-        //     doh_specific_routes = doh_specific_routes.layer(rate_limit);
-        // }
+        // 添加速率限制（如果启用）到 DoH 路由
+        if let Some(rate_limit) = rate_limit_layer(&self.config.rate_limit) {
+            doh_specific_routes = doh_specific_routes.layer(rate_limit);
+        }
         
         // 创建主应用路由，合并所有路由
         let app = Router::new()
@@ -93,11 +91,15 @@ impl DoHServer {
         // 启动缓存统计数据更新任务
         let cache_metrics_task = tokio::spawn(Self::update_cache_metrics(cache, metrics));
         
-        // 启动服务器
-        let server = axum::serve(listener, app)
-            .with_graceful_shutdown(Self::shutdown_signal(shutdown_rx));
-            
-        // 等待服务器完成
+        // 开始接收连接并处理请求
+        info!("Starting to accept connections");
+        let server = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>()
+        )
+        .with_graceful_shutdown(Self::shutdown_signal(shutdown_rx));
+        
+        // 运行服务器
         if let Err(e) = server.await {
             error!("HTTP server error: {}", e);
             return Err(e.into());
@@ -108,14 +110,6 @@ impl DoHServer {
         
         info!("HTTP server has been successfully shutdown");
         Ok(())
-    }
-    
-    /// 关闭服务器
-    pub fn shutdown(&mut self) {
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-            info!("Shutdown signal sent to HTTP server");
-        }
     }
     
     /// 监听关闭信号
@@ -133,9 +127,11 @@ impl DoHServer {
         }
         
         info!("Initiating graceful shutdown sequence...");
+        // 给正在处理的请求留出一些时间完成
+        time::sleep(Duration::from_secs(2)).await;
     }
     
-    /// 定期更新缓存指标
+    /// 更新缓存指标的任务
     async fn update_cache_metrics(
         cache: Arc<DnsCache>,
         metrics: Arc<DnsMetrics>,
@@ -148,6 +144,14 @@ impl DoHServer {
             // 获取并更新缓存大小
             let cache_size = cache.len().await;
             metrics.record_cache_size(cache_size);
+        }
+    }
+    
+    /// 关闭服务器
+    pub fn shutdown(&mut self) {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+            info!("Shutdown signal sent to HTTP server");
         }
     }
     

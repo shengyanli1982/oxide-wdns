@@ -184,6 +184,6 @@ async fn main() {
         }
     }
     
-    info!("Oxide WDNS has been shut down successfully");
+    info!("Oxide WDNS shutdown completed");
 }
 
