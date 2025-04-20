@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "oxide-web-dns"
+name = "oxide-wdns"
 version = "0.1.0"

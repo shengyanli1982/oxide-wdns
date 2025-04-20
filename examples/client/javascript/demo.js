@@ -32,7 +32,7 @@ async function queryDoh(serverUrl, domainName, queryType = "A") {
         ],
     });
 
-    // 2. 设置 HTTP 请求头
+    // 2. 设置 HTTP 请求头 
     const headers = {
         Accept: "application/dns-message",
         "Content-Type": "application/dns-message",

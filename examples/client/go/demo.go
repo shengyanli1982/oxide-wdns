@@ -108,7 +108,7 @@ func main() {
 	// Cloudflare: "https://cloudflare-dns.com/dns-query"
 	// Google: "https://dns.google/dns-query"
 	// Quad9: "https://dns.quad9.net/dns-query"
-	dohServer := "https://cloudflare-dns.com/dns-query"
+	dohServer := "https://localhost:8080/dns-query"
 	domainToQuery := "www.example.com"
 
 	// --- 查询 A 记录 ---
