@@ -3,9 +3,6 @@
 # 服务器监听地址
 listen_addr: 127.0.0.1:3053
 
-# 工作线程数（范围：1-65536）
-threads: 16
-
 # 上游 DNS 服务器配置
 upstream:
   # 是否启用 DNSSEC

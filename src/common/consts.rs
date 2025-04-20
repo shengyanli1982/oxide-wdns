@@ -21,15 +21,6 @@ pub fn default_listen_addr() -> SocketAddr {
     "127.0.0.1:3053".parse().unwrap()
 }
 
-/// 最小线程数
-pub const MIN_THREADS: usize = 1;
-
-/// 最大线程数
-pub const MAX_THREADS: usize = 65536;
-
-/// 默认工作线程数
-pub const DEFAULT_THREADS: usize = 16;
-
 //
 // DNS 常量
 //

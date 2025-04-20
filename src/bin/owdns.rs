@@ -28,7 +28,7 @@ static GLOBAL: MiMalloc = MiMalloc;
     name = "oxide-wdns",
     author,
     version,
-    about = "High-performance DNS-over-HTTPS (DoH) server compliant with RFC 8484\n\n\
+    about = "High-performance DNS-over-HTTPS (DoH) server\n\n\
              Key Features:\n\
              - Standard DNS-over-HTTPS protocol support (RFC 8484)\n\
              - DoH JSON format and Wireformat support\n\
@@ -116,6 +116,7 @@ fn init_logging(args: &CliArgs) {
     }
 } 
 
+// 使用 tokio::main 宏让tokio自动决定线程数量
 #[tokio::main]
 async fn main() {
     // Parse command line arguments
@@ -137,7 +138,6 @@ async fn main() {
                 config_path = ?args.config,
                 dns_servers = config.upstream.resolvers.len(),
                 listen_addr = %config.listen_addr,
-                worker_threads = config.threads,
                 "Configuration loaded successfully"
             );
             config
@@ -151,13 +151,6 @@ async fn main() {
             exit(1);
         }
     };
-    
-    // Set tokio runtime worker threads based on configuration
-    tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(config.threads)
-        .enable_all()
-        .build()
-        .unwrap();
     
     // If only testing configuration
     if args.test_config {
@@ -197,6 +190,6 @@ async fn main() {
         }
     }
     
-    info!("Server shutdown completed successfully");
+    info!("Server shutdown completed");
 }
 

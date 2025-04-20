@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::common::error::{AppError, Result};
 use crate::common::consts::{
     // 服务器配置相关常量
-    default_listen_addr, MIN_THREADS, MAX_THREADS, DEFAULT_THREADS, 
+    default_listen_addr,
     // 上游服务器相关常量
     DEFAULT_QUERY_TIMEOUT,
     // 缓存相关常量
@@ -24,10 +24,6 @@ pub struct ServerConfig {
     /// 服务器监听地址
     #[serde(default = "default_listen_addr")]
     pub listen_addr: SocketAddr,
-    
-    /// 工作线程数
-    #[serde(default = "default_threads")]
-    pub threads: usize,
     
     /// 上游 DNS 服务器配置
     pub upstream: UpstreamConfig,
@@ -122,10 +118,6 @@ pub struct RateLimitConfig {
 }
 
 // 默认值函数 - 使用 consts 中定义的常量
-fn default_threads() -> usize {
-    DEFAULT_THREADS
-}
-
 fn default_resolver_protocol() -> ResolverProtocol {
     ResolverProtocol::Udp
 }
@@ -181,14 +173,6 @@ impl ServerConfig {
     
     /// 测试配置的有效性
     pub fn test(&self) -> Result<()> {
-        // 验证线程数范围
-        if self.threads < MIN_THREADS || self.threads > MAX_THREADS {
-            return Err(AppError::Config(format!(
-                "Thread count must be between {}-{}, current value: {}", 
-                MIN_THREADS, MAX_THREADS, self.threads
-            )));
-        }
-        
         // 检查上游解析器列表
         if self.upstream.resolvers.is_empty() {
             return Err(AppError::Config("Upstream resolver list cannot be empty".to_string()));
@@ -260,6 +244,7 @@ impl ServerConfig {
             }
         }
         
+        // 所有验证通过
         Ok(())
     }
 }
