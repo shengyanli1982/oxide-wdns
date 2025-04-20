@@ -140,12 +140,16 @@ where
     // 检查速率限制
     if !manager.check_rate_limit(&client_ip) {
         warn!(client_ip = %client_ip, "Rate limit exceeded");
+        // 记录速率限制指标
+        crate::server::metrics::METRICS.with(|m| m.record_rate_limit(&client_ip));
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
     
     // 检查并发请求限制
     if !manager.try_acquire_concurrency(&client_ip) {
         warn!(client_ip = %client_ip, "Concurrent requests limit exceeded");
+        // 记录速率限制指标
+        crate::server::metrics::METRICS.with(|m| m.record_rate_limit(&client_ip));
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
     

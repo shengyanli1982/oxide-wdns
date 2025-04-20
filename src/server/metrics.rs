@@ -42,6 +42,12 @@ pub struct DnsMetrics {
     pub upstream_query_duration: HistogramVec,
     /// 按响应代码分类的 DNS 响应计数
     pub dns_responses_by_rcode: IntCounterVec,
+    /// 按查询类型分类的 DNS 查询计数
+    pub dns_queries_by_type: IntCounterVec,
+    /// 速率限制计数
+    pub rate_limited_requests: IntCounter,
+    /// 按 IP 分类的速率限制计数
+    pub rate_limited_requests_by_ip: IntCounterVec,
 }
 
 impl DnsMetrics {
@@ -143,6 +149,32 @@ impl DnsMetrics {
         )
         .unwrap();
         
+        // 创建按查询类型分类的 DNS 查询计数指标
+        let dns_queries_by_type = IntCounterVec::new(
+            Opts::new(
+                "doh_dns_queries_by_type",
+                "DNS query count by record type"
+            ),
+            &["type"],
+        )
+        .unwrap();
+        
+        // 创建速率限制相关指标
+        let rate_limited_requests = IntCounter::new(
+            "doh_rate_limited_requests",
+            "Number of rate limited requests",
+        )
+        .unwrap();
+        
+        let rate_limited_requests_by_ip = IntCounterVec::new(
+            Opts::new(
+                "doh_rate_limited_requests_by_ip",
+                "Rate limited requests by client IP (last octet anonymized)"
+            ),
+            &["client_ip"],
+        )
+        .unwrap();
+        
         // 注册所有指标
         registry.register(Box::new(total_requests.clone())).unwrap();
         registry.register(Box::new(requests_by_method_type.clone())).unwrap();
@@ -157,6 +189,9 @@ impl DnsMetrics {
         registry.register(Box::new(upstream_queries.clone())).unwrap();
         registry.register(Box::new(upstream_query_duration.clone())).unwrap();
         registry.register(Box::new(dns_responses_by_rcode.clone())).unwrap();
+        registry.register(Box::new(dns_queries_by_type.clone())).unwrap();
+        registry.register(Box::new(rate_limited_requests.clone())).unwrap();
+        registry.register(Box::new(rate_limited_requests_by_ip.clone())).unwrap();
         
         DnsMetrics {
             registry,
@@ -173,6 +208,9 @@ impl DnsMetrics {
             upstream_queries,
             upstream_query_duration,
             dns_responses_by_rcode,
+            dns_queries_by_type,
+            rate_limited_requests,
+            rate_limited_requests_by_ip,
         }
     }
     
@@ -205,6 +243,20 @@ impl DnsMetrics {
             .inc();
     }
     
+    /// 记录DNS响应码
+    pub fn record_dns_rcode(&self, rcode: &str) {
+        self.dns_responses_by_rcode
+            .with_label_values(&[rcode])
+            .inc();
+    }
+    
+    /// 记录DNS查询类型
+    pub fn record_dns_query_type(&self, query_type: &str) {
+        self.dns_queries_by_type
+            .with_label_values(&[query_type])
+            .inc();
+    }
+    
     /// 记录上游查询
     pub fn record_upstream_query(&self, resolver: &str, duration: Duration) {
         self.upstream_queries
@@ -233,6 +285,16 @@ impl DnsMetrics {
         } else {
             self.dnssec_validation_failure.inc();
         }
+    }
+    
+    /// 记录速率限制
+    pub fn record_rate_limit(&self, client_ip: &str) {
+        self.rate_limited_requests.inc();
+        
+        // 直接使用客户端真实IP
+        self.rate_limited_requests_by_ip
+            .with_label_values(&[client_ip])
+            .inc();
     }
 }
 

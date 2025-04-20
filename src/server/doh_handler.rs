@@ -516,6 +516,12 @@ async fn process_query(
         return Err(AppError::Http("Not a query message type".to_string()));
     }
     
+    // 获取并记录查询类型
+    if let Some(query) = query_message.queries().first() {
+        let query_type = query.query_type().to_string();
+        METRICS.with(|m| m.record_dns_query_type(&query_type));
+    }
+    
     // 从查询消息构建缓存键
     let cache_key = CacheKey::from(query_message);
     
@@ -527,6 +533,10 @@ async fn process_query(
         // 创建新的响应消息，更新 ID 与查询消息匹配
         let mut response = cached_response.clone();
         response.set_id(query_message.id());
+        
+        // 记录DNS响应码
+        let rcode = response.response_code().to_string();
+        METRICS.with(|m| m.record_dns_rcode(&rcode));
         
         return Ok((response, true));  // 返回缓存命中标记
     }
@@ -548,6 +558,10 @@ async fn process_query(
     };
     
     METRICS.with(|m| m.record_upstream_query(&resolver_info, duration));
+    
+    // 记录 DNS 响应码
+    let rcode = response.response_code().to_string();
+    METRICS.with(|m| m.record_dns_rcode(&rcode));
     
     // 记录 DNSSEC 验证结果
     METRICS.with(|m| m.record_dnssec_validation(response.authentic_data()));
