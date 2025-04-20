@@ -46,7 +46,7 @@ impl DoHServer {
     /// 启动服务器
     pub async fn start(&mut self) -> Result<()> {
         // 初始化缓存
-        let cache = Arc::new(DnsCache::new(self.config.cache.clone()));
+        let cache = Arc::new(DnsCache::new(self.config.dns.cache.clone()));
         
         // 初始化上游管理器
         let upstream = Arc::new(UpstreamManager::new(&self.config).await?);
@@ -69,7 +69,7 @@ impl DoHServer {
         let mut doh_specific_routes = doh_routes(state);
 
         // 添加速率限制（如果启用）到 DoH 路由
-        if let Some(rate_limit) = rate_limit_layer(&self.config.rate_limit) {
+        if let Some(rate_limit) = rate_limit_layer(&self.config.http.rate_limit) {
             doh_specific_routes = doh_specific_routes.layer(rate_limit);
         }
         
@@ -80,7 +80,7 @@ impl DoHServer {
             .merge(doh_specific_routes); // 合并已应用中间件的 DoH 路由
             
         // 创建 TCP 监听器
-        let addr = self.config.listen_addr;
+        let addr = self.config.http.listen_addr;
         let listener = TcpListener::bind(addr).await?;
         info!("DNS-over-HTTPS server is now active on: {}", addr);
         

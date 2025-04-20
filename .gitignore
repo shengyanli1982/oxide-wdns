@@ -19,6 +19,7 @@ target/
 # Added by cargo
 
 test/
+design/
 .cursorrules
 .vscode/
 .idea/

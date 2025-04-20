@@ -18,9 +18,11 @@ pub const DEFAULT_CONFIG_PATH: &str = "config.yaml";
 
 /// 默认服务器监听地址
 pub fn default_listen_addr() -> SocketAddr {
-    "127.0.0.1:3053".parse().unwrap()
+    "0.0.0.0:3053".parse().unwrap()
 }
 
+// 默认服务器连接超时
+pub const DEFAULT_LISTEN_TIMEOUT: u64 = 120;
 //
 // DNS 常量
 //
@@ -45,10 +47,10 @@ pub const DEFAULT_CACHE_SIZE: usize = 10000;
 pub const DEFAULT_MIN_TTL: u32 = 60;
 
 /// 默认最大 TTL（秒）
-pub const DEFAULT_MAX_TTL: u32 = 86400; // 1 day
+pub const DEFAULT_MAX_TTL: u32 = 86400; // 1 天
 
 /// 默认负缓存 TTL（秒）
-pub const DEFAULT_NEGATIVE_TTL: u32 = 300; // 5 minutes
+pub const DEFAULT_NEGATIVE_TTL: u32 = 300; // 5 分钟
 
 //
 // 速率限制常量
@@ -70,6 +72,18 @@ pub const DEFAULT_QUERY_TIMEOUT: u64 = 30;
 //
 // HTTP 相关常量
 //
+
+/// 默认 HTTP 客户端超时时间（秒）
+pub const DEFAULT_HTTP_CLIENT_TIMEOUT: u64 = 120;
+
+/// 默认 HTTP 客户端连接池空闲超时时间（秒）
+pub const DEFAULT_HTTP_CLIENT_POOL_IDLE_TIMEOUT: u64 = 30;
+
+/// 默认 HTTP 客户端连接池最大空闲连接数
+pub const DEFAULT_HTTP_CLIENT_POOL_MAX_IDLE_CONNECTIONS: u32 = 10;
+
+/// 默认 HTTP 客户端 Agent
+pub const DEFAULT_HTTP_CLIENT_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
 /// DoH JSON 内容类型
 pub const CONTENT_TYPE_DNS_JSON: &str = "application/dns-json";

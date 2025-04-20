@@ -1,68 +1,93 @@
 # Oxide WDNS 默认配置文件
 
-# 服务器监听地址
-listen_addr: 127.0.0.1:3053
+# HTTP 服务器配置
+http_server:
+  # 服务器监听地址
+  listen_addr: "127.0.0.1:3053"
 
-# 上游 DNS 服务器配置
-upstream:
-  # 是否启用 DNSSEC
-  enable_dnssec: true
+  # 服务器连接超时（秒）
+  timeout: 120
 
-  # 查询超时时间（秒）
-  query_timeout: 30
+  # 速率限制配置
+  rate_limit:
+    # 是否启用速率限制
+    enabled: true
 
-  # 上游解析器列表
-  resolvers:
-    # Cloudflare DNS (UDP)
-    - address: 1.1.1.1:53
-      protocol: udp
+    # 每个 IP 每秒最大请求数
+    per_ip_rate: 100
 
-    # Google DNS (UDP)
-    - address: 8.8.8.8:53
-      protocol: udp
+    # 单个 IP 的并发请求数限制
+    per_ip_concurrent: 10
 
-    # Cloudflare DNS-over-TLS
-    # 格式：域名@IP:端口
-    - address: cloudflare-dns.com@1.1.1.1:853
-      protocol: dot
+# DNS 解析器配置
+dns_resolver:
+  # 上游 DNS 服务器配置
+  upstream:
+    # 是否启用 DNSSEC
+    enable_dnssec: true
 
-    # Cloudflare DNS-over-HTTPS
-    # 必须以 https:// 开头
-    - address: https://cloudflare-dns.com/dns-query
-      protocol: doh
+    # 查询超时时间（秒）
+    query_timeout: 30
 
-    # Google DNS TCP（示例）
-    # - address: 8.8.8.8:53
-    #   protocol: tcp
+    # 上游解析器列表
+    resolvers:
+      # Cloudflare DNS (UDP)
+      - address: "1.1.1.1:53"
+        protocol: "udp"
 
-    # Google DoT（示例）
-    # - address: dns.google@8.8.8.8:853
-    #   protocol: dot
+      # Google DNS (UDP)
+      - address: "8.8.8.8:53"
+        protocol: "udp"
 
-# 缓存配置
-cache:
-  # 是否启用缓存
-  enabled: true
+      # Cloudflare DNS-over-TLS
+      # 格式：域名@IP:端口
+      - address: "cloudflare-dns.com@1.1.1.1:853"
+        protocol: "dot"
 
-  # 缓存条目数量上限
-  size: 10000
+      # Cloudflare DNS-over-HTTPS
+      # 必须以 https:// 开头
+      - address: "https://cloudflare-dns.com/dns-query"
+        protocol: "doh"
 
-  # 最小 TTL（秒）
-  min_ttl: 60
+  # HTTP 客户端配置
+  http_client:
+    # HTTP 客户端超时时间（秒）
+    timeout: 120
 
-  # 最大 TTL（秒，1天）
-  max_ttl: 86400
+    # 连接池配置
+    pool:
+      # 连接池空闲超时时间（秒）
+      idle_timeout: 30
 
-  # 负缓存 TTL（秒，5分钟）
-  negative_ttl: 300
+      # 连接池最大空闲连接数
+      max_idle_connections: 10
 
-# 速率限制配置
-rate_limit:
-  # 是否启用速率限制
-  enabled: true
+    # HTTP 请求相关配置
+    request:
+      # HTTP 客户端 User-Agent
+      user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
 
-  # 每个 IP 每秒最大请求数
-  per_ip_rate: 100
+      # 使用的 IP 代理头字段名列表
+      ip_header_names:
+        - "X-Forwarded-For"
+        - "X-Real-IP"
+        - "CF-Connecting-IP"
 
-  # 单个 IP 的并发请求数限制
-  per_ip_concurrent: 10
+  # 缓存配置
+  cache:
+    # 是否启用缓存
+    enabled: true
+
+    # 缓存条目数量上限
+    size: 10000
+
+    # TTL 配置（秒）
+    ttl:
+      # 最小 TTL
+      min: 60
+
+      # 最大 TTL（1天）
+      max: 86400
+
+      # 负缓存 TTL（5分钟）
+      negative: 300

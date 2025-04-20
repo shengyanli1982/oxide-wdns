@@ -128,8 +128,8 @@ async fn main() {
         Ok(config) => {
             info!(
                 config_path = ?args.config,
-                dns_servers = config.upstream.resolvers.len(),
-                listen_addr = %config.listen_addr,
+                dns_servers = config.dns.upstream.resolvers.len(),
+                listen_addr = %config.http.listen_addr,
                 "Configuration loaded successfully,",
             );
             config

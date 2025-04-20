@@ -21,6 +21,7 @@ async fn create_test_state() -> ServerState {
     // 创建基本配置
     let config = ServerConfig {
         listen_addr: "127.0.0.1:3053".parse().unwrap(),
+        listen_timeout: 120,
         upstream: UpstreamConfig {
             resolvers: vec![
                 ResolverConfig {
@@ -33,6 +34,7 @@ async fn create_test_state() -> ServerState {
         },
         cache: CacheConfig::default(),
         rate_limit: RateLimitConfig::default(),
+        http_client: Default::default(),
     };
     
     // 创建缓存

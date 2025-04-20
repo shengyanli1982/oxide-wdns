@@ -117,7 +117,7 @@ impl DnsCache {
     
     /// 计算缓存条目的 TTL
     fn calculate_ttl(&self, message: &Message) -> Result<u32> {
-        let mut min_ttl = self.config.max_ttl;
+        let mut min_ttl = self.config.ttl.max;
         
         // 遍历所有记录，找出最小的 TTL
         for record in message.answers() {
@@ -133,7 +133,7 @@ impl DnsCache {
         }
         
         // 应用配置的最小/最大 TTL 限制
-        min_ttl = min_ttl.max(self.config.min_ttl).min(self.config.max_ttl);
+        min_ttl = min_ttl.max(self.config.ttl.min).min(self.config.ttl.max);
         
         Ok(min_ttl)
     }

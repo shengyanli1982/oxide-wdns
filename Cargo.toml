@@ -46,6 +46,7 @@ anyhow = "1.0"  # 错误处理库
 fastrand = "2.0"
 governor = "0.8"
 base64 = "0.22"  # 用于 DoH GET 请求中的 Base64url 编码/解码
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] } # 用于 DoH 请求
 
-[dev-dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] } # For integration tests
+
+

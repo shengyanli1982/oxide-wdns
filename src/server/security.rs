@@ -268,17 +268,18 @@ where
     }
 }
 
-/// 创建速率限制层
+/// 为特定请求路径创建速率限制层
 pub fn rate_limit_layer(config: &RateLimitConfig) -> Option<RateLimitLayer> {
-    if config.enabled {
-        info!(
-            per_ip_rate = config.per_ip_rate,
-            per_ip_concurrent = config.per_ip_concurrent,
-            "Rate limiting enabled"
-        );
-        Some(RateLimitLayer::new(config.clone()))
-    } else {
-        info!("Rate limiting disabled");
-        None
+    if !config.enabled {
+        info!("Rate limiting disabled in configuration");
+        return None;
     }
+    
+    info!(
+        per_ip_rate = config.per_ip_rate,
+        per_ip_concurrent = config.per_ip_concurrent,
+        "Rate limiting enabled"
+    );
+    
+    Some(RateLimitLayer::new(config.clone()))
 }
