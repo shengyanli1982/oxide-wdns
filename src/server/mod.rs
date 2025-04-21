@@ -79,7 +79,7 @@ impl DoHServer {
         // 创建 TCP 监听器
         let addr = self.config.http.listen_addr;
         let listener = TcpListener::bind(addr).await?;
-        info!("DNS-over-HTTPS server is now active on: {}", addr);
+        info!("DoH server is now active on: {}", addr);
         
         // 创建关闭信号
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
