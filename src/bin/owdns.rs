@@ -23,17 +23,21 @@ static GLOBAL: MiMalloc = MiMalloc;
     name = "oxide-wdns",
     author,
     version,
-    about = "High-performance DNS-over-HTTPS (DoH) gateway\n\n\
+    about = "High-performance DNS-over-HTTP/HTTPS (DoH) gateway\n\n\
              Key Features:\n\
-             - Standard DNS-over-HTTPS Wireformat support (RFC 8484)\n\
+             - Standard DNS-over-HTTP/HTTPS Wireformat support (RFC 8484)\n\
              - Google/Cloudflare DoH JSON format support\n\
              - DNSSEC validation\n\
-             - Multiple upstream DNS protocols: UDP, TCP, DoT (DNS-over-TLS), DoH (DNS-over-HTTPS)\n\
+             - Multiple upstream DNS protocols: UDP, TCP, DoT (DNS-over-TLS), DoH (DNS-over-HTTP/HTTPS)\n\
              - Built-in LRU cache for performance optimization\n\
              - Prometheus metrics monitoring\n\
              - Kubernetes Health Probe\n\
-             - Rate limiting and input validation for enhanced security"
+             - Rate limiting and input validation for enhanced security\n\n\
+             Author: shengyanli1982\n\
+             Email: shengyanlee36@gmail.com\n\
+             GitHub Page: https://github.com/shengyanli1982"
 )]
+
 struct CliArgs {
     /// 配置文件路径
     #[arg(
