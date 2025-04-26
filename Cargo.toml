@@ -1,0 +1,57 @@
+[package]
+name = "oxide-wdns"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+incremental = false
+overflow-checks = false
+
+[[bin]]
+name = "owdns"
+path = "src/bin/owdns.rs"
+
+[[bin]]
+name = "owdns-cli"
+path = "src/bin/owdns_cli.rs"
+
+[dependencies]
+tokio = { version = "1.38", features = ["full"] }
+axum = { version = "0.8", features = ["macros"] }
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+hyper = { version = "1.4", features = ["http1", "http2"] }
+tower = { version = "0.4", features = ["util"] }
+trust-dns-proto = "0.23"
+# 使用 native-tls 实现的 DNS-over-TLS 支持
+trust-dns-resolver = { version = "0.23", features = ["dns-over-native-tls", "dnssec-ring", "tokio-runtime"] }
+# 指定更新版本的 openssl-sys，覆盖间接依赖引入的旧版本
+openssl-sys = "0.9"
+native-tls = "0.2"
+moka = { version = "0.12", features = ["future"] }
+prometheus = "0.13"
+tower_governor = { version = "0.7", features = ["axum"], default-features = false }
+mimalloc = { version = "0.1", default-features = false }
+thiserror = "1.0"
+anyhow = "1.0"
+fastrand = "2.0"
+governor = "0.8"
+base64 = "0.22"  # 用于 DoH GET 请求中的 Base64url 编码/解码
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] } # 用于 DoH 请求
+dashmap = "5.5"
+
+[dev-dependencies]
+tempfile = "3.19"
+futures = "0.3"
+bytes = "1.5"
+
+
