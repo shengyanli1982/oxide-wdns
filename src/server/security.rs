@@ -53,7 +53,7 @@ pub fn apply_rate_limiting(routes: Router, config: &RateLimitConfig) -> Router {
                         m.record_rate_limit(&client_ip);
                     });
                     
-                    warn!("Rate limit exceeded for client: {}", client_ip);
+                    debug!("Rate limit exceeded for client: {}", client_ip);
                 }
                 
                 // 返回 429 Too Many Requests 响应
