@@ -2,81 +2,194 @@
 
 #[cfg(test)]
 mod tests {
-    // 假设指标收集逻辑在 crate::server::metrics 模块
-    // use crate::server::metrics::{MetricsRegistry, record_request, record_cache_hit, get_prometheus_output};
-    // use std::sync::Arc;
+    use std::sync::Arc;
+    use axum::{routing::get, Router};
+    use tokio::net::TcpListener;
+    use reqwest::Client;
+    use std::time::Duration;
+    // 从项目的公共API中导入，而不是使用 crate::
+    use oxide_wdns::server::metrics::{DnsMetrics, METRICS};
 
     // === 辅助函数 ===
-    // fn setup_metrics() -> Arc<MetricsRegistry> { ... }
-
-    #[test]
-    fn test_metrics_request_total_counter() {
-        // 测试：请求总数计数器是否正确增加。
-        // 1. 获取/创建指标注册表。
-        // 2. 调用模拟处理请求的函数（该函数内部应调用 `record_request` 或类似方法）。
-        // 3. 读取请求总数计数器的值。
-        // 4. 断言：计数器值增加了 1。
-        assert!(true, "Implement me!");
+    fn setup_metrics() -> Arc<DnsMetrics> {
+        Arc::new(DnsMetrics::new())
     }
 
-    #[test]
-    fn test_metrics_error_total_counter() {
-        // 测试：错误总数计数器是否在发生错误时增加。
-        // 1. 获取/创建指标注册表。
-        // 2. 调用模拟处理请求并失败的函数（内部应调用 `record_error`）。
-        // 3. 读取错误总数计数器的值。
-        // 4. 断言：计数器值增加了 1。
-        assert!(true, "Implement me!");
+    async fn setup_metrics_server() -> String {
+        // 使用Axum框架创建一个提供指标的测试服务器
+        let app = Router::new().route(
+            "/metrics",
+            get(|| async {
+                let encoder = prometheus::TextEncoder::new();
+                
+                // 线程安全地获取所有注册的指标
+                let metric_families = METRICS.with(|m| m.registry().gather());
+                
+                // 编码为文本格式
+                let mut buffer = String::new();
+                encoder.encode_utf8(&metric_families, &mut buffer).unwrap();
+                
+                // 返回响应
+                (
+                    axum::http::StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, prometheus::TEXT_FORMAT)],
+                    buffer
+                )
+            }),
+        );
+
+        // 绑定到随机端口
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        
+        // 启动服务器（后台运行）
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        
+        format!("http://{}", addr)
     }
 
-    #[test]
-    fn test_metrics_cache_hit_counter() {
-        // 测试：缓存命中计数器。
-        // 1. 获取/创建指标注册表。
-        // 2. 调用模拟缓存命中的函数（内部应调用 `record_cache_hit`）。
-        // 3. 读取缓存命中计数器的值。
-        // 4. 断言：计数器值增加了 1。
-        assert!(true, "Implement me!");
+    #[tokio::test]
+    async fn test_metrics_request_total_counter() {
+        // 1. 获取/创建指标注册表
+        let metrics = setup_metrics();
+        
+        // 2. 调用记录请求的方法
+        metrics.record_request("GET", "application/dns-message");
+        
+        // 3. 读取请求总数计数器的值
+        let value = metrics.total_requests.get();
+        
+        // 4. 断言：计数器值增加了 1
+        assert_eq!(value, 1, "Request counter should be incremented by 1");
     }
 
-    #[test]
-    fn test_metrics_cache_miss_counter() {
-        // 测试：缓存未命中计数器。
-        // 1. 获取/创建指标注册表。
-        // 2. 调用模拟缓存未命中的函数（内部应调用 `record_cache_miss`）。
-        // 3. 读取缓存未命中计数器的值。
-        // 4. 断言：计数器值增加了 1。
-        assert!(true, "Implement me!");
+    #[tokio::test]
+    async fn test_metrics_error_total_counter() {
+        // 1. 获取/创建指标注册表
+        let metrics = setup_metrics();
+        
+        // 2. 调用记录错误的方法
+        metrics.record_error("dns_format_error");
+        
+        // 3. 读取错误总数计数器的值
+        let value = metrics.errors.with_label_values(&["dns_format_error"]).get();
+        
+        // 4. 断言：计数器值增加了 1
+        assert_eq!(value, 1, "Error counter should be incremented by 1");
     }
 
-     #[test]
-    fn test_metrics_upstream_query_duration_histogram() {
-        // 测试：上游查询延迟直方图是否记录了数据。
-        // 1. 获取/创建指标注册表。
-        // 2. 调用模拟向上游查询的函数，并记录持续时间（内部应调用 `record_upstream_duration`）。
-        // 3. 检查直方图指标（可能需要检查暴露的文本格式）。
-        // 4. 断言：直方图至少有一个样本，并且值在预期范围内。
-        assert!(true, "Implement me!");
+    #[tokio::test]
+    async fn test_metrics_cache_hit_counter() {
+        // 1. 获取/创建指标注册表
+        let metrics = setup_metrics();
+        
+        // 2. 调用记录缓存命中的方法
+        metrics.cache_hits.inc();
+        
+        // 3. 读取缓存命中计数器的值
+        let value = metrics.cache_hits.get();
+        
+        // 4. 断言：计数器值增加了 1
+        assert_eq!(value, 1, "Cache hit counter should be incremented by 1");
     }
 
-    #[test]
-    fn test_metrics_prometheus_output_format() {
-        // 测试：暴露的 Prometheus 指标格式是否正确。
-        // 1. 获取/创建指标注册表并记录一些指标。
-        // 2. 调用获取 Prometheus 格式输出的函数 (`get_prometheus_output` 或类似)。
-        // 3. 断言：输出字符串不为空。
-        // 4. 断言：输出包含预期的指标名称（如 `requests_total`, `cache_hits_total`）。
-        // 5. 断言：输出符合 Prometheus 文本格式的基本规范（例如，包含 HELP 和 TYPE 信息）。
-        assert!(true, "Implement me!");
+    #[tokio::test]
+    async fn test_metrics_cache_miss_counter() {
+        // 1. 获取/创建指标注册表
+        let metrics = setup_metrics();
+        
+        // 2. 调用记录缓存未命中的方法
+        metrics.cache_misses.inc();
+        
+        // 3. 读取缓存未命中计数器的值
+        let value = metrics.cache_misses.get();
+        
+        // 4. 断言：计数器值增加了 1
+        assert_eq!(value, 1, "Cache miss counter should be incremented by 1");
     }
 
-     #[test]
-    fn test_metrics_reset_or_recreate() {
-        // 测试：指标是否可以在测试之间正确重置或重新创建（避免状态污染）。
-        // 1. 运行一个记录指标的测试。
-        // 2. 重置/重新创建指标注册表。
-        // 3. 再次读取指标。
-        // 4. 断言：指标值恢复到初始状态（通常是 0）。
-        assert!(true, "Implement me!");
+    #[tokio::test]
+    async fn test_metrics_upstream_query_duration_histogram() {
+        // 1. 获取/创建指标注册表
+        let metrics = setup_metrics();
+        
+        // 2. 调用记录上游查询持续时间的方法
+        let duration = Duration::from_millis(150); // 150毫秒
+        metrics.record_upstream_query("cloudflare", duration);
+        
+        // 3. 获取直方图的样本总数
+        let sample_count = metrics.upstream_query_duration
+            .with_label_values(&["cloudflare"])
+            .get_sample_count();
+        
+        // 4. 断言：直方图至少有一个样本
+        assert_eq!(sample_count, 1, "Histogram should have recorded exactly one sample");
+        
+        // 5. 获取样本的总和
+        let sample_sum = metrics.upstream_query_duration
+            .with_label_values(&["cloudflare"])
+            .get_sample_sum();
+        
+        // 6. 断言：样本总和应该是duration转换为秒后的值（接近0.15）
+        assert!(
+            (sample_sum - 0.15).abs() < 0.001, 
+            "Sample sum should be approximately 0.15 seconds"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_metrics_prometheus_output_format() {
+        // 1. 创建服务器并获取URL
+        let server_url = setup_metrics_server().await;
+        
+        // 2. 设置一些指标数据（在线程本地存储中）
+        METRICS.with(|m| {
+            m.record_request("GET", "application/dns-message");
+            m.cache_hits.inc();
+            m.record_dns_query_type("A");
+            m.record_error("parse_error");
+        });
+        
+        // 3. 请求指标端点
+        let client = Client::new();
+        let response = client.get(format!("{}/metrics", server_url))
+            .send()
+            .await
+            .expect("Failed to send request");
+        
+        // 4. 检查响应状态
+        assert_eq!(response.status().as_u16(), 200, "Expected 200 OK response");
+        
+        // 5. 获取响应体
+        let body = response.text().await.expect("Failed to get response body");
+        
+        // 6. 验证输出格式包含预期的指标名称
+        assert!(body.contains("doh_requests_total"), "Output should contain total requests metric");
+        assert!(body.contains("doh_cache_hits"), "Output should contain cache hits metric");
+        assert!(body.contains("doh_dns_queries_by_type"), "Output should contain DNS queries by type metric");
+        assert!(body.contains("doh_errors"), "Output should contain errors metric");
+        
+        // 7. 验证输出包含必要的Prometheus元数据
+        assert!(body.contains("# HELP"), "Output should contain HELP metadata");
+        assert!(body.contains("# TYPE"), "Output should contain TYPE metadata");
+    }
+
+    #[tokio::test]
+    async fn test_metrics_reset_or_recreate() {
+        // 1. 创建第一个指标实例并记录数据
+        let metrics1 = DnsMetrics::new();
+        metrics1.total_requests.inc();
+        metrics1.cache_hits.inc();
+        assert_eq!(metrics1.total_requests.get(), 1);
+        assert_eq!(metrics1.cache_hits.get(), 1);
+        
+        // 2. 创建新的指标实例（模拟重置）
+        let metrics2 = DnsMetrics::new();
+        
+        // 3. 验证新实例的计数器为初始状态（0）
+        assert_eq!(metrics2.total_requests.get(), 0, "New instance should have counter value 0");
+        assert_eq!(metrics2.cache_hits.get(), 0, "New instance should have counter value 0");
     }
 } 

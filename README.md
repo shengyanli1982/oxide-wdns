@@ -46,3 +46,5 @@ rfc8484 dns-over-https
 $ curl -s -H 'accept: application/dns-message' \
 'https://cloudflare-dns.com/dns-query?name=www.potaroo.net&type=A' | hexdump -C
 ```
+
+cargo test -p oxide-wdns server::config_tests

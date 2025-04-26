@@ -49,5 +49,8 @@ base64 = "0.22"  # 用于 DoH GET 请求中的 Base64url 编码/解码
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] } # 用于 DoH 请求
 dashmap = "5.5"
 
+[dev-dependencies]
+tempfile = "3.19"
+
 
 

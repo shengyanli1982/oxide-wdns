@@ -1238,6 +1238,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_yaml",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tower 0.4.13",
