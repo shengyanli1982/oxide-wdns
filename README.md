@@ -10,6 +10,7 @@ cargo test --test rate_limit_tests
 ```
 
 google dns-over-https
+
 ```bash
 $ curl -s -H 'accept: application/dns+json' \
 'https://dns.google.com/resolve?name=www.potaroo.net&type=A' | jq
@@ -38,10 +39,10 @@ $ curl -s -H 'accept: application/dns+json' \
     "Comment": "Response from 203.133.248.2."
 }
 ```
+
 rfc8484 dns-over-https
+
 ```bash
 $ curl -s -H 'accept: application/dns-message' \
 'https://cloudflare-dns.com/dns-query?name=www.potaroo.net&type=A' | hexdump -C
 ```
-
-
