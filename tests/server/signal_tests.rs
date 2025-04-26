@@ -145,7 +145,13 @@ mod tests {
             _ = async {
                 // 等待服务完成的分支
                 info!("Waiting for service handle completion...");
-                if let Some(handle) = service_handle_arc.lock().unwrap().take() {
+                // 创建一个作用域来限制锁的持有时间
+                let handle = {
+                    let mut lock = service_handle_arc.lock().unwrap();
+                    lock.take()
+                };
+                
+                if let Some(handle) = handle {
                     let result = handle.await;
                     let elapsed = start_time.elapsed();
                     info!(?elapsed, ?result, "Service task completed normally.");
@@ -164,7 +170,14 @@ mod tests {
                 info!(?elapsed, ?shutdown_timeout, "Timeout branch executed.");
                 // 尝试终止服务任务
                 info!("Attempting to abort service task due to timeout...");
-                if let Some(handle) = timeout_handle_arc.lock().unwrap().take() {
+                
+                // 创建作用域来限制锁的持有时间
+                let handle = {
+                    let mut lock = timeout_handle_arc.lock().unwrap();
+                    lock.take()
+                };
+                
+                if let Some(handle) = handle {
                     handle.abort();
                     info!("Service task aborted.");
                 } else {

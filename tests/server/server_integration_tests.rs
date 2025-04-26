@@ -396,11 +396,7 @@ mod tests {
         let results = future::join_all(tasks).await;
         
         // 收集所有响应状态码
-        for result in results {
-            if let Ok(status) = result {
-                status_codes.push(status);
-            }
-        }
+        status_codes.extend(results.into_iter().flatten());
         
         info!("Received status codes: {:?}", status_codes);
         

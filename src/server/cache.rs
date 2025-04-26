@@ -210,6 +210,11 @@ impl DnsCache {
         // 要获得准确的条目数，需要运行待处理的任务
         self.cache.entry_count()
     }
+    
+    // 检查缓存是否为空
+    pub async fn is_empty(&self) -> bool {
+        self.len().await == 0
+    }
 }
 
 impl From<&Message> for CacheKey {
