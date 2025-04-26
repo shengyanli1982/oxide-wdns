@@ -221,7 +221,7 @@ impl UpstreamManager {
         // trust-dns-resolver会根据CD标志自动处理DNSSEC验证
         let lookup_result = self.resolver.lookup(query.name().clone(), query.query_type())
             .await
-            .map_err(|e| AppError::DnsResolve(e));
+            .map_err(AppError::DnsResolve);
         
         match lookup_result {
             Ok(dns_response) => {

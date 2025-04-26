@@ -50,6 +50,12 @@ pub struct DnsMetrics {
     pub rate_limited_requests_by_ip: IntCounterVec,
 }
 
+impl Default for DnsMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DnsMetrics {
     // 创建新的指标收集器
     pub fn new() -> Self {

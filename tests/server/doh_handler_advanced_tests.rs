@@ -19,7 +19,7 @@ mod tests {
     use oxide_wdns::server::cache::DnsCache;
     use oxide_wdns::server::metrics::DnsMetrics;
     use oxide_wdns::server::doh_handler::{ServerState, doh_routes};
-    use tracing::{info, warn}; // 添加 tracing 引用
+    use tracing::info; // 添加 tracing 引用
 
     // === 辅助函数 / 模拟 ===
     

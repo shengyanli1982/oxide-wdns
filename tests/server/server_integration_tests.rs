@@ -8,7 +8,7 @@ mod tests {
     use std::num::NonZeroU32;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
     use futures::future;
-    use reqwest::{Client, StatusCode, header::{HeaderValue, CONTENT_TYPE}};
+    use reqwest::{Client, StatusCode, header::HeaderValue};
     use tokio::sync::{oneshot};
     use tokio::time::sleep;
     use tracing::{info, warn};
@@ -100,7 +100,7 @@ mod tests {
 
     // 在后台启动测试服务器
     async fn start_test_server(server_state: ServerState) -> (String, oneshot::Sender<()>) {
-        let addr_str = server_state.config.http.listen_addr.clone();
+        let addr_str = server_state.config.http.listen_addr;
         let addr = format!("http://{}", addr_str);
         
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -645,7 +645,7 @@ mod tests {
                 .body(query_bytes)
                 .send()
                 .await
-                .expect(&format!("{:?} query request failed", record_type));
+                .unwrap_or_else(|_| panic!("{:?} query request failed", record_type));
             
             // 断言响应成功
             assert_eq!(response.status(), StatusCode::OK);

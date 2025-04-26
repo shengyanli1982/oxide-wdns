@@ -2,30 +2,30 @@
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    
     use std::net::{Ipv4Addr, SocketAddr};
-    use std::path::PathBuf;
+    
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, Instant};
+    
     
     use axum::{response::IntoResponse, Router, routing::post};
-    use axum::extract::State;
+    
     use bytes::Bytes;
-    use futures::future;
-    use futures::future::join_all;
+    
+    
     use hyper::StatusCode;
-    use tokio::net::{TcpListener, TcpStream};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+    
     use tokio::sync::oneshot;
-    use tokio::time::sleep;
-    use tracing::{debug, info, warn};
+    
+    use tracing::info;
     use trust_dns_proto::op::{Message, MessageType, ResponseCode, OpCode, Query};
     use trust_dns_proto::rr::{Name, RData, Record, RecordType, rdata::A};
     
     use oxide_wdns::server::config::{ResolverConfig, ResolverProtocol, ServerConfig};
-    use oxide_wdns::server::config::UpstreamConfig;
+    
     use oxide_wdns::server::upstream::UpstreamManager;
-    use oxide_wdns::common::error::AppError;
+    
     
     // === 辅助函数 / 模拟 ===
     
