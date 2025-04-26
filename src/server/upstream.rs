@@ -14,16 +14,16 @@ use crate::common::error::{AppError, Result};
 use crate::server::config::{ResolverProtocol, ServerConfig, UpstreamConfig};
 use crate::common::consts::{CONTENT_TYPE_DNS_MESSAGE};
 
-/// DoH查询客户端
+// DoH查询客户端
 struct DoHClient {
-    /// HTTP客户端
+    // HTTP客户端
     client: Client,
-    /// DoH服务器URL
+    // DoH服务器URL
     url: String,
 }
 
 impl DoHClient {
-    /// 创建新的DoH客户端
+    // 创建新的DoH客户端
     fn new(url: String, config: &ServerConfig) -> Result<Self> {
         // 使用配置创建HTTP客户端
         let client = Client::builder()
@@ -40,7 +40,7 @@ impl DoHClient {
         Ok(Self { client, url })
     }
     
-    /// 执行DoH查询
+    // 执行DoH查询
     async fn query(&self, dns_message: &Message) -> Result<Message> {
         // 将DNS消息转换为二进制格式
         let dns_wire = dns_message.to_vec()?;
@@ -100,7 +100,7 @@ pub struct UpstreamManager {
 }
 
 impl UpstreamManager {
-    /// 创建新的上游解析管理器
+    // 创建新的上游解析管理器
     pub async fn new(config: &ServerConfig) -> Result<Self> {
         // 提取上游配置
         let upstream_config = config.dns.upstream.clone();
@@ -149,7 +149,7 @@ impl UpstreamManager {
         })
     }
     
-    /// 执行 DNS 查询
+    // 执行 DNS 查询
     pub async fn resolve(&self, query_message: &Message) -> Result<Message> {
         if query_message.message_type() != MessageType::Query {
             return Err(AppError::Upstream("Not a query message type".to_string()));
@@ -281,7 +281,7 @@ impl UpstreamManager {
         }
     }
     
-    /// 构建 trust-dns-resolver 配置
+    // 构建 trust-dns-resolver 配置
     fn build_resolver_config(
         config: &UpstreamConfig,
     ) -> Result<(ResolverConfig, ResolverOpts)> {
@@ -340,7 +340,7 @@ impl UpstreamManager {
         Ok((resolver_config, resolver_opts))
     }
     
-    /// 从配置创建名称服务器配置
+    // 从配置创建名称服务器配置
     fn create_name_server_config(
         resolver_config: &crate::server::config::ResolverConfig,
     ) -> Result<NameServerConfig> {
@@ -398,7 +398,7 @@ impl UpstreamManager {
         }
     }
     
-    /// 解析套接字地址
+    // 解析套接字地址
     fn parse_socket_addr(addr_str: &str) -> Result<SocketAddr> {
         addr_str.parse().map_err(|e| {
             AppError::Config(format!("Invalid socket address '{}': {}", addr_str, e))

@@ -17,25 +17,26 @@ use tokio::signal::ctrl_c;
 use tokio::sync::oneshot;
 use tokio::time;
 use tracing::{error, info};
+
 use crate::common::error::Result;
 use crate::server::cache::DnsCache;
 use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};
 use crate::server::health::health_routes;
 use crate::server::metrics::{metrics_routes, DnsMetrics};
-use crate::server::security::rate_limit_layer;
+use crate::server::security::apply_rate_limiting;
 use crate::server::upstream::UpstreamManager;
 
-/// DNS-over-HTTPS 服务器
+// DNS-over-HTTPS 服务器
 pub struct DoHServer {
-    /// 配置
+    // 配置
     config: ServerConfig,
-    /// 关闭信号发送器
+    // 关闭信号发送器
     shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
 impl DoHServer {
-    /// 创建新的 DoH 服务器
+    // 创建新的 DoH 服务器
     pub fn new(config: ServerConfig) -> Self {
         Self {
             config,
@@ -43,7 +44,7 @@ impl DoHServer {
         }
     }
     
-    /// 启动服务器
+    // 启动服务器
     pub async fn start(&mut self) -> Result<()> {
         // 初始化缓存
         let cache = Arc::new(DnsCache::new(self.config.dns.cache.clone()));
@@ -65,10 +66,8 @@ impl DoHServer {
         // 创建 DoH 路由
         let mut doh_specific_routes = doh_routes(state);
 
-        // 添加速率限制（如果启用）到 DoH 路由
-        if let Some(rate_limit) = rate_limit_layer(&self.config.http.rate_limit) {
-            doh_specific_routes = doh_specific_routes.layer(rate_limit);
-        }
+        // 应用速率限制
+        doh_specific_routes = apply_rate_limiting(doh_specific_routes, &self.config.http.rate_limit);
         
         // 创建主应用路由，合并所有路由
         let app = Router::new()
@@ -92,6 +91,7 @@ impl DoHServer {
         info!("Starting to accept connections");
         let server = axum::serve(
             listener,
+            // Ensure connect_info is provided for SmartIpKeyExtractor fallback
             app.into_make_service_with_connect_info::<std::net::SocketAddr>()
         )
         .with_graceful_shutdown(Self::shutdown_signal(shutdown_rx));
@@ -111,7 +111,7 @@ impl DoHServer {
         Ok(())
     }
     
-    /// 监听关闭信号
+    // 监听关闭信号
     async fn shutdown_signal(shutdown_rx: oneshot::Receiver<()>) {
         // 等待手动关闭信号或系统信号
         tokio::select! {
@@ -135,7 +135,7 @@ impl DoHServer {
         time::sleep_until(deadline).await;
     }
     
-    /// 更新缓存指标的任务
+    // 更新缓存指标的任务
     async fn update_cache_metrics(
         cache: Arc<DnsCache>,
         metrics: Arc<DnsMetrics>,
@@ -154,7 +154,7 @@ impl DoHServer {
         }
     }
     
-    /// 关闭服务器
+    // 关闭服务器
     pub fn shutdown(&mut self) {
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
@@ -162,7 +162,7 @@ impl DoHServer {
         }
     }
     
-    /// 运行服务器
+    // 运行服务器
     pub async fn run(config: ServerConfig) -> Result<()> {
         let mut server = Self::new(config);
         server.start().await?;

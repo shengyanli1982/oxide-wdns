@@ -28,97 +28,97 @@ use crate::server::metrics::{DnsMetrics, METRICS};
 use crate::server::upstream::UpstreamManager;
 
 
-/// 共享的服务器状态
+// 共享的服务器状态
 #[derive(Clone)]
 pub struct ServerState {
-    /// 配置
+    // 配置
     pub config: ServerConfig,
-    /// 上游解析管理器
+    // 上游解析管理器
     pub upstream: Arc<UpstreamManager>,
-    /// DNS 缓存
+    // DNS 缓存
     pub cache: Arc<DnsCache>,
-    /// 指标收集器
+    // 指标收集器
     pub metrics: Arc<DnsMetrics>,
 }
 
-/// DNS-over-HTTPS JSON 请求参数
+// DNS-over-HTTPS JSON 请求参数
 #[derive(Debug, Deserialize)]
 pub struct DnsJsonRequest {
-    /// 查询名称
+    // 查询名称
     pub name: String,
-    /// 查询类型
+    // 查询类型
     #[serde(default = "default_record_type")]
     pub type_value: u16,
-    /// 查询类
+    // 查询类
     #[serde(default = "default_dns_class")]
     pub dns_class: Option<u16>,
-    /// 是否启用 DNSSEC
+    // 是否启用 DNSSEC
     #[serde(default)]
     pub dnssec: bool,
-    /// 是否启用检查禁用
+    // 是否启用检查禁用
     #[serde(default)]
     pub cd: bool,
 }
 
-/// DNS-over-HTTPS GET 请求参数（RFC 8484）
+// DNS-over-HTTPS GET 请求参数（RFC 8484）
 #[derive(Debug, Deserialize)]
 pub struct DnsMsgGetRequest {
-    /// DNS 请求的 Base64url 编码
+    // DNS 请求的 Base64url 编码
     pub dns: String,
 }
 
-/// DNS-over-HTTPS JSON 响应格式
+// DNS-over-HTTPS JSON 响应格式
 #[derive(Debug, Serialize)]
 pub struct DnsJsonResponse {
-    /// 响应状态代码
+    // 响应状态代码
     pub status: u16,
-    /// 是否被截断
+    // 是否被截断
     #[serde(default)]
     pub tc: bool,
-    /// 是否递归可用
+    // 是否递归可用
     #[serde(default)]
     pub rd: bool,
-    /// 是否递归期望
+    // 是否递归期望
     #[serde(default)]
     pub ra: bool,
-    /// 是否 AD 标志（DNSSEC 验证）
+    // 是否 AD 标志（DNSSEC 验证）
     #[serde(default)]
     pub ad: bool,
-    /// 是否检查禁用
+    // 是否检查禁用
     #[serde(default)]
     pub cd: bool,
-    /// 查询列表
+    // 查询列表
     pub question: Vec<DnsJsonQuestion>,
-    /// 应答记录列表
+    // 应答记录列表
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answer: Vec<DnsJsonAnswer>,
 }
 
-/// DNS-over-HTTPS JSON 查询
+// DNS-over-HTTPS JSON 查询
 #[derive(Debug, Serialize)]
 pub struct DnsJsonQuestion {
-    /// 查询名称
+    // 查询名称
     pub name: String,
-    /// 查询类型
+    // 查询类型
     pub type_value: u16,
 }
 
-/// DNS-over-HTTPS JSON 应答记录
+// DNS-over-HTTPS JSON 应答记录
 #[derive(Debug, Serialize)]
 pub struct DnsJsonAnswer {
-    /// 记录名称
+    // 记录名称
     pub name: String,
-    /// 记录类型
+    // 记录类型
     pub type_value: u16,
-    /// 记录类
+    // 记录类
     pub class: u16,
-    /// 生存时间（TTL）
+    // 生存时间（TTL）
     pub ttl: u32,
-    /// 记录数据
+    // 记录数据
     pub data: String,
 }
 
-/// 创建 DoH 路由
+// 创建 DoH 路由
 pub fn doh_routes(state: ServerState) -> Router {
     Router::new()
         // JSON API 路由（兼容性）
@@ -130,7 +130,7 @@ pub fn doh_routes(state: ServerState) -> Router {
         .with_state(state)
 }
 
-/// 处理 DNS JSON 查询 (GET 请求，application/dns-json 兼容格式)
+// 处理 DNS JSON 查询 (GET 请求，application/dns-json 兼容格式)
 #[axum::debug_handler]
 async fn handle_dns_json_query(
     State(state): State<ServerState>,
@@ -248,7 +248,7 @@ async fn handle_dns_json_query(
     ).into_response()
 }
 
-/// 处理 DNS-over-HTTPS GET 请求 (RFC 8484 标准，application/dns-message)
+// 处理 DNS-over-HTTPS GET 请求 (RFC 8484 标准，application/dns-message)
 #[axum::debug_handler]
 async fn handle_dns_wire_get(
     State(state): State<ServerState>,
@@ -363,7 +363,7 @@ async fn handle_dns_wire_get(
     ).into_response()
 }
 
-/// 处理 DNS-over-HTTPS POST 请求 (RFC 8484 标准，application/dns-message)
+// 处理 DNS-over-HTTPS POST 请求 (RFC 8484 标准，application/dns-message)
 #[axum::debug_handler]
 async fn handle_dns_wire_post(
     State(state): State<ServerState>,
@@ -488,7 +488,7 @@ async fn handle_dns_wire_post(
     ).into_response()
 }
 
-/// 从请求中提取客户端 IP
+// 从请求中提取客户端 IP
 fn get_client_ip_from_request<T>(req: &Request<T>) -> IpAddr {
     // 尝试从 X-Forwarded-For 等头部提取客户端 IP
     let headers = req.headers();
@@ -512,7 +512,7 @@ fn get_client_ip_from_request<T>(req: &Request<T>) -> IpAddr {
     }
 }
 
-/// 处理 DNS 查询
+// 处理 DNS 查询
 async fn process_query(
     upstream: &UpstreamManager,
     cache: &DnsCache,
@@ -592,7 +592,7 @@ async fn process_query(
     Ok((response, false))  // 返回非缓存命中标记
 }
 
-/// 从 JSON 请求创建 DNS 查询消息
+// 从 JSON 请求创建 DNS 查询消息
 fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Message> {
     // 解析域名 - 验证输入域名的合法性
     let name = match Name::parse(&request.name, None) {
@@ -638,7 +638,7 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
     Ok(message)
 }
 
-/// 将 DNS 响应消息转换为 JSON 响应
+// 将 DNS 响应消息转换为 JSON 响应
 fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
     // 创建响应对象
     let mut response = DnsJsonResponse {

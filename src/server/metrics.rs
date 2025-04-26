@@ -12,46 +12,46 @@ thread_local! {
     pub static METRICS: DnsMetrics = DnsMetrics::new();
 }
 
-/// DNS 服务器性能指标
+// DNS 服务器性能指标
 pub struct DnsMetrics {
     registry: Registry,
     
-    /// 总请求计数
+    // 总请求计数
     pub total_requests: IntCounter,
-    /// 按 HTTP 方法和内容类型分类的请求计数
+    // 按 HTTP 方法和内容类型分类的请求计数
     pub requests_by_method_type: IntCounterVec,
-    /// 按状态码分类的响应计数
+    // 按状态码分类的响应计数
     pub responses_by_status: IntCounterVec,
-    /// 请求处理时间直方图
+    // 请求处理时间直方图
     pub request_duration: HistogramVec,
-    /// 缓存命中计数
+    // 缓存命中计数
     pub cache_hits: IntCounter,
-    /// 缓存未命中计数
+    // 缓存未命中计数
     pub cache_misses: IntCounter,
-    /// 缓存当前大小
+    // 缓存当前大小
     pub cache_size: IntGauge,
-    /// 按错误类型分类的错误计数
+    // 按错误类型分类的错误计数
     pub errors: IntCounterVec,
-    /// DNSSEC 验证成功计数
+    // DNSSEC 验证成功计数
     pub dnssec_validation_success: IntCounter,
-    /// DNSSEC 验证失败计数
+    // DNSSEC 验证失败计数
     pub dnssec_validation_failure: IntCounter,
-    /// 按上游解析器分类的查询计数
+    // 按上游解析器分类的查询计数
     pub upstream_queries: IntCounterVec,
-    /// 上游解析器查询时间直方图
+    // 上游解析器查询时间直方图
     pub upstream_query_duration: HistogramVec,
-    /// 按响应代码分类的 DNS 响应计数
+    // 按响应代码分类的 DNS 响应计数
     pub dns_responses_by_rcode: IntCounterVec,
-    /// 按查询类型分类的 DNS 查询计数
+    // 按查询类型分类的 DNS 查询计数
     pub dns_queries_by_type: IntCounterVec,
-    /// 速率限制计数
+    // 速率限制计数
     pub rate_limited_requests: IntCounter,
-    /// 按 IP 分类的速率限制计数
+    // 按 IP 分类的速率限制计数
     pub rate_limited_requests_by_ip: IntCounterVec,
 }
 
 impl DnsMetrics {
-    /// 创建新的指标收集器
+    // 创建新的指标收集器
     pub fn new() -> Self {
         let registry = Registry::new();
         
@@ -214,12 +214,12 @@ impl DnsMetrics {
         }
     }
     
-    /// 获取 Prometheus 注册表
+    // 获取 Prometheus 注册表
     pub fn registry(&self) -> &Registry {
         &self.registry
     }
     
-    /// 记录请求
+    // 记录请求
     pub fn record_request(&self, method: &str, content_type: &str) {
         self.total_requests.inc();
         self.requests_by_method_type
@@ -227,7 +227,7 @@ impl DnsMetrics {
             .inc();
     }
     
-    /// 记录响应
+    // 记录响应
     pub fn record_response(&self, method: &str, status: u16, duration: Duration) {
         self.responses_by_status
             .with_label_values(&[method, &status.to_string()])
@@ -243,21 +243,21 @@ impl DnsMetrics {
             .inc();
     }
     
-    /// 记录DNS响应码
+    // 记录DNS响应码
     pub fn record_dns_rcode(&self, rcode: &str) {
         self.dns_responses_by_rcode
             .with_label_values(&[rcode])
             .inc();
     }
     
-    /// 记录DNS查询类型
+    // 记录DNS查询类型
     pub fn record_dns_query_type(&self, query_type: &str) {
         self.dns_queries_by_type
             .with_label_values(&[query_type])
             .inc();
     }
     
-    /// 记录上游查询
+    // 记录上游查询
     pub fn record_upstream_query(&self, resolver: &str, duration: Duration) {
         self.upstream_queries
             .with_label_values(&[resolver])
@@ -268,17 +268,17 @@ impl DnsMetrics {
             .observe(duration.as_secs_f64());
     }
     
-    /// 记录错误
+    // 记录错误
     pub fn record_error(&self, error_type: &str) {
         self.errors.with_label_values(&[error_type]).inc();
     }
     
-    /// 记录缓存大小
+    // 记录缓存大小
     pub fn record_cache_size(&self, size: u64) {
         self.cache_size.set(size as i64);
     }
     
-    /// 更新 DNSSEC 验证结果
+    // 更新 DNSSEC 验证结果
     pub fn record_dnssec_validation(&self, success: bool) {
         if success {
             self.dnssec_validation_success.inc();
@@ -287,7 +287,7 @@ impl DnsMetrics {
         }
     }
     
-    /// 记录速率限制
+    // 记录速率限制
     pub fn record_rate_limit(&self, client_ip: &str) {
         self.rate_limited_requests.inc();
         
@@ -298,7 +298,7 @@ impl DnsMetrics {
     }
 }
 
-/// 提供指标导出路由
+// 提供指标导出路由
 pub fn metrics_routes() -> Router {
     Router::new().route(
         "/metrics",

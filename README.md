@@ -48,3 +48,4 @@ $ curl -s -H 'accept: application/dns-message' \
 ```
 
 cargo test -p oxide-wdns server::config_tests
+cargo test -p oxide-wdns server::server_integration_tests

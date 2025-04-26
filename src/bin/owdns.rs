@@ -17,7 +17,7 @@ use oxide_wdns::server::signal;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-/// Oxide WDNS 命令行参数
+// Oxide WDNS 命令行参数
 #[derive(Parser, Debug)]
 #[command(
     name = "oxide-wdns",
@@ -39,7 +39,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 )]
 
 struct CliArgs {
-    /// 配置文件路径
+    // 配置文件路径
     #[arg(
         short = 'c',
         long = "config",
@@ -48,7 +48,7 @@ struct CliArgs {
     )]
     config: PathBuf,
     
-    /// 测试配置
+    // 测试配置
     #[arg(
         short = 't', 
         long = "test", 
@@ -57,7 +57,7 @@ struct CliArgs {
     )]
     test_config: bool,
     
-    /// 启用调试日志
+    // 启用调试日志
     #[arg(
         short = 'd',
         long = "debug",
@@ -68,7 +68,7 @@ struct CliArgs {
 }
 
 impl CliArgs {
-    /// 验证命令行参数
+    // 验证命令行参数
     pub fn validate(&self) -> Result<()> {
         // 配置文件路径必须存在
         if !self.config.exists() {
@@ -82,7 +82,7 @@ impl CliArgs {
     }
 }
 
-/// 初始化日志系统
+// 初始化日志系统
 fn init_logging(args: &CliArgs) {
     // 从环境变量获取日志级别，或根据调试参数设置
     let filter = if let Ok(filter) = EnvFilter::try_from_default_env() {

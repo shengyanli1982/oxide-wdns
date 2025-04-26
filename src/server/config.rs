@@ -21,173 +21,173 @@ use crate::common::consts::{
     DEFAULT_HTTP_CLIENT_POOL_MAX_IDLE_CONNECTIONS, DEFAULT_HTTP_CLIENT_AGENT
 };
 
-/// 服务器配置
+// 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
-    /// HTTP 服务器配置
+    // HTTP 服务器配置
     #[serde(rename = "http_server")]
     pub http: HttpServerConfig,
     
-    /// DNS 解析器配置
+    // DNS 解析器配置
     #[serde(rename = "dns_resolver")]
     pub dns: DnsResolverConfig,
 }
 
-/// HTTP 服务器配置
+// HTTP 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpServerConfig {
-    /// 服务器监听地址
+    // 服务器监听地址
     #[serde(default = "default_listen_addr")]
     pub listen_addr: SocketAddr,
     
-    /// 服务器连接超时（秒）
+    // 服务器连接超时（秒）
     #[serde(default = "default_listen_timeout")]
     pub timeout: u64,
     
-    /// 速率限制配置
+    // 速率限制配置
     #[serde(default)]
     pub rate_limit: RateLimitConfig,
 }
 
-/// DNS 解析器配置
+// DNS 解析器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DnsResolverConfig {
-    /// 上游 DNS 服务器配置
+    // 上游 DNS 服务器配置
     pub upstream: UpstreamConfig,
     
-    /// HTTP 客户端配置
+    // HTTP 客户端配置
     #[serde(default)]
     pub http_client: HttpClientConfig,
     
-    /// 缓存配置
+    // 缓存配置
     #[serde(default)]
     pub cache: CacheConfig,
 }
 
-/// 上游 DNS 服务器配置
+// 上游 DNS 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpstreamConfig {
-    /// 上游 DNS 服务器列表
+    // 上游 DNS 服务器列表
     pub resolvers: Vec<ResolverConfig>,
     
-    /// 是否启用 DNSSEC
+    // 是否启用 DNSSEC
     #[serde(default)]
     pub enable_dnssec: bool,
     
-    /// 查询超时时间（秒）
+    // 查询超时时间（秒）
     #[serde(default = "default_query_timeout")]
     pub query_timeout: u64,
 }
 
-/// DNS 解析器配置
+// DNS 解析器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolverConfig {
-    /// 解析器地址（IP:端口 或 URL）
+    // 解析器地址（IP:端口 或 URL）
     pub address: String,
     
-    /// 解析器协议类型
+    // 解析器协议类型
     #[serde(default = "default_resolver_protocol")]
     pub protocol: ResolverProtocol,
 }
 
-/// DNS 解析器协议类型
+// DNS 解析器协议类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ResolverProtocol {
-    /// UDP 协议
+    // UDP 协议
     Udp,
-    /// TCP 协议
+    // TCP 协议
     Tcp,
-    /// DNS-over-TLS
+    // DNS-over-TLS
     Dot,
-    /// DNS-over-HTTPS
+    // DNS-over-HTTPS
     Doh,
 }
 
-/// 缓存配置
+// 缓存配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
-    /// 是否启用缓存
+    // 是否启用缓存
     #[serde(default = "default_cache_enabled")]
     pub enabled: bool,
     
-    /// 缓存大小（条目数）
+    // 缓存大小（条目数）
     #[serde(default = "default_cache_size")]
     pub size: usize,
     
-    /// TTL 配置
+    // TTL 配置
     #[serde(default)]
     pub ttl: TtlConfig,
 }
 
-/// TTL 配置
+// TTL 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtlConfig {
-    /// 最小 TTL（秒）
+    // 最小 TTL（秒）
     #[serde(default = "default_min_ttl")]
     pub min: u32,
     
-    /// 最大 TTL（秒）
+    // 最大 TTL（秒）
     #[serde(default = "default_max_ttl")]
     pub max: u32,
     
-    /// 负缓存 TTL（秒）
+    // 负缓存 TTL（秒）
     #[serde(default = "default_negative_ttl")]
     pub negative: u32,
 }
 
-/// 速率限制配置
+// 速率限制配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
-    /// 是否启用速率限制
+    // 是否启用速率限制
     #[serde(default)]
     pub enabled: bool,
     
-    /// 每个 IP 每秒最大请求数
+    // 每个 IP 每秒最大请求数
     #[serde(default = "default_per_ip_rate")]
     pub per_ip_rate: u32,
     
-    /// 单个 IP 的并发请求数限制
+    // 单个 IP 的并发请求数限制
     #[serde(default = "default_per_ip_concurrent")]
     pub per_ip_concurrent: u32,
 }
 
-/// HTTP 客户端配置
+// HTTP 客户端配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpClientConfig {
-    /// HTTP 客户端超时时间（秒）
+    // HTTP 客户端超时时间（秒）
     #[serde(default = "default_http_client_timeout")]
     pub timeout: u64,
     
-    /// 连接池配置
+    // 连接池配置
     #[serde(default)]
     pub pool: PoolConfig,
     
-    /// HTTP 请求相关配置
+    // HTTP 请求相关配置
     #[serde(default)]
     pub request: RequestConfig,
 }
 
-/// 连接池配置
+// 连接池配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolConfig {
-    /// 连接池空闲超时时间（秒）
+    // 连接池空闲超时时间（秒）
     #[serde(default = "default_http_client_pool_idle_timeout")]
     pub idle_timeout: u64,
     
-    /// 连接池最大空闲连接数
+    // 连接池最大空闲连接数
     #[serde(default = "default_http_client_pool_max_idle_connections")]
     pub max_idle_connections: u32,
 }
 
-/// HTTP 请求配置
+// HTTP 请求配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestConfig {
-    /// HTTP 客户端 User-Agent
+    // HTTP 客户端 User-Agent
     #[serde(default = "default_http_client_agent")]
     pub user_agent: String,
     
-    /// 使用的 IP 代理头字段名列表
+    // 使用的 IP 代理头字段名列表
     #[serde(default = "default_ip_header_names")]
     pub ip_header_names: Vec<String>,
 }
@@ -254,7 +254,7 @@ fn default_ip_header_names() -> Vec<String> {
 }
 
 impl ServerConfig {
-    /// 从配置文件加载配置
+    // 从配置文件加载配置
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let contents = fs::read_to_string(path)
             .map_err(|e| AppError::Config(format!("Failed to read config file: {}", e)))?;
@@ -265,27 +265,27 @@ impl ServerConfig {
         Ok(config)
     }
     
-    /// 获取服务器监听超时时间
+    // 获取服务器监听超时时间
     pub fn listen_timeout(&self) -> Duration {
         Duration::from_secs(self.http.timeout)
     }
     
-    /// 获取上游查询超时时间
+    // 获取上游查询超时时间
     pub fn query_timeout(&self) -> Duration {
         Duration::from_secs(self.dns.upstream.query_timeout)
     }
     
-    /// 获取 HTTP 客户端超时时间
+    // 获取 HTTP 客户端超时时间
     pub fn http_client_timeout(&self) -> Duration {
         Duration::from_secs(self.dns.http_client.timeout)
     }
     
-    /// 获取 HTTP 客户端连接池空闲超时时间
+    // 获取 HTTP 客户端连接池空闲超时时间
     pub fn http_client_pool_idle_timeout(&self) -> Duration {
         Duration::from_secs(self.dns.http_client.pool.idle_timeout)
     }
     
-    /// 测试配置的有效性
+    // 测试配置的有效性
     pub fn test(&self) -> Result<()> {
         // 检查上游解析器列表
         if self.dns.upstream.resolvers.is_empty() {
