@@ -3,7 +3,7 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
-use axum::{Router, http::StatusCode, response::Response};
+use axum::{Router, http::StatusCode, response::Response, extract::ConnectInfo};
 use axum::body::Body;
 use tokio::time;
 use tracing::{info, warn};
@@ -11,9 +11,11 @@ use tower_governor::{
     governor::GovernorConfigBuilder,
     key_extractor::SmartIpKeyExtractor,
     GovernorLayer,
+    errors::GovernorError,
 };
 
 use crate::server::config::RateLimitConfig;
+use crate::server::metrics::METRICS;
 
 
 // 返回应用了速率限制的路由
@@ -33,7 +35,7 @@ pub fn apply_rate_limiting(routes: Router, config: &RateLimitConfig) -> Router {
         per_second = config.per_ip_rate,
         burst_size = burst_size_u32,
         key_extractor = "SmartIpKeyExtractor",
-        "Rate limiting enabled (using tower_governor)"
+        "Rate limiting enabled"
     );
     
     // 构建 Governor 配置，添加错误处理程序
@@ -42,7 +44,18 @@ pub fn apply_rate_limiting(routes: Router, config: &RateLimitConfig) -> Router {
             .key_extractor(SmartIpKeyExtractor)
             .per_second(config.per_ip_rate.into()) 
             .burst_size(burst_size_u32) 
-            .error_handler(|_err| {
+            .error_handler(|err: &GovernorError| {
+                // 获取客户端 IP 并记录指标
+                if let GovernorError::TooManyRequests { key, .. } = err {
+                    let client_ip = key.to_string();
+                    // 记录速率限制指标
+                    METRICS.with(|m| {
+                        m.record_rate_limit(&client_ip);
+                    });
+                    
+                    warn!("Rate limit exceeded for client: {}", client_ip);
+                }
+                
                 // 返回 429 Too Many Requests 响应
                 Response::builder()
                     .status(StatusCode::TOO_MANY_REQUESTS)
