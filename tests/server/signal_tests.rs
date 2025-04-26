@@ -39,10 +39,10 @@ mod tests {
         let _ = shutdown_tx.send(());
         
         // 等待服务关闭
-        let service_shutdown_result = service_handle.await.expect("服务任务异常终止");
+        let service_shutdown_result = service_handle.await.expect("Service task panicked");
         
         // 断言服务正常关闭
-        assert!(service_shutdown_result, "服务未能正常响应关闭信号");
+        assert!(service_shutdown_result, "Service did not respond to shutdown signal correctly");
         
         // 终止信号处理任务
         signal_handle.abort();
@@ -63,10 +63,10 @@ mod tests {
         let _ = shutdown_tx.send(());
         
         // 等待服务关闭
-        let service_shutdown_result = service_handle.await.expect("服务任务异常终止");
+        let service_shutdown_result = service_handle.await.expect("Service task panicked");
         
         // 断言服务正常关闭
-        assert!(service_shutdown_result, "服务未能正常响应关闭信号");
+        assert!(service_shutdown_result, "Service did not respond to shutdown signal correctly");
         
         // 终止信号处理任务
         signal_handle.abort();
@@ -102,8 +102,8 @@ mod tests {
                 if let Some(handle) = service_handle.lock().unwrap().take() {
                     let result = handle.await;
                     let elapsed = start_time.elapsed();
-                    assert!(result.is_ok(), "服务任务异常终止");
-                    assert!(elapsed >= service_delay, "服务关闭时间不符合预期");
+                    assert!(result.is_ok(), "Service task panicked");
+                    assert!(elapsed >= service_delay, "Service shutdown duration was unexpected");
                 }
             } => {}
             
@@ -115,8 +115,8 @@ mod tests {
                     handle.abort();
                 }
                 
-                assert!(elapsed < service_delay, "强制关闭未在超时时间内执行");
-                assert!(elapsed >= shutdown_timeout, "强制关闭时间不符合预期");
+                assert!(elapsed < service_delay, "Forced shutdown did not execute within timeout");
+                assert!(elapsed >= shutdown_timeout, "Forced shutdown duration was unexpected");
             }
         }
     }

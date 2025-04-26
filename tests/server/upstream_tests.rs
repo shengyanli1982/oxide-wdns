@@ -328,7 +328,7 @@ mod tests {
             let query = create_test_query(&format!("test{}.example.com", i), RecordType::A);
             
             let result = upstream_manager.resolve(&query).await;
-            assert!(result.is_ok(), "查询应该成功: {:?}", result.err());
+            assert!(result.is_ok(), "Query should succeed: {:?}", result.err());
         }
         
         // 注意：由于实现细节，我们无法直接验证轮询负载均衡
@@ -383,11 +383,11 @@ mod tests {
         let result = upstream_manager.resolve(&query).await;
         
         // 验证结果
-        assert!(result.is_err(), "查询应该超时失败");
+        assert!(result.is_err(), "Query should have failed due to timeout");
         // 验证超时时间在合理范围内（考虑到系统负载可能导致超时时间略长）
         let elapsed = start.elapsed();
-        assert!(elapsed >= Duration::from_secs(1), "超时时间太短: {:?}", elapsed);
-        assert!(elapsed < Duration::from_secs(10), "超时时间太长: {:?}", elapsed);
+        assert!(elapsed >= Duration::from_secs(1), "Timeout was too short: {:?}", elapsed);
+        assert!(elapsed < Duration::from_secs(10), "Timeout was too long: {:?}", elapsed);
         
         // 关闭模拟服务器
         let _ = shutdown_tx.send(());
@@ -487,7 +487,7 @@ mod tests {
         let result = upstream_manager.resolve(&query).await;
         
         // 验证结果
-        assert!(result.is_err(), "应该因无效响应而失败");
+        assert!(result.is_err(), "Should fail due to invalid response");
         
         // 关闭模拟服务器
         let _ = shutdown_tx.send(());
@@ -525,11 +525,11 @@ mod tests {
         // 等待所有查询完成
         for handle in handles {
             let result = handle.await.unwrap();
-            assert!(result.is_ok(), "所有查询应该成功");
+            assert!(result.is_ok(), "All queries should succeed");
         }
         
         // 验证请求计数
-        assert_eq!(*counter.lock().unwrap(), 5, "应该收到5个请求");
+        assert_eq!(*counter.lock().unwrap(), 5, "Should have received 5 requests");
         
         // 关闭模拟服务器
         let _ = shutdown_tx.send(());

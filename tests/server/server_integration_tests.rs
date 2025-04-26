@@ -24,8 +24,8 @@ mod tests {
 
     /// 查找可用的端口
     fn find_free_port() -> u16 {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("无法绑定到随机端口");
-        let addr = listener.local_addr().expect("无法获取本地地址");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to a random port");
+        let addr = listener.local_addr().expect("Failed to get local address");
         addr.port()
     }
 
@@ -62,7 +62,7 @@ mod tests {
               negative: 30
         "#, port, rate_limit_enabled, cache_enabled);
         
-        serde_yaml::from_str(&config_str).expect("无法解析配置")
+        serde_yaml::from_str(&config_str).expect("Failed to parse configuration")
     }
 
     /// 创建服务器状态
@@ -143,7 +143,7 @@ mod tests {
         let response = client.get(format!("{}/health", server_addr))
             .send()
             .await
-            .expect("健康检查请求失败");
+            .expect("Health check request failed");
         
         // 6. 断言：收到 200 OK 响应。
         assert_eq!(response.status(), StatusCode::OK);
@@ -177,7 +177,7 @@ mod tests {
             .body(query_bytes)
             .send()
             .await
-            .expect("DoH POST请求失败");
+            .expect("DoH POST request failed");
         
         // 7. 断言：收到 200 OK 响应
         assert_eq!(response.status(), StatusCode::OK);
@@ -190,7 +190,7 @@ mod tests {
         
         // 9. 解码响应体中的 DNS 消息
         let response_bytes = response.bytes().await.unwrap();
-        let dns_response = Message::from_vec(&response_bytes).expect("DNS解析失败");
+        let dns_response = Message::from_vec(&response_bytes).expect("Failed to parse DNS response");
         
         // 10. 断言：DNS 响应是有效的
         assert_eq!(dns_response.message_type(), MessageType::Response);
@@ -219,23 +219,23 @@ mod tests {
             .body(query_bytes)
             .send()
             .await
-            .expect("DoH请求失败");
+            .expect("DoH request failed");
         
         // 4. 使用 HTTP 客户端向服务器的 /metrics 端点发送 GET 请求
         let metrics_response = client.get(format!("{}/metrics", server_addr))
             .send()
             .await
-            .expect("指标请求失败");
+            .expect("Metrics request failed");
         
         // 5. 断言：收到 200 OK 响应
         assert_eq!(metrics_response.status(), StatusCode::OK);
         
         // 6. 断言：响应体内容不为空，并且包含 Prometheus 格式的指标
         let metrics_text = metrics_response.text().await.unwrap();
-        assert!(!metrics_text.is_empty(), "指标响应不应为空");
+        assert!(!metrics_text.is_empty(), "Metrics response should not be empty");
         
         // 检查是否包含 Prometheus 格式的指标（至少包含一些基本指标）
-        assert!(metrics_text.contains("doh_"), "响应应包含 'doh_' 开头的指标");
+        assert!(metrics_text.contains("doh_"), "Response should contain metrics starting with 'doh_'");
         
         // 7. 清理：关闭服务器
         let _ = shutdown_tx.send(());
@@ -268,7 +268,7 @@ mod tests {
             .body(query_bytes.clone())
             .send()
             .await
-            .expect("第一个DoH请求失败");
+            .expect("First DoH request failed");
         
         // 5. 断言：第一个请求成功
         assert_eq!(first_response.status(), StatusCode::OK);
@@ -289,7 +289,7 @@ mod tests {
         
         // 7. 断言：至少有一个请求被速率限制
         assert!(responses.iter().any(|&status| status == StatusCode::TOO_MANY_REQUESTS), 
-                "没有观察到速率限制效果");
+                "Rate limiting effect was not observed");
         
         // 8. Cleanup
         let _ = shutdown_tx.send(());
@@ -316,7 +316,7 @@ mod tests {
             .body(query_bytes.clone())
             .send()
             .await
-            .expect("第一个DoH请求失败");
+            .expect("First DoH request failed");
         
         // 确保第一个请求成功
         assert_eq!(first_response.status(), StatusCode::OK);
@@ -328,7 +328,7 @@ mod tests {
             .body(query_bytes)
             .send()
             .await
-            .expect("第二个DoH请求失败");
+            .expect("Second DoH request failed");
         
         // 确保第二个请求也成功
         assert_eq!(second_response.status(), StatusCode::OK);
@@ -337,12 +337,12 @@ mod tests {
         let second_body = second_response.bytes().await.unwrap();
         
         // 确保两个响应的消息ID相同（因为缓存会保留原始消息）
-        let first_dns_message = Message::from_vec(&first_body).expect("无法解析第一个DNS响应");
-        let second_dns_message = Message::from_vec(&second_body).expect("无法解析第二个DNS响应");
+        let first_dns_message = Message::from_vec(&first_body).expect("Failed to parse first DNS response");
+        let second_dns_message = Message::from_vec(&second_body).expect("Failed to parse second DNS response");
         
         // 比较消息ID，如果相同则表明是缓存的响应
         assert_eq!(first_dns_message.id(), second_dns_message.id(), 
-                  "缓存应该返回相同的DNS消息ID");
+                  "Cache should return the same DNS message ID");
         
         // 6. 清理：关闭服务器
         let _ = shutdown_tx.send(());
@@ -373,7 +373,7 @@ mod tests {
         let response = client.get(format!("{}/dns-query?dns={}", server_addr, encoded_query))
             .send()
             .await
-            .expect("DoH GET请求失败");
+            .expect("DoH GET request failed");
         
         // 8. 断言：收到 200 OK 响应
         assert_eq!(response.status(), StatusCode::OK);
@@ -386,7 +386,7 @@ mod tests {
         
         // 10. 解码响应体中的 DNS 消息
         let response_bytes = response.bytes().await.unwrap();
-        let dns_response = Message::from_vec(&response_bytes).expect("DNS解析失败");
+        let dns_response = Message::from_vec(&response_bytes).expect("Failed to parse DNS response");
         
         // 11. 断言：DNS 响应是有效的
         assert_eq!(dns_response.message_type(), MessageType::Response);
@@ -419,7 +419,7 @@ mod tests {
             .body(query_bytes)
             .send()
             .await
-            .expect("POST请求失败");
+            .expect("POST request failed");
         
         // 7. 断言：收到 400 Bad Request 响应（因为Content-Type不正确）
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -454,14 +454,14 @@ mod tests {
                 .body(query_bytes)
                 .send()
                 .await
-                .expect(&format!("{:?}查询请求失败", record_type));
+                .expect(&format!("{:?} query request failed", record_type));
             
             // 断言响应成功
             assert_eq!(response.status(), StatusCode::OK);
             
             // 解析DNS响应
             let response_bytes = response.bytes().await.unwrap();
-            let dns_response = Message::from_vec(&response_bytes).expect("DNS解析失败");
+            let dns_response = Message::from_vec(&response_bytes).expect("Failed to parse DNS response");
             
             // 验证响应类型
             assert_eq!(dns_response.message_type(), MessageType::Response);

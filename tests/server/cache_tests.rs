@@ -87,7 +87,7 @@ mod tests {
         let retrieved = cache.get(&key).await;
         
         // 5. 断言：检索到的记录与存入的记录相同。
-        assert!(retrieved.is_some(), "记录应该存在于缓存中");
+        assert!(retrieved.is_some(), "Record should exist in the cache");
         let retrieved = retrieved.unwrap();
         
         // 检查基本属性
@@ -116,7 +116,7 @@ mod tests {
         let result = cache.get(&key).await;
         
         // 3. 断言：返回 None 或表示未命中的结果。
-        assert!(result.is_none(), "不存在的记录应该返回 None");
+        assert!(result.is_none(), "Non-existent record should return None");
     }
 
     #[tokio::test]
@@ -131,7 +131,7 @@ mod tests {
         cache.put(key.clone(), message).await.unwrap();
         
         // 验证刚存入的记录可以被检索到
-        assert!(cache.get(&key).await.is_some(), "刚存入的记录应该能够被检索到");
+        assert!(cache.get(&key).await.is_some(), "The record just inserted should be retrievable");
         
         // 3. 等待超过TTL的时间
         sleep(Duration::from_secs(2)).await;
@@ -140,7 +140,7 @@ mod tests {
         let result = cache.get(&key).await;
         
         // 5. 断言：记录不再有效或返回None
-        assert!(result.is_none(), "过期的记录应该返回None");
+        assert!(result.is_none(), "Expired record should return None");
     }
 
     #[tokio::test]
@@ -183,11 +183,11 @@ mod tests {
         let newest_result = cache.get(&new_key).await;
         
         // 断言：这些记录应该仍然存在
-        assert!(frequent_result.is_some(), "频繁访问的记录应该仍然存在");
-        assert!(newest_result.is_some(), "最新存入的记录应该存在");
+        assert!(frequent_result.is_some(), "Frequently accessed record should still exist");
+        assert!(newest_result.is_some(), "The newest record should exist");
         
         // 检查缓存大小是否维持在容量限制内
-        assert!(cache.len().await <= capacity as u64, "缓存大小不应超过容量限制");
+        assert!(cache.len().await <= capacity as u64, "Cache size should not exceed capacity limit");
     }
 
     #[tokio::test]
@@ -213,9 +213,9 @@ mod tests {
         // 5. 断言：检索到的是记录 B。
         let record = retrieved.answers().first().unwrap();
         if let Some(RData::A(addr)) = record.data() {
-            assert_eq!(addr.to_string(), new_ip, "缓存应该返回更新后的IP地址");
+            assert_eq!(addr.to_string(), new_ip, "Cache should return updated IP address");
         } else {
-            panic!("应该返回A记录数据");
+            panic!("Should return A record data");
         }
     }
 
@@ -235,7 +235,7 @@ mod tests {
         
         // 确认缓存中有记录
         let test_key = create_cache_key("clear-test0.example.com", 1);
-        assert!(cache.get(&test_key).await.is_some(), "缓存中应该有记录");
+        assert!(cache.get(&test_key).await.is_some(), "There should be records in the cache");
         
         // 2. 调用清空缓存的方法。
         cache.clear().await;
@@ -244,10 +244,10 @@ mod tests {
         let result = cache.get(&test_key).await;
         
         // 4. 断言：所有记录都返回 None。
-        assert!(result.is_none(), "清空缓存后应该没有记录");
+        assert!(result.is_none(), "There should be no records after clearing the cache");
         
         // 5. 断言缓存大小为 0。
-        assert_eq!(cache.len().await, 0, "清空缓存后大小应该为0");
+        assert_eq!(cache.len().await, 0, "Cache size should be 0 after clearing");
     }
 
     #[tokio::test]
@@ -266,7 +266,7 @@ mod tests {
         cache.put(key.clone(), message).await.unwrap();
         
         // 立即检查记录是否存在
-        assert!(cache.get(&key).await.is_some(), "记录应该在缓存中");
+        assert!(cache.get(&key).await.is_some(), "The record should be in the cache");
         
         // 4. 等待超过最小TTL但小于最大TTL的时间
         sleep(Duration::from_secs(3)).await; // 等待3秒，超过最小TTL(2秒)
@@ -275,7 +275,7 @@ mod tests {
         let result = cache.get(&key).await;
         
         // 6. 断言：记录 A 已过期。
-        assert!(result.is_none(), "记录应该已经过期");
+        assert!(result.is_none(), "The record should have expired");
     }
 
     #[tokio::test]
@@ -302,7 +302,7 @@ mod tests {
         
         // 尝试检索该记录，应该返回None
         let result = cache.get(&key).await;
-        assert!(result.is_none(), "禁用缓存时应该总是返回None");
+        assert!(result.is_none(), "Should always return None when cache is disabled");
     }
 
     #[tokio::test]
@@ -320,7 +320,7 @@ mod tests {
         
         // 立即检索，应该能找到否定缓存条目
         let result = cache.get(&key).await;
-        assert!(result.is_some(), "否定响应应该被缓存");
+        assert!(result.is_some(), "Negative response should be cached");
         assert_eq!(result.unwrap().response_code(), ResponseCode::NXDomain);
         
         // 等待超过否定缓存TTL的时间
@@ -328,6 +328,6 @@ mod tests {
         
         // 再次检索，应该返回None（过期）
         let result = cache.get(&key).await;
-        assert!(result.is_none(), "过期的否定缓存条目应该返回None");
+        assert!(result.is_none(), "Expired negative cache entry should return None");
     }
 } 

@@ -13,19 +13,19 @@ mod tests {
     // === 辅助函数 ===
     fn create_temp_config_file(content: &str) -> (TempDir, PathBuf) {
         // 创建临时目录
-        let temp_dir = TempDir::new().expect("无法创建临时目录");
+        let temp_dir = TempDir::new().expect("Failed to create temporary directory");
         
         // 创建唯一文件名
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("获取时间戳失败")
+            .expect("Failed to get timestamp")
             .as_millis();
         let file_name = format!("test_config_{}.yml", timestamp);
         let file_path = temp_dir.path().join(file_name);
         
         // 创建并写入文件
-        let mut file = File::create(&file_path).expect("无法创建临时配置文件");
-        file.write_all(content.as_bytes()).expect("无法写入配置内容");
+        let mut file = File::create(&file_path).expect("Failed to create temporary config file");
+        file.write_all(content.as_bytes()).expect("Failed to write config content");
         
         // 返回文件路径和临时目录（用于自动清理）
         (temp_dir, file_path)
@@ -53,7 +53,7 @@ dns_resolver:
         let config_result = ServerConfig::from_file(&config_path);
         
         // 4. 断言：成功返回 `Ok(ServerConfig)`。
-        assert!(config_result.is_ok(), "加载有效的最小配置应该成功");
+        assert!(config_result.is_ok(), "Loading a valid minimal config should succeed");
         
         // 5. 断言：ServerConfig 结构体中的字段值与预期一致。
         let config = config_result.unwrap();
@@ -118,7 +118,7 @@ dns_resolver:
         let config_result = ServerConfig::from_file(&config_path);
         
         // 4. 断言：成功返回 `Ok(ServerConfig)`。
-        assert!(config_result.is_ok(), "加载有效的完整配置应该成功");
+        assert!(config_result.is_ok(), "Loading a valid full config should succeed");
         
         // 5. 断言：所有字段的值都正确加载。
         let config = config_result.unwrap();
@@ -170,9 +170,9 @@ dns_resolver:
         let config_result = ServerConfig::from_file(&non_existent_path);
         
         // 3. 断言：返回 `Err`，且错误类型表示文件未找到。
-        assert!(config_result.is_err(), "加载不存在的文件应该失败");
+        assert!(config_result.is_err(), "Loading a non-existent file should fail");
         let error = config_result.unwrap_err().to_string();
-        assert!(error.contains("Failed to read config file"), "错误信息应该表明无法读取文件");
+        assert!(error.contains("Failed to read config file"), "Error message should indicate failure to read file");
     }
 
     #[test]
@@ -200,10 +200,10 @@ dns_resolver:
         let config_result = ServerConfig::from_file(&config_path);
         
         // 4. 断言：返回 `Err`，且错误类型表示 YAML 解析失败。
-        assert!(config_result.is_err(), "加载格式无效的YAML应该失败");
+        assert!(config_result.is_err(), "Loading invalid YAML format should fail");
         let error = config_result.unwrap_err().to_string();
         assert!(error.contains("Invalid config file format") || error.contains("Failed to parse"), 
-               "错误信息应该表明配置文件格式无效或解析失败");
+               "Error message should indicate invalid config format or parse failure");
     }
 
     #[test]
@@ -229,10 +229,10 @@ dns_resolver:
         let config_result = ServerConfig::from_file(&config_path);
         
         // 4. 断言：返回 `Err`，且错误类型表示值类型不匹配或反序列化失败。
-        assert!(config_result.is_err(), "加载字段类型错误的配置应该失败");
+        assert!(config_result.is_err(), "Loading config with wrong field type should fail");
         let error = config_result.unwrap_err().to_string();
         assert!(error.contains("Invalid config file format") || error.contains("Failed to parse"),
-               "错误信息应该表明配置文件格式无效或解析失败");
+               "Error message should indicate invalid config format or parse failure");
     }
 
     #[test]
@@ -257,12 +257,12 @@ dns_resolver:
         let config_result = ServerConfig::from_file(&config_path);
         
         // 4. 断言：加载应该失败，因为缺少必需字段
-        assert!(config_result.is_err(), "缺少必需字段的配置应该加载失败");
+        assert!(config_result.is_err(), "Loading config missing required fields should fail");
         
         // 5. 检查错误消息是否包含对resolvers字段的引用
         let error = config_result.unwrap_err().to_string();
         assert!(error.contains("resolvers") || error.contains("missing field"), 
-               "错误信息应该提及缺少必需字段'resolvers'");
+               "Error message should mention the missing required field 'resolvers'");
     }
 
     #[test]
@@ -285,32 +285,32 @@ dns_resolver:
         let config_result = ServerConfig::from_file(&config_path);
         
         // 3. 断言：成功加载。
-        assert!(config_result.is_ok(), "加载最小配置应该成功");
+        assert!(config_result.is_ok(), "Loading minimal config should succeed");
         let config = config_result.unwrap();
         
         // 4. 断言：Config 结构体中对应的可选字段具有预期的默认值。
         
         // HTTP服务器默认值
-        assert!(config.http.timeout > 0, "超时应该有默认值");
+        assert!(config.http.timeout > 0, "Timeout should have a default value");
         // 注意：默认情况下速率限制可能已启用或禁用，这取决于实际实现
         
         // 上游DNS默认值
-        assert!(!config.dns.upstream.enable_dnssec, "默认应该禁用DNSSEC");
-        assert!(config.dns.upstream.query_timeout > 0, "查询超时应该有默认值");
+        assert!(!config.dns.upstream.enable_dnssec, "DNSSEC should be disabled by default");
+        assert!(config.dns.upstream.query_timeout > 0, "Query timeout should have a default value");
         
         // 缓存默认值
-        assert!(config.dns.cache.enabled, "默认应该启用缓存");
-        assert_eq!(config.dns.cache.size, DEFAULT_CACHE_SIZE, "缓存大小应该使用默认值");
-        assert!(config.dns.cache.ttl.min > 0, "最小TTL应该有默认值");
-        assert!(config.dns.cache.ttl.max > 0, "最大TTL应该有默认值");
-        assert!(config.dns.cache.ttl.negative > 0, "负缓存TTL应该有默认值");
+        assert!(config.dns.cache.enabled, "Cache should be enabled by default");
+        assert_eq!(config.dns.cache.size, DEFAULT_CACHE_SIZE, "Cache size should use the default value");
+        assert!(config.dns.cache.ttl.min > 0, "Min TTL should have a default value");
+        assert!(config.dns.cache.ttl.max > 0, "Max TTL should have a default value");
+        assert!(config.dns.cache.ttl.negative > 0, "Negative cache TTL should have a default value");
         
         // HTTP客户端默认值
-        assert!(config.dns.http_client.timeout > 0, "HTTP客户端超时应该有默认值");
-        assert!(config.dns.http_client.pool.idle_timeout > 0, "连接池空闲超时应该有默认值");
-        assert!(config.dns.http_client.pool.max_idle_connections > 0, "最大空闲连接数应该有默认值");
-        assert!(!config.dns.http_client.request.user_agent.is_empty(), "User-Agent应该有默认值");
-        assert!(!config.dns.http_client.request.ip_header_names.is_empty(), "IP头字段名列表应该有默认值");
+        assert!(config.dns.http_client.timeout > 0, "HTTP client timeout should have a default value");
+        assert!(config.dns.http_client.pool.idle_timeout > 0, "Connection pool idle timeout should have a default value");
+        assert!(config.dns.http_client.pool.max_idle_connections > 0, "Max idle connections should have a default value");
+        assert!(!config.dns.http_client.request.user_agent.is_empty(), "User-Agent should have a default value");
+        assert!(!config.dns.http_client.request.ip_header_names.is_empty(), "IP header names list should have a default value");
     }
 
     #[test]
@@ -332,13 +332,13 @@ dns_resolver:
         let config_result = ServerConfig::from_file(&config_path);
         
         // 3. 断言：加载成功，但验证失败
-        assert!(config_result.is_ok(), "加载包含无效上游地址的配置应该成功");
+        assert!(config_result.is_ok(), "Loading config with invalid upstream address should succeed initially");
         let config = config_result.unwrap();
         
         let validation_result = config.test();
-        assert!(validation_result.is_err(), "验证包含无效上游地址的配置应该失败");
+        assert!(validation_result.is_err(), "Validation of config with invalid upstream address should fail");
         let error = validation_result.unwrap_err().to_string();
         assert!(error.contains("DoH resolver address must start with 'https://'"), 
-              "错误信息应该表明DoH解析器地址必须以https://开头");
+              "Error message should indicate that DoH resolver address must start with https://");
     }
 } 
