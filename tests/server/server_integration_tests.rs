@@ -103,8 +103,8 @@ mod tests {
         
         // 添加健康检查与指标路由
         let app = app
-            .route("/health", axum::routing::get(|| async { "OK" }))
-            .route("/metrics", axum::routing::get(|| async { "metrics data" }));
+            .merge(oxide_wdns::server::health::health_routes())
+            .merge(oxide_wdns::server::metrics::metrics_routes());
         
         // 在后台启动服务器
         let server_addr = SocketAddr::from_str(&addr[7..]).unwrap(); // 去掉 "http://" 前缀
@@ -147,7 +147,7 @@ mod tests {
         
         // 6. 断言：收到 200 OK 响应。
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.text().await.unwrap(), "OK");
+        assert_eq!(response.text().await.unwrap(), "ok!!");
         
         // 7. 关闭服务器。
         let _ = shutdown_tx.send(());
@@ -230,9 +230,12 @@ mod tests {
         // 5. 断言：收到 200 OK 响应
         assert_eq!(metrics_response.status(), StatusCode::OK);
         
-        // 6. 断言：响应体内容不为空
+        // 6. 断言：响应体内容不为空，并且包含 Prometheus 格式的指标
         let metrics_text = metrics_response.text().await.unwrap();
-        assert_eq!(metrics_text, "metrics data");
+        assert!(!metrics_text.is_empty(), "指标响应不应为空");
+        
+        // 检查是否包含 Prometheus 格式的指标（至少包含一些基本指标）
+        assert!(metrics_text.contains("doh_"), "响应应包含 'doh_' 开头的指标");
         
         // 7. 清理：关闭服务器
         let _ = shutdown_tx.send(());
