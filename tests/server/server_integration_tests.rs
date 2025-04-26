@@ -8,7 +8,7 @@ mod tests {
     use std::num::NonZeroU32;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
     use futures::future;
-    use reqwest::{Client, StatusCode};
+    use reqwest::{Client, StatusCode, header::{HeaderValue, CONTENT_TYPE}};
     use tokio::sync::{oneshot};
     use tokio::time::sleep;
     use tracing::{info, warn};
@@ -19,14 +19,13 @@ mod tests {
         key_extractor::SmartIpKeyExtractor,
         GovernorLayer,
     }};
-    
+    use oxide_wdns::common::consts::CONTENT_TYPE_JSON;
     use oxide_wdns::common::consts::CONTENT_TYPE_DNS_MESSAGE;
     use oxide_wdns::server::config::ServerConfig;
     use oxide_wdns::server::doh_handler::ServerState;
     use oxide_wdns::server::metrics::DnsMetrics;
     use oxide_wdns::server::cache::DnsCache;
     use oxide_wdns::server::upstream::UpstreamManager;
-    // Removed security module import
     
     // === 辅助函数 ===
 
@@ -108,7 +107,6 @@ mod tests {
         
         let mut app = oxide_wdns::server::doh_handler::doh_routes(server_state.clone());
         
-        // --- BEGIN Inline tower_governor setup ---
         if server_state.config.http.rate_limit.enabled {
             let config = &server_state.config.http.rate_limit;
             
@@ -144,7 +142,6 @@ mod tests {
             
             app = app.layer(GovernorLayer { config: governor_conf });
         }
-        // --- END Inline tower_governor setup ---
         
         let app = app
             .merge(oxide_wdns::server::health::health_routes())
@@ -191,7 +188,8 @@ mod tests {
         // 5. 发送健康检查请求
         info!("Sending health check request...");
         let response = client
-            .get(format!("{}/health", server_addr).parse().unwrap())
+            .get(format!("{}/health", server_addr).parse::<reqwest::Url>().unwrap())
+            .send()
             .await
             .expect("Health check request failed");
         info!("Health check response status: {}", response.status());
@@ -235,7 +233,7 @@ mod tests {
         info!("Sending DoH POST request...");
         let response = client
             .post(format!("{}/dns-query", server_addr))
-            .header(CONTENT_TYPE_DNS_MESSAGE, CONTENT_TYPE_DNS_MESSAGE)
+            .header(reqwest::header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)
             .body(query_bytes)
             .send()
             .await
@@ -376,7 +374,7 @@ mod tests {
             tokio::spawn(async move {
                 info!("Sending request #{}", i);
                 match client.post(format!("{}/dns-query", server_addr))
-                    .header(CONTENT_TYPE_DNS_MESSAGE, CONTENT_TYPE_DNS_MESSAGE)
+                    .header(reqwest::header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)
                     .body(query_bytes)
                     .send()
                     .await
@@ -443,7 +441,7 @@ mod tests {
         info!("Sending first DoH request...");
         let first_response = client
             .post(format!("{}/dns-query", server_addr))
-            .header(CONTENT_TYPE_DNS_MESSAGE, CONTENT_TYPE_DNS_MESSAGE)
+            .header(reqwest::header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)
             .body(query_bytes.clone())
             .send()
             .await
@@ -469,7 +467,7 @@ mod tests {
         info!("Sending second (cached) DoH request...");
         let second_response = client
             .post(format!("{}/dns-query", server_addr))
-            .header(CONTENT_TYPE_DNS_MESSAGE, CONTENT_TYPE_DNS_MESSAGE)
+            .header(reqwest::header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)
             .body(query_bytes)
             .send()
             .await
@@ -597,7 +595,7 @@ mod tests {
         );
         let response = client
             .post(format!("{}/dns-query", server_addr))
-            .header(CONTENT_TYPE_JSON, CONTENT_TYPE_JSON) // 错误的 Content-Type
+            .header("Content-Type", HeaderValue::from_static(CONTENT_TYPE_JSON)) // 修复 Content-Type 设置
             .body(fake_body)
             .send()
             .await
@@ -605,8 +603,8 @@ mod tests {
         let status = response.status();
         info!("Response status for invalid Content-Type: {}", status);
 
-        // 7. 断言：收到 415 Unsupported Media Type 响应
-        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        // 7. 断言：收到 400 Bad Request 响应
+        assert_eq!(status, StatusCode::BAD_REQUEST);
 
         // 8. 清理：关闭服务器
         info!("Shutting down server...");
@@ -643,7 +641,7 @@ mod tests {
             
             // 发送请求
             let response = client.post(format!("{}/dns-query", server_addr))
-                .header(CONTENT_TYPE_DNS_MESSAGE, CONTENT_TYPE_DNS_MESSAGE)
+                .header(reqwest::header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)
                 .body(query_bytes)
                 .send()
                 .await

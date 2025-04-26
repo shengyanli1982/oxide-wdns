@@ -89,6 +89,9 @@ pub const DEFAULT_HTTP_CLIENT_POOL_MAX_IDLE_CONNECTIONS: u32 = 10;
 // 默认 HTTP 客户端 Agent
 pub const DEFAULT_HTTP_CLIENT_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
+// 默认 JSON 内容类型
+pub const CONTENT_TYPE_JSON: &str = "application/json";
+
 // DoH JSON 内容类型
 pub const CONTENT_TYPE_DNS_JSON: &str = "application/dns-json";
 

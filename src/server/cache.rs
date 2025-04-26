@@ -206,6 +206,8 @@ impl DnsCache {
     
     // 获取当前缓存条目数
     pub async fn len(&self) -> u64 {
+        self.cache.run_pending_tasks().await;
+        // 要获得准确的条目数，需要运行待处理的任务
         self.cache.entry_count()
     }
 }

@@ -1255,6 +1255,7 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
+ "bytes",
  "clap",
  "dashmap 5.5.3",
  "fastrand",
