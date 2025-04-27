@@ -58,6 +58,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+          build-args: |
+            OPENSSL_LIB_DIR=/usr/lib
+            OPENSSL_INCLUDE_DIR=/usr/include
+            OPENSSL_STATIC=1
 
       - name: Save Docker image as tar
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'

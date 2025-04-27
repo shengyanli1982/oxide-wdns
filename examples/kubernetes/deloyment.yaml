@@ -23,6 +23,9 @@ spec:
         - name: oxide-wdns
           image: your-registry/oxide-wdns:latest # 替换为您的镜像仓库和标签
           imagePullPolicy: Always
+          args:
+            - "-c"
+            - "config.yaml"
           ports:
             - containerPort: 3053
               name: dns-http
@@ -31,8 +34,8 @@ spec:
               cpu: 100m
               memory: 128Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 4
+              memory: 8Gi
           volumeMounts:
             - name: config-volume
               mountPath: /app/config.yaml
