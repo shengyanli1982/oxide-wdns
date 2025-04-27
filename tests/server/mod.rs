@@ -1,6 +1,10 @@
 // tests/server/mod.rs
 
+// 公共测试模块，包含共享的测试函数和工具
+pub mod mock_http_server;
+
 // 声明测试模块
+mod args_tests;
 mod cache_tests;
 mod config_tests;
 mod doh_handler_advanced_tests;

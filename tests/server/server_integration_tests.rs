@@ -2,14 +2,14 @@
 
 #[cfg(test)]
 mod tests {
-    use std::net::{TcpListener, SocketAddr};
+    use std::net::SocketAddr;
     use std::sync::Arc;
     use std::time::Duration;
     use std::num::NonZeroU32;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
     use futures::future;
     use reqwest::{Client, StatusCode, header::HeaderValue};
-    use tokio::sync::{oneshot};
+    use tokio::sync::oneshot;
     use tokio::time::sleep;
     use tracing::{info, warn};
     use trust_dns_proto::op::{Message, MessageType, OpCode};
@@ -27,14 +27,14 @@ mod tests {
     use oxide_wdns::server::cache::DnsCache;
     use oxide_wdns::server::upstream::UpstreamManager;
     
+    // 引入 wiremock 库和公共模块
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use wiremock::matchers::{method, path, header};
+    
+    // 导入公共测试工具
+    use crate::server::mock_http_server::{find_free_port, create_test_query, create_test_response};
+    
     // === 辅助函数 ===
-
-    // 查找可用的端口
-    fn find_free_port() -> u16 {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind to a random port");
-        let addr = listener.local_addr().expect("Failed to get local address");
-        addr.port()
-    }
 
     // 创建用于测试的配置
     fn build_test_config(port: u16, rate_limit_enabled: bool, cache_enabled: bool) -> ServerConfig {
@@ -164,6 +164,93 @@ mod tests {
         (addr, shutdown_tx)
     }
 
+    // === 使用 wiremock 实现的测试 ===
+    
+    // 新增一个使用 wiremock 测试上游 DoH 服务器的测试
+    #[tokio::test]
+    async fn test_server_with_mock_upstream() {
+        // 启用 tracing 日志
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_server_with_mock_upstream");
+
+        // 1. 启动上游 mock DoH 服务器
+        let mock_upstream = MockServer::start().await;
+        info!("Mock upstream DoH server started at: {}", mock_upstream.uri());
+        
+        // 配置 mock 服务器响应
+        let response_message = create_test_response(
+            &create_test_query("example.com", RecordType::A),
+            std::net::Ipv4Addr::new(192, 168, 1, 1)
+        );
+        let response_bytes = response_message.to_vec().unwrap();
+        
+        Mock::given(method("POST"))
+            .and(path("/dns-query"))
+            .and(header("Content-Type", CONTENT_TYPE_DNS_MESSAGE))
+            .respond_with(ResponseTemplate::new(200)
+                .insert_header("Content-Type", CONTENT_TYPE_DNS_MESSAGE)
+                .set_body_bytes(response_bytes.clone()))
+            .mount(&mock_upstream)
+            .await;
+        
+        // 2. 选择空闲端口并创建测试服务器配置
+        let port = find_free_port();
+        
+        // 自定义配置，使用 mock 上游服务器
+        let mut config = build_test_config(port, false, false);
+        config.dns.upstream.resolvers = vec![
+            oxide_wdns::server::config::ResolverConfig {
+                address: format!("{}/dns-query", mock_upstream.uri()),
+                protocol: oxide_wdns::server::config::ResolverProtocol::Doh,
+            }
+        ];
+        
+        // 3. 创建服务器状态与组件
+        let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
+        let upstream = Arc::new(UpstreamManager::new(&config).await.unwrap());
+        let metrics = Arc::new(DnsMetrics::new());
+        
+        let server_state = ServerState {
+            config,
+            upstream,
+            cache,
+            metrics,
+        };
+        
+        // 4. 启动测试服务器
+        let (server_addr, shutdown_tx) = start_test_server(server_state).await;
+        info!("Test server started at: {}", server_addr);
+        
+        // 5. 创建测试查询
+        let query = create_dns_query("example.com", RecordType::A);
+        let query_bytes = query.to_vec().unwrap();
+        
+        // 6. 发送 DoH 请求到测试服务器 (服务器会转发到 mock 上游)
+        let client = Client::new();
+        let response = client
+            .post(format!("{}/dns-query", server_addr))
+            .header("Content-Type", CONTENT_TYPE_DNS_MESSAGE)
+            .body(query_bytes)
+            .send()
+            .await
+            .expect("Failed to send request to test server");
+        
+        // 7. 验证响应
+        assert_eq!(response.status(), StatusCode::OK);
+        let response_bytes = response.bytes().await.expect("Failed to read response body");
+        let dns_response = Message::from_vec(&response_bytes).expect("Failed to parse DNS response");
+        
+        assert_eq!(dns_response.message_type(), MessageType::Response);
+        assert!(!dns_response.answers().is_empty());
+        
+        // 8. 关闭服务器
+        info!("Shutting down server...");
+        let _ = shutdown_tx.send(());
+        info!("Test completed: test_server_with_mock_upstream");
+    }
+    
+    // === 其余原始测试保持不变 ===
+    
     #[tokio::test]
     async fn test_server_starts_and_responds_to_health_check() {
         // 启用 tracing 日志
