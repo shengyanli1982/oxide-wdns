@@ -57,9 +57,9 @@ RUN adduser -D -u 1000 appuser && \
 USER appuser
 
 # (可选) 暴露端口 (如果 owdns 监听端口)
-# EXPOSE 8080
+EXPOSE 3053
 
 # 默认运行服务端程序。
 # 客户端可以通过 `docker exec <container_id> /app/owdns-cli ...` 来运行。
 # 假设服务端需要一个配置文件
-CMD ["/app/owdns", "-c", "/app/config.yaml"] # 如果有默认配置文件路径，请修改 
+CMD ["./owdns"] # 如果有默认配置文件路径，请修改 
