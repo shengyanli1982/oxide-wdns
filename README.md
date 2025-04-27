@@ -7,7 +7,7 @@ English | [中文](./README_CN.md)
 </div>
 
 [![Rust Report Card](https://goreportcard.com/badge/github.com/shengyanli1982/oxide-wdns)](https://goreportcard.com/report/github.com/shengyanli1982/oxide-wdns)
-[![Build Status](https://github.com/shengyanli1982/oxide-wdns/actions/workflows/test.yaml/badge.svg)](https://github.com/shengyanli1982/oxide-wdns/actions)
+[![Build Status](https://github.com/shengyanli1982/oxide-wdns/actions/workflows/release.yml/badge.svg)](https://github.com/shengyanli1982/oxide-wdns/actions)
 
 ## Introduction
 

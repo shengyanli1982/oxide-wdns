@@ -1,0 +1,140 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*" # 触发标签格式为 v1.0.0 这样的版本号
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.84.1" # 统一设置 Rust 版本
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+  build-release:
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            name: ["owdns-windows-x64.exe", "owdns-cli-windows-x64.exe"]
+            target: x86_64-pc-windows-gnu
+          - os: ubuntu-latest
+            name: ["owdns-linux-x64", "owdns-cli-linux-x64"]
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            name: ["owdns-macos-x64", "owdns-cli-macos-x64"]
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            name: ["owdns-macos-arm64", "owdns-cli-macos-arm64"]
+            target: aarch64-apple-darwin
+            arch: arm64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $url = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+          $output = "rustup-init.exe"
+          Invoke-WebRequest -Uri $url -OutFile $output
+          Start-Process -FilePath $output -ArgumentList "-y", "--default-toolchain", "${{ env.RUST_VERSION }}", "--target", "${{ matrix.target }}" -Wait
+          rustup default ${{ env.RUST_VERSION }}-gnu
+        shell: pwsh
+
+      - name: Install Rust (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain ${{ env.RUST_VERSION }} --target ${{ matrix.target }}
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          source $HOME/.cargo/env
+
+      - name: Install build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip
+
+      - name: Install build dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # 安装指定版本的 MSYS2
+          choco install msys2 --version=20250221.0.0 --allow-downgrade
+          # 刷新环境变量
+          refreshenv
+          # 使用 MSYS2 安装必要的工具链
+          C:\tools\msys64\usr\bin\bash -lc 'pacman -Syu --noconfirm'
+          C:\tools\msys64\usr\bin\bash -lc 'pacman -S --noconfirm mingw-w64-x86_64-gcc make mingw-w64-x86_64-make zip'
+          # 设置环境变量
+          echo "C:\tools\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\tools\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # 设置编译环境变量
+          echo "MSYSTEM=MINGW64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "CC=gcc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "AR=gcc-ar" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Set macOS ARM64 env
+        if: runner.os == 'macOS' && matrix.arch == 'arm64'
+        run: echo "UNAME_M=arm64" >> $GITHUB_ENV
+
+      - name: Build Release Binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:Path = "$env:USERPROFILE\.cargo\bin;" + $env:Path
+          # 设置编译环境
+          $env:MSYSTEM = "MINGW64"
+          $env:CFLAGS = "-DWINVER=0x0601 -D_WIN32_WINNT=0x0601"
+          # 编译服务器二进制
+          cargo build --release --target ${{ matrix.target }} --bin owdns
+          # 编译命令行工具二进制
+          cargo build --release --target ${{ matrix.target }} --bin owdns-cli
+          cd target/${{ matrix.target }}/release
+          # 重命名服务器二进制
+          Move-Item -Path owdns.exe -Destination ${{ matrix.name[0] }}
+          # 重命名命令行工具二进制
+          Move-Item -Path owdns-cli.exe -Destination ${{ matrix.name[1] }}
+          # 打包
+          zip -j oxide-wdns-Windows-x64-${{ github.ref_name }}.zip ${{ matrix.name[0] }} ${{ matrix.name[1] }}
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+          MSYSTEM: "MINGW64"
+
+      - name: Build Release Binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          # 编译服务器二进制
+          cargo build --release --target ${{ matrix.target }} --bin owdns
+          # 编译命令行工具二进制
+          cargo build --release --target ${{ matrix.target }} --bin owdns-cli
+          cd target/${{ matrix.target }}/release
+          # 重命名服务器二进制
+          mv owdns ${{ matrix.name[0] }}
+          # 重命名命令行工具二进制
+          mv owdns-cli ${{ matrix.name[1] }}
+          # 打包
+          zip -j oxide-wdns-${{ runner.os }}-${{ matrix.arch || 'x64' }}-${{ github.ref_name }}.zip ${{ matrix.name[0] }} ${{ matrix.name[1] }}
+        env:
+          RUSTFLAGS: "-C target-feature=+crt-static"
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: target/*/release/*.zip
+          fail_on_unmatched_files: true
