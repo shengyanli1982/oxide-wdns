@@ -86,13 +86,13 @@ pub struct CliArgs {
     /// 
     /// 完整的 DoH 服务器端点 URL，用于发送 DNS 查询
     /// 必须包含协议前缀 (https://) 和路径部分
-    #[arg(required = true)]
+    #[arg(required = true, help = "DoH server URL")]
     pub server_url: String,
 
     /// 要查询的域名
     ///
     /// 通过 DoH 服务器查询的域名
-    #[arg(required = true)]
+    #[arg(required = true, help = "Domain to query")]
     pub domain: String,
 
     /// DNS 记录类型
