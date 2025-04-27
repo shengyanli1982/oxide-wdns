@@ -8,7 +8,15 @@ use thiserror::Error;
 pub enum ClientError {
     /// HTTP 请求错误 (例如，网络问题，服务器错误)
     #[error("HTTP request failed: {0}")]
-    HttpError(#[from] reqwest::Error), // 使用 #[from] 自动转换 reqwest::Error
+    ReqwestError(#[from] reqwest::Error), // 使用 #[from] 自动转换 reqwest::Error
+
+    /// HTTP 客户端创建错误
+    #[error("Failed to create HTTP client: {0}")]
+    HttpClientError(String),
+    
+    /// HTTP 服务器错误
+    #[error("HTTP error {0}: {1}")]
+    HttpError(u16, String),
 
     /// DNS 协议解析/构建错误
     #[error("DNS protocol error: {0}")]

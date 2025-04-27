@@ -27,7 +27,7 @@ impl fmt::Display for DohFormat {
 }
 
 /// HTTP 请求方法支持的 DoH 请求
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq)]
 pub enum HttpMethod {
     /// HTTP GET 方法
     Get,

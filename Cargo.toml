@@ -27,6 +27,7 @@ axum = { version = "0.8", features = ["macros"] }
 clap = { version = "4.5", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 hyper = { version = "1.4", features = ["http1", "http2"] }
@@ -48,8 +49,11 @@ governor = "0.8"
 base64 = "0.22"  # 用于 DoH GET 请求中的 Base64url 编码/解码
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] } # 用于 DoH 请求
 dashmap = "5.5"
-# 命令行内容输出
-colored = "2"
+colored = "2"  # 命令行内容输出
+rand = "0.8"
+hex = "0.4"
+regex = "1.10"
+url = "2.5"
 
 [dev-dependencies]
 tempfile = "3.19"

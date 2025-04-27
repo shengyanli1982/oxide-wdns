@@ -1,37 +1,33 @@
 // src/client/response.rs
 
-/// 该模块负责处理来自 DoH 服务器的响应。
+/// 该模块负责解析和处理 DoH (DNS over HTTPS) 响应。
 ///
 /// 主要职责:
-/// 1. 从 `reqwest::Response` 中提取响应体。
-/// 2. 检查 HTTP 状态码和 `Content-Type` Header，判断响应是否成功以及格式 (Wireformat/JSON)。
-/// 3. 根据 `Content-Type` 解析响应体：
-///    - Wireformat (`application/dns-message`): 使用 `trust-dns-proto` 解析为 `Message`。
-///    - JSON (`application/dns-json`): 使用 `serde_json` 解析为相应的结构体 (可能需要定义，或者直接用 `trust-dns-proto` 的 JSON 支持)。
-/// 4. 将解析后的 DNS 响应 (`Message` 或等效结构) 以用户友好的格式打印到控制台。
-///    - 显示查询耗时。
-///    - 显示响应状态码 (RCODE)。
-///    - 列出 Answer, Authority, Additional sections 中的记录。
-///    - 如果设置了 verbose 标志 (`args.verbose > 0`)，则显示更详细的信息，例如：
-///        - 完整的 HTTP 响应头。
-///        - 原始的 DNS 响应报文 (十六进制或 Base64)。
-/// 5. 清晰地报告解析或处理过程中的任何错误。
+/// 1. 接收并解析 HTTP 响应 (`reqwest::Response`)。
+/// 2. 根据响应内容类型确定解析策略:
+///    - `application/dns-message`: 解析为二进制 DNS 报文。
+///    - `application/dns-json`: 解析为 JSON 格式的 DNS 数据。
+/// 3. 将解析后的数据转换为统一的 DNS 消息 (`trust_dns_proto::op::Message`)。
+/// 4. 提供格式化输出功能，根据用户的详细程度设置显示数据。
+///    - 基本输出: 显示查询详情、响应状态和记录值。
+///    - 详细输出: 增加显示 HTTP 头、原始数据等。
 
-// 依赖: reqwest, trust-dns-proto, serde_json (如果支持 JSON), tokio (用于 async read)
+// 依赖: reqwest, trust-dns-proto, serde_json, colored (终端颜色支持)
 
 use crate::client::error::{ClientError, ClientResult};
 use crate::common::consts::{CONTENT_TYPE_DNS_JSON, CONTENT_TYPE_DNS_MESSAGE};
 use colored::Colorize;
-use hex;
-use serde::{Deserialize, Serialize};
+use reqwest;
+use serde::Deserialize;
 use serde_json;
-use std::fmt::Write as FmtWrite;
+use std::fmt::Write;
 use std::time::Duration;
 use trust_dns_proto::op::{Message, MessageType, Query, ResponseCode};
-use trust_dns_proto::rr::{DNSClass, Name, Record, RecordType, RData};
+use trust_dns_proto::rr::{DNSClass, Name, RData, Record, RecordType};
+use trust_dns_proto::rr::rdata::{CNAME, NS, NULL, TXT};
 use trust_dns_proto::serialize::binary::BinDecodable;
 
-/// DoH JSON 响应
+/// DoH JSON 响应格式
 #[derive(Debug, Deserialize)]
 struct DohJsonResponse {
     /// 应答状态
@@ -76,7 +72,7 @@ struct DohJsonQuestion {
     record_type: u16,
 }
 
-/// DoH JSON 应答
+/// DoH JSON 答案
 #[derive(Debug, Deserialize)]
 struct DohJsonAnswer {
     name: String,
@@ -86,7 +82,7 @@ struct DohJsonAnswer {
     data: String,
 }
 
-/// DoH 响应结果
+/// DoH 响应结构
 pub struct DohResponse {
     /// 解析后的 DNS 消息
     pub message: Message,
@@ -106,87 +102,72 @@ pub struct DohResponse {
 
 /// 解析 DoH 响应
 pub async fn parse_doh_response(response: reqwest::Response) -> ClientResult<DohResponse> {
-    // 获取 HTTP 状态码和响应头
+    // 记录响应状态和头部
     let status = response.status();
     let headers = response.headers().clone();
     
-    // 检查状态码是否成功
+    // 检查响应状态
     if !status.is_success() {
-        return Err(ClientError::Other(format!(
-            "HTTP request failed with status code: {}", status
-        )));
+        return Err(ClientError::HttpError(status.as_u16(), 
+            status.canonical_reason().unwrap_or("Unknown error").to_string()));
     }
     
-    // 获取 Content-Type 头
-    let content_type = headers
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
+    // 获取内容类型和原始响应体
+    let content_type = headers.get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     
-    // 读取响应体
-    let body = response.bytes().await?;
-    let raw_body = body.to_vec();
+    let raw_body = response.bytes().await.map_err(ClientError::ReqwestError)?.to_vec();
     
-    // 根据 Content-Type 解析响应体
+    // 根据内容类型选择解析策略
     let (message, is_json, json_response) = match content_type {
-        ct if ct.contains(CONTENT_TYPE_DNS_MESSAGE) => {
-            // 解析 Wireformat
+        ct if ct.starts_with(CONTENT_TYPE_DNS_MESSAGE) => {
+            // 解析二进制 DNS 消息
             let message = Message::from_vec(&raw_body)
-                .map_err(ClientError::DnsProtoError)?;
+                .map_err(|e| ClientError::DnsProtoError(e))?;
             (message, false, None)
-        }
-        ct if ct.contains(CONTENT_TYPE_DNS_JSON) || ct.contains("application/json") => {
-            // 解析 JSON 格式
-            let json_response: DohJsonResponse = serde_json::from_slice(&raw_body)
+        },
+        ct if ct.starts_with(CONTENT_TYPE_DNS_JSON) => {
+            // 解析 JSON 格式的 DNS 消息
+            let json: DohJsonResponse = serde_json::from_slice(&raw_body)
                 .map_err(ClientError::JsonError)?;
             
-            // 将 JSON 转换为 Message
-            let message = json_to_message(&json_response)?;
-            
-            (message, true, Some(json_response))
-        }
+            let message = json_to_message(&json)?;
+            (message, true, Some(json))
+        },
+        // 对于其他格式，尝试作为二进制 DNS 消息解析
         _ => {
-            // 未知的 Content-Type，尝试当作 Wireformat 解析
-            let message = Message::from_vec(&raw_body)
-                .map_err(|_| {
-                    // 如果作为 Wireformat 解析失败，尝试作为 JSON 解析
+            match Message::from_vec(&raw_body) {
+                Ok(message) => (message, false, None),
+                Err(_) => {
+                    // 尝试作为 JSON 解析
                     match serde_json::from_slice::<DohJsonResponse>(&raw_body) {
-                        Ok(json_response) => {
-                            match json_to_message(&json_response) {
-                                Ok(message) => {
-                                    // 解析为 JSON 成功
-                                    return ClientError::Other(format!(
-                                        "Unexpected Content-Type: {}, but successfully parsed as JSON", content_type
-                                    ));
-                                }
-                                Err(_) => {}
-                            }
-                        }
-                        Err(_) => {}
+                        Ok(json) => {
+                            let message = json_to_message(&json)?;
+                            (message, true, Some(json))
+                        },
+                        Err(e) => return Err(ClientError::Other(format!(
+                            "Unsupported response content type: {}. Parse error: {}", content_type, e
+                        ))),
                     }
-                    
-                    ClientError::Other(format!(
-                        "Unexpected Content-Type: {}, and failed to parse as DNS message or JSON", content_type
-                    ))
-                })?;
-            
-            (message, false, None)
+                }
+            }
         }
     };
     
-    // 构建响应结果
+    // 创建并返回 DohResponse
     Ok(DohResponse {
         message,
         status,
         headers,
         raw_body,
-        duration: Duration::default(), // 初始值，调用者应该设置正确的耗时
+        duration: Duration::default(), // 将在调用方填充
         is_json,
         json_response,
     })
 }
 
-/// 将 JSON 响应转换为 Message
+/// 将 JSON 格式的 DNS 数据转换为 DNS 消息
 fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     let mut message = Message::new();
     
@@ -199,19 +180,21 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     message.set_truncated(json.TC);
     
     // 设置响应码
-    if let Some(response_code) = ResponseCode::from_u16(json.Status) {
-        message.set_response_code(response_code);
-    }
+    // 使用 from_low 方法替代 from_u16
+    message.set_response_code(ResponseCode::from_low(json.Status as u8));
     
     // 添加问题部分
     for q in &json.Question {
         if let Ok(name) = Name::from_ascii(&q.name) {
-            if let Some(query_type) = RecordType::from_u16(q.record_type) {
-                let mut query = Query::new();
-                query.set_name(name);
-                query.set_query_type(query_type);
-                query.set_query_class(DNSClass::IN);
-                message.add_query(query);
+            // 使用 RecordType::from(u16) 获取记录类型
+            match RecordType::from(q.record_type) {
+                query_type => {
+                    let mut query = Query::new();
+                    query.set_name(name);
+                    query.set_query_type(query_type);
+                    query.set_query_class(DNSClass::IN);
+                    message.add_query(query);
+                }
             }
         }
     }
@@ -219,16 +202,17 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     // 添加答案部分
     for ans in &json.Answer {
         if let Ok(name) = Name::from_ascii(&ans.name) {
-            if let Some(record_type) = RecordType::from_u16(ans.record_type) {
-                // 解析记录数据
-                if let Ok(rdata) = parse_json_rdata(record_type, &ans.data) {
-                    let mut record = Record::new();
-                    record.set_name(name);
-                    record.set_ttl(ans.TTL);
-                    record.set_record_type(record_type);
-                    record.set_data(Some(rdata));
-                    message.add_answer(record);
-                }
+            // 使用 RecordType::from(u16) 获取记录类型
+            let record_type = RecordType::from(ans.record_type);
+            
+            // 解析记录数据
+            if let Ok(rdata) = parse_json_rdata(record_type, &ans.data) {
+                let mut record = Record::new();
+                record.set_name(name);
+                record.set_ttl(ans.TTL);
+                record.set_record_type(record_type);
+                record.set_data(Some(rdata));
+                message.add_answer(record);
             }
         }
     }
@@ -236,16 +220,17 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     // 添加权威部分
     for auth in &json.Authority {
         if let Ok(name) = Name::from_ascii(&auth.name) {
-            if let Some(record_type) = RecordType::from_u16(auth.record_type) {
-                // 解析记录数据
-                if let Ok(rdata) = parse_json_rdata(record_type, &auth.data) {
-                    let mut record = Record::new();
-                    record.set_name(name);
-                    record.set_ttl(auth.TTL);
-                    record.set_record_type(record_type);
-                    record.set_data(Some(rdata));
-                    message.add_name_server(record);
-                }
+            // 使用 RecordType::from(u16) 获取记录类型
+            let record_type = RecordType::from(auth.record_type);
+            
+            // 解析记录数据
+            if let Ok(rdata) = parse_json_rdata(record_type, &auth.data) {
+                let mut record = Record::new();
+                record.set_name(name);
+                record.set_ttl(auth.TTL);
+                record.set_record_type(record_type);
+                record.set_data(Some(rdata));
+                message.add_name_server(record);
             }
         }
     }
@@ -253,16 +238,17 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     // 添加附加部分
     for add in &json.Additional {
         if let Ok(name) = Name::from_ascii(&add.name) {
-            if let Some(record_type) = RecordType::from_u16(add.record_type) {
-                // 解析记录数据
-                if let Ok(rdata) = parse_json_rdata(record_type, &add.data) {
-                    let mut record = Record::new();
-                    record.set_name(name);
-                    record.set_ttl(add.TTL);
-                    record.set_record_type(record_type);
-                    record.set_data(Some(rdata));
-                    message.add_additional(record);
-                }
+            // 使用 RecordType::from(u16) 获取记录类型
+            let record_type = RecordType::from(add.record_type);
+            
+            // 解析记录数据
+            if let Ok(rdata) = parse_json_rdata(record_type, &add.data) {
+                let mut record = Record::new();
+                record.set_name(name);
+                record.set_ttl(add.TTL);
+                record.set_record_type(record_type);
+                record.set_data(Some(rdata));
+                message.add_additional(record);
             }
         }
     }
@@ -292,7 +278,8 @@ fn parse_json_rdata(record_type: RecordType, data: &str) -> ClientResult<RData> 
         RecordType::NS => {
             // 名称服务器
             if let Ok(name) = Name::from_ascii(data) {
-                Ok(RData::NS(name))
+                let ns = trust_dns_proto::rr::rdata::NS(name);
+                Ok(RData::NS(ns))
             } else {
                 Err(ClientError::Other(format!("Invalid NS record data: {}", data)))
             }
@@ -300,19 +287,24 @@ fn parse_json_rdata(record_type: RecordType, data: &str) -> ClientResult<RData> 
         RecordType::CNAME => {
             // 别名
             if let Ok(name) = Name::from_ascii(data) {
-                Ok(RData::CNAME(name))
+                let cname = trust_dns_proto::rr::rdata::CNAME(name);
+                Ok(RData::CNAME(cname))
             } else {
                 Err(ClientError::Other(format!("Invalid CNAME record data: {}", data)))
             }
         },
         RecordType::TXT => {
             // 文本记录
-            Ok(RData::TXT(vec![data.as_bytes().to_vec()]))
+            // 创建 TXT 记录，使用字符串向量而不是字节向量
+            let data_strings = vec![String::from(data)];
+            let txt = trust_dns_proto::rr::rdata::TXT::new(data_strings); 
+            Ok(RData::TXT(txt))
         },
         // 其他记录类型可以根据需要添加
         _ => {
-            // 对于不支持的记录类型，返回 NULL 类型
-            Ok(RData::NULL(data.as_bytes().to_vec()))
+            // 对于不支持的记录类型，使用 NULL 记录
+            let null = trust_dns_proto::rr::rdata::NULL::new();
+            Ok(RData::NULL(null))
         }
     }
 }
@@ -368,11 +360,13 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
             println!("{}. \t {} \t {} \t {}", 
                      record.name(), 
                      record.ttl(),
-                     record.record_class(),
+                     record.dns_class(),  // 使用 dns_class 代替 record_class
                      record.record_type());
             
             // 打印记录数据
-            println!("\t\t{}", record.rdata());
+            if let Some(data) = record.data() {
+                println!("\t\t{:?}", data);  // 使用 data 代替 rdata，用 {:?} 格式化
+            }
         }
     }
     
@@ -383,11 +377,13 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
             println!("{}. \t {} \t {} \t {}", 
                      record.name(), 
                      record.ttl(),
-                     record.record_class(),
+                     record.dns_class(),  // 使用 dns_class 代替 record_class
                      record.record_type());
             
             // 打印记录数据
-            println!("\t\t{}", record.rdata());
+            if let Some(data) = record.data() {
+                println!("\t\t{:?}", data);  // 使用 data 代替 rdata，用 {:?} 格式化
+            }
         }
     }
     
@@ -398,11 +394,13 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
             println!("{}. \t {} \t {} \t {}", 
                      record.name(), 
                      record.ttl(),
-                     record.record_class(),
+                     record.dns_class(),  // 使用 dns_class 代替 record_class
                      record.record_type());
             
             // 打印记录数据
-            println!("\t\t{}", record.rdata());
+            if let Some(data) = record.data() {
+                println!("\t\t{:?}", data);  // 使用 data 代替 rdata，用 {:?} 格式化
+            }
         }
     }
     
@@ -457,7 +455,8 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
 fn get_flags_description(message: &Message) -> String {
     let mut flags = Vec::new();
     
-    if message.response() { flags.push("qr"); }
+    // 修复 message.response() 不存在的问题
+    if message.header().message_type() == MessageType::Response { flags.push("qr"); }
     if message.authoritative() { flags.push("aa"); }
     if message.truncated() { flags.push("tc"); }
     if message.recursion_desired() { flags.push("rd"); }

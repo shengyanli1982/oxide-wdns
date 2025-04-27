@@ -15,8 +15,8 @@
 
 use crate::client::args::CliArgs;
 use crate::client::error::{ClientError, ClientResult};
-use crate::client::request;
-use crate::client::response::{self, DohResponse};
+use crate::client::{request, response};
+use crate::client::response::DohResponse;
 use crate::common::consts::DEFAULT_HTTP_CLIENT_TIMEOUT;
 use colored::Colorize;
 use regex::Regex;
@@ -24,7 +24,30 @@ use reqwest::Client;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 use trust_dns_proto::op::ResponseCode;
-use trust_dns_proto::rr::{Name, RecordType};
+use trust_dns_proto::rr::RecordType;
+
+/// 解析 ResponseCode 的方式
+fn parse_response_code(code: &str) -> Result<ResponseCode, ClientError> {
+    // 直接匹配常见的响应码
+    match code.to_uppercase().as_str() {
+        "NOERROR" => Ok(ResponseCode::NoError),
+        "FORMERR" => Ok(ResponseCode::FormErr),
+        "SERVFAIL" => Ok(ResponseCode::ServFail),
+        "NXDOMAIN" => Ok(ResponseCode::NXDomain),
+        "NOTIMP" => Ok(ResponseCode::NotImp),
+        "REFUSED" => Ok(ResponseCode::Refused),
+        "YXDOMAIN" => Ok(ResponseCode::YXDomain),
+        "YXRRSET" => Ok(ResponseCode::YXRRSet),
+        "NXRRSET" => Ok(ResponseCode::NXRRSet),
+        "NOTAUTH" => Ok(ResponseCode::NotAuth),
+        "NOTZONE" => Ok(ResponseCode::NotZone),
+        "BADVERS" => Ok(ResponseCode::BADVERS),
+        "BADSIG" => Ok(ResponseCode::BADSIG),
+        "BADKEY" => Ok(ResponseCode::BADKEY),
+        "BADTIME" => Ok(ResponseCode::BADTIME),
+        _ => Err(ClientError::InvalidArgument(format!("Unknown response code: {}", code))),
+    }
+}
 
 /// 验证条件类型
 #[derive(Debug, Clone, PartialEq)]
@@ -56,10 +79,7 @@ impl FromStr for ValidationCondition {
         
         if let Some(code) = s.strip_prefix("rcode=") {
             // 响应码
-            match ResponseCode::from_str(code) {
-                Ok(rcode) => return Ok(ValidationCondition::ResponseCode(rcode)),
-                Err(_) => return Err(ClientError::InvalidArgument(format!("Invalid response code: {}", code))),
-            }
+            return parse_response_code(code).map(ValidationCondition::ResponseCode);
         }
         
         if let Some(ip) = s.strip_prefix("has-ip=") {
@@ -289,8 +309,7 @@ fn validate_response(response: &DohResponse, conditions: &[ValidationCondition])
 /// 构建配置好的 HTTP 客户端
 fn build_http_client(args: &CliArgs) -> ClientResult<Client> {
     let mut client_builder = Client::builder()
-        .timeout(Duration::from_secs(DEFAULT_HTTP_CLIENT_TIMEOUT))
-        .use_rustls_tls(); // 使用 Rust 的 TLS 实现 (推荐)
+        .timeout(Duration::from_secs(DEFAULT_HTTP_CLIENT_TIMEOUT));
     
     // 根据参数设置客户端配置
     
@@ -300,7 +319,7 @@ fn build_http_client(args: &CliArgs) -> ClientResult<Client> {
     }
     
     // 构建客户端
-    client_builder.build().map_err(ClientError::HttpError)
+    client_builder.build().map_err(|e| ClientError::HttpClientError(format!("{}", e)))
 }
 
 /// 打印错误消息
@@ -312,7 +331,7 @@ pub fn print_error(error: &ClientError) {
         ClientError::InvalidArgument(_) => {
             eprintln!("请检查命令行参数是否正确。使用 --help 查看帮助信息。");
         }
-        ClientError::HttpError(_) => {
+        ClientError::HttpClientError(_) => {
             eprintln!("请检查网络连接和服务器 URL 是否正确。使用 -k 参数跳过 TLS 证书验证。");
         }
         ClientError::UrlError(_) => {

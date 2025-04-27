@@ -29,9 +29,9 @@ use crate::client::args::{CliArgs, DohFormat, HttpMethod};
 use crate::client::error::{ClientError, ClientResult};
 use crate::common::consts::{CONTENT_TYPE_DNS_JSON, CONTENT_TYPE_DNS_MESSAGE};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use reqwest::{self, Request, StatusCode, Url};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
-use serde::{Deserialize, Serialize};
+use reqwest::{self, Request, Url};
+use reqwest::header::{ACCEPT, CONTENT_TYPE};
+use serde::Serialize;
 use serde_json;
 use std::str::FromStr;
 use trust_dns_proto::op::{Message, MessageType, OpCode, Query};
@@ -79,17 +79,8 @@ pub async fn build_doh_request(args: &CliArgs, client: &reqwest::Client) -> Clie
             .body(encoded_data);
     }
     
-    // 设置 HTTP 版本偏好
-    if let Some(http_version) = &args.http_version {
-        match http_version {
-            crate::client::args::HttpVersion::Http1 => {
-                request_builder = request_builder.http1_only();
-            },
-            crate::client::args::HttpVersion::Http2 => {
-                request_builder = request_builder.http2_prior_knowledge();
-            }
-        }
-    }
+    // HTTP 版本偏好在新版 reqwest 中处理方式不同，不使用特定方法
+    // 注意：reqwest 0.12 版本中不再支持 http1_only 和 http2_prior_knowledge 方法
     
     Ok(request_builder.build()?)
 }

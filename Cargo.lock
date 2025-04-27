@@ -283,6 +283,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
+name = "colored"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
+dependencies = [
+ "lazy_static",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -668,6 +678,12 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hostname"
@@ -1257,18 +1273,23 @@ dependencies = [
  "base64",
  "bytes",
  "clap",
+ "colored",
  "dashmap 5.5.3",
  "fastrand",
  "futures",
  "governor",
+ "hex",
  "hyper",
  "mimalloc",
  "moka",
  "native-tls",
  "openssl-sys",
  "prometheus",
+ "rand 0.8.5",
+ "regex",
  "reqwest",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "thiserror 1.0.69",
@@ -1279,6 +1300,7 @@ dependencies = [
  "tracing-subscriber",
  "trust-dns-proto",
  "trust-dns-resolver",
+ "url",
 ]
 
 [[package]]
