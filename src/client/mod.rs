@@ -1,6 +1,6 @@
 // src/client/mod.rs
 
-/// 声明客户端库的公共模块。
+// 声明客户端库的公共模块。
 pub mod args;
 pub mod error;
 pub mod request;

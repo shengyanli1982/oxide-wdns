@@ -5,7 +5,7 @@ use anyhow::Result;
 use clap::{Parser, ArgAction};
 use crate::common::consts::DEFAULT_CONFIG_PATH;
 
-/// Oxide WDNS 命令行参数
+// Oxide WDNS 命令行参数
 #[derive(Parser, Debug)]
 #[command(
     name = "oxide-wdns",

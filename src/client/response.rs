@@ -1,16 +1,16 @@
 // src/client/response.rs
 
-/// 该模块负责解析和处理 DoH (DNS over HTTPS) 响应。
-///
-/// 主要职责:
-/// 1. 接收并解析 HTTP 响应 (`reqwest::Response`)。
-/// 2. 根据响应内容类型确定解析策略:
-///    - `application/dns-message`: 解析为二进制 DNS 报文。
-///    - `application/dns-json`: 解析为 JSON 格式的 DNS 数据。
-/// 3. 将解析后的数据转换为统一的 DNS 消息 (`trust_dns_proto::op::Message`)。
-/// 4. 提供格式化输出功能，根据用户的详细程度设置显示数据。
-///    - 基本输出: 显示查询详情、响应状态和记录值。
-///    - 详细输出: 增加显示 HTTP 头、原始数据等。
+// 该模块负责解析和处理 DoH (DNS over HTTPS) 响应。
+//
+// 主要职责:
+// 1. 接收并解析 HTTP 响应 (`reqwest::Response`)。
+// 2. 根据响应内容类型确定解析策略:
+//    - `application/dns-message`: 解析为二进制 DNS 报文。
+//    - `application/dns-json`: 解析为 JSON 格式的 DNS 数据。
+// 3. 将解析后的数据转换为统一的 DNS 消息 (`trust_dns_proto::op::Message`)。
+// 4. 提供格式化输出功能，根据用户的详细程度设置显示数据。
+//    - 基本输出: 显示查询详情、响应状态和记录值。
+//    - 详细输出: 增加显示 HTTP 头、原始数据等。
 
 // 依赖: reqwest, trust-dns-proto, serde_json, colored (终端颜色支持)
 
@@ -25,55 +25,55 @@ use std::time::Duration;
 use trust_dns_proto::op::{Message, MessageType, Query, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RData, Record, RecordType};
 
-/// DoH JSON 响应格式
+// DoH JSON 响应格式
 #[derive(Debug, Deserialize)]
 pub struct DohJsonResponse {
-    /// 应答状态
+    // 应答状态
     #[serde(default)]
     #[serde(rename = "Status")]
     pub status: u16,
-    /// 是否截断
+    // 是否截断
     #[serde(default)]
     #[serde(rename = "TC")]
     pub tc: bool,
-    /// 是否递归可用
+    // 是否递归可用
     #[serde(default)]
     #[serde(rename = "RD")]
     pub rd: bool,
-    /// 是否递归查询
+    // 是否递归查询
     #[serde(default)]
     #[serde(rename = "RA")]
     pub ra: bool,
-    /// 是否通过验证
+    // 是否通过验证
     #[serde(default)]
     #[serde(rename = "AD")]
     pub ad: bool,
-    /// 是否禁用验证
+    // 是否禁用验证
     #[serde(default)]
     #[serde(rename = "CD")]
     pub cd: bool,
-    /// 响应的问题
+    // 响应的问题
     #[serde(rename = "Question")]
     pub question: Vec<DohJsonQuestion>,
-    /// 响应的答案
+    // 响应的答案
     #[serde(default)]
     #[serde(rename = "Answer")]
     pub answer: Vec<DohJsonAnswer>,
-    /// 权威信息
+    // 权威信息
     #[serde(default)]
     #[serde(rename = "Authority")]
     pub authority: Vec<DohJsonAnswer>,
-    /// 附加信息
+    // 附加信息
     #[serde(default)]
     #[serde(rename = "Additional")]
     pub additional: Vec<DohJsonAnswer>,
-    /// 注释
+    // 注释
     #[serde(default)]
     #[serde(rename = "Comment")]
     pub comment: Option<String>,
 }
 
-/// DoH JSON 问题
+// DoH JSON 问题
 #[derive(Debug, Deserialize)]
 pub struct DohJsonQuestion {
     pub name: String,
@@ -81,7 +81,7 @@ pub struct DohJsonQuestion {
     pub record_type: u16,
 }
 
-/// DoH JSON 答案
+// DoH JSON 答案
 #[derive(Debug, Deserialize)]
 pub struct DohJsonAnswer {
     pub name: String,
@@ -92,26 +92,26 @@ pub struct DohJsonAnswer {
     pub data: String,
 }
 
-/// DoH 响应结构
+// DoH 响应结构
 #[derive(Debug)]
 pub struct DohResponse {
-    /// 解析后的 DNS 消息
+    // 解析后的 DNS 消息
     pub message: Message,
-    /// HTTP 状态码
+    // HTTP 状态码
     pub status: reqwest::StatusCode,
-    /// HTTP 响应头
+    // HTTP 响应头
     pub headers: reqwest::header::HeaderMap,
-    /// 原始响应体
+    // 原始响应体
     pub raw_body: Vec<u8>,
-    /// 查询耗时
+    // 查询耗时
     pub duration: Duration,
-    /// 是否为 JSON 格式响应
+    // 是否为 JSON 格式响应
     pub is_json: bool,
-    /// 原始 JSON 结构（如果是 JSON 响应）
+    // 原始 JSON 结构（如果是 JSON 响应）
     pub json_response: Option<DohJsonResponse>,
 }
 
-/// 解析 DoH 响应
+// 解析 DoH 响应
 pub async fn parse_doh_response(response: reqwest::Response) -> ClientResult<DohResponse> {
     // 记录响应状态和头部
     let status = response.status();
@@ -187,7 +187,7 @@ pub async fn parse_doh_response(response: reqwest::Response) -> ClientResult<Doh
     })
 }
 
-/// 将 JSON 格式的 DNS 数据转换为 DNS 消息
+// 将 JSON 格式的 DNS 数据转换为 DNS 消息
 fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     let mut message = Message::new();
     
@@ -207,14 +207,13 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     for q in &json.question {
         if let Ok(name) = Name::from_ascii(&q.name) {
             // 使用 RecordType::from(u16) 获取记录类型
-            match RecordType::from(q.record_type) {
-                query_type => {
-                    let mut query = Query::new();
-                    query.set_name(name);
-                    query.set_query_type(query_type);
-                    query.set_query_class(DNSClass::IN);
-                    message.add_query(query);
-                }
+            let query_type = RecordType::from(q.record_type);
+            {
+                let mut query = Query::new();
+                query.set_name(name);
+                query.set_query_type(query_type);
+                query.set_query_class(DNSClass::IN);
+                message.add_query(query);
             }
         }
     }
@@ -276,7 +275,7 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     Ok(message)
 }
 
-/// 解析 JSON 记录数据为 RData
+// 解析 JSON 记录数据为 RData
 fn parse_json_rdata(record_type: RecordType, data: &str) -> ClientResult<RData> {
     match record_type {
         RecordType::A => {
@@ -329,7 +328,7 @@ fn parse_json_rdata(record_type: RecordType, data: &str) -> ClientResult<RData> 
     }
 }
 
-/// 显示格式化的 DNS 响应
+// 显示格式化的 DNS 响应
 pub fn display_response(response: &DohResponse, verbose_level: u8) {
     let message = &response.message;
     
@@ -450,7 +449,7 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
                 match json_str_cow {
                     std::borrow::Cow::Borrowed(json_str) => {
                         // 尝试格式化 JSON
-                        match serde_json::from_str::<serde_json::Value>(&json_str) {
+                        match serde_json::from_str::<serde_json::Value>(json_str) {
                             Ok(json_value) => {
                                 if let Ok(pretty_json) = serde_json::to_string_pretty(&json_value) {
                                     println!("{}", pretty_json);
@@ -487,7 +486,7 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
     }
 }
 
-/// 获取消息标志的描述
+// 获取消息标志的描述
 fn get_flags_description(message: &Message) -> String {
     let mut flags = Vec::new();
     
@@ -503,7 +502,7 @@ fn get_flags_description(message: &Message) -> String {
     flags.join(" ")
 }
 
-/// 打印十六进制转储
+// 打印十六进制转储
 fn print_hex_dump(data: &[u8]) {
     // 预先计算一行的容量：8位地址 + ":" + 空格 + 空格 + 48字符(16字节×3) + 空格 + "|" + 16字符 + "|"
     const LINE_CAPACITY: usize = 8 + 1 + 1 + 1 + 48 + 1 + 1 + 16 + 1;
@@ -516,7 +515,7 @@ fn print_hex_dump(data: &[u8]) {
         write!(&mut line, "{:08x}:  ", i * 16).unwrap();
         
         // 十六进制部分
-        for (_j, &b) in chunk.iter().enumerate() {
+        for &b in chunk.iter() {
             write!(&mut line, "{:02x} ", b).unwrap();
         }
         
@@ -531,7 +530,7 @@ fn print_hex_dump(data: &[u8]) {
         // ASCII 部分
         for &b in chunk {
             // 优化：避免使用 if 判断，使用条件表达式
-            line.push(if b >= 32 && b <= 126 { b as char } else { '.' });
+            line.push(if (32..=126).contains(&b) { b as char } else { '.' });
         }
         
         // 完成行

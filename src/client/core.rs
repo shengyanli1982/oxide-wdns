@@ -1,17 +1,17 @@
 // src/client/runner.rs
 
-/// 该模块包含执行 DoH 查询的核心业务逻辑。
-/// 它将协调 `args`, `request`, `response` 等模块的功能。
-///
-/// 主要流程：
-/// 1. 接收解析后的命令行参数 (`args::CliArgs`)。
-/// 2. 初始化 HTTP 客户端 (`reqwest::Client`)，可能需要根据参数配置 (例如 `--insecure`)。
-/// 3. 调用 `request::build_doh_request` 构建 HTTP 请求。
-/// 4. 使用 HTTP 客户端发送请求到 DoH 服务器。
-/// 5. 记录请求耗时。
-/// 6. 调用 `response::parse_doh_response` 解析收到的 HTTP 响应。
-/// 7. 调用 `response::display_response` 或类似函数来格式化并打印结果或错误信息。
-/// 8. 处理整个流程中可能出现的 `error::ClientError`。
+// 该模块包含执行 DoH 查询的核心业务逻辑。
+// 它将协调 `args`, `request`, `response` 等模块的功能。
+//
+// 主要流程：
+// 1. 接收解析后的命令行参数 (`args::CliArgs`)。
+// 2. 初始化 HTTP 客户端 (`reqwest::Client`)，可能需要根据参数配置 (例如 `--insecure`)。
+// 3. 调用 `request::build_doh_request` 构建 HTTP 请求。
+// 4. 使用 HTTP 客户端发送请求到 DoH 服务器。
+// 5. 记录请求耗时。
+// 6. 调用 `response::parse_doh_response` 解析收到的 HTTP 响应。
+// 7. 调用 `response::display_response` 或类似函数来格式化并打印结果或错误信息。
+// 8. 处理整个流程中可能出现的 `error::ClientError`。
 
 use crate::client::args::CliArgs;
 use crate::client::error::{ClientError, ClientResult};
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 use trust_dns_proto::op::ResponseCode;
 use trust_dns_proto::rr::RecordType;
 
-/// 解析 ResponseCode 的方式
+// 解析 ResponseCode 的方式
 fn parse_response_code(code: &str) -> Result<ResponseCode, ClientError> {
     // 直接匹配常见的响应码
     match code.to_uppercase().as_str() {
@@ -49,22 +49,22 @@ fn parse_response_code(code: &str) -> Result<ResponseCode, ClientError> {
     }
 }
 
-/// 验证条件类型
+// 验证条件类型
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationCondition {
-    /// 期望的响应码
+    // 期望的响应码
     ResponseCode(ResponseCode),
-    /// 期望包含的 IP 地址
+    // 期望包含的 IP 地址
     ContainsIP(String),
-    /// 期望最小的 TTL 值
+    // 期望最小的 TTL 值
     MinTTL(u32),
-    /// 期望至少有多少条回答记录
+    // 期望至少有多少条回答记录
     MinAnswers(usize),
-    /// 期望响应中包含特定记录类型
+    // 期望响应中包含特定记录类型
     HasRecordType(RecordType),
-    /// 期望记录中包含特定的文本
+    // 期望记录中包含特定的文本
     ContainsText(String),
-    /// 期望 DNSSEC 验证通过 (AD 位设置)
+    // 期望 DNSSEC 验证通过 (AD 位设置)
     DnssecValidated,
 }
 
@@ -125,7 +125,7 @@ impl FromStr for ValidationCondition {
     }
 }
 
-/// 执行 DoH 查询
+// 执行 DoH 查询
 pub async fn run_query(args: CliArgs) -> ClientResult<()> {
     // 1. 初始化 HTTP 客户端
     let http_client = build_http_client(&args)?;
@@ -167,7 +167,7 @@ pub async fn run_query(args: CliArgs) -> ClientResult<()> {
     Ok(())
 }
 
-/// 解析验证条件字符串
+// 解析验证条件字符串
 fn parse_validation_conditions(validation_str: &str) -> ClientResult<Vec<ValidationCondition>> {
     let mut conditions = Vec::new();
     
@@ -184,7 +184,7 @@ fn parse_validation_conditions(validation_str: &str) -> ClientResult<Vec<Validat
     Ok(conditions)
 }
 
-/// 验证 DoH 响应是否符合指定条件
+// 验证 DoH 响应是否符合指定条件
 fn validate_response(response: &DohResponse, conditions: &[ValidationCondition]) -> ClientResult<()> {
     let message = &response.message;
     
@@ -306,7 +306,7 @@ fn validate_response(response: &DohResponse, conditions: &[ValidationCondition])
     Ok(())
 }
 
-/// 构建配置好的 HTTP 客户端
+// 构建配置好的 HTTP 客户端
 fn build_http_client(args: &CliArgs) -> ClientResult<Client> {
     let mut client_builder = Client::builder()
         .timeout(Duration::from_secs(DEFAULT_HTTP_CLIENT_TIMEOUT));
@@ -324,7 +324,7 @@ fn build_http_client(args: &CliArgs) -> ClientResult<Client> {
     client_builder.build().map_err(|e| ClientError::HttpClientError(format!("{}", e)))
 }
 
-/// 打印错误消息
+// 打印错误消息
 pub fn print_error(error: &ClientError) {
     eprintln!("{} {}", "Error:".red().bold(), error);
     

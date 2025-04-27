@@ -1,6 +1,6 @@
 // tests/client/mod.rs
 
-/// 客户端模块集成测试
+// 客户端模块集成测试
 
 // 测试子模块
 mod args_tests;

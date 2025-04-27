@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use oxide_wdns::client::args::{CliArgs, DohFormat, HttpMethod};
-    use reqwest;
+    
     
     use std::str::FromStr;
     use trust_dns_proto::op::Message;
@@ -11,7 +11,7 @@ mod tests {
     
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
-    use serde_json;
+    
     use tracing::info;
 
     // 创建用于测试的 CliArgs

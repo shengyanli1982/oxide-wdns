@@ -163,7 +163,7 @@ mod tests {
         info!("Executing CLI command...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(), // 使用根URL而不是加 /dns-query
                 "example.com",
                 "--no-color",  // 禁用颜色输出，便于测试
@@ -236,7 +236,7 @@ mod tests {
         info!("Executing CLI command with JSON format...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &format!("{}/dns-query", mock_server.uri()),
                 "example.com",
                 "--format", "json",
@@ -292,7 +292,7 @@ mod tests {
         info!("Executing CLI command with POST method...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--method", "post",
@@ -389,7 +389,7 @@ mod tests {
         info!("Executing CLI command with DNSSEC flag...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--dnssec",
@@ -447,7 +447,7 @@ mod tests {
         info!("Executing CLI command with verbose output enabled...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "-vvv",        // 最高详细程度
@@ -522,7 +522,7 @@ mod tests {
         
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &format!("{}/dns-query", mock_server.uri()),
                 "example.com",
                 "--validate", validation_args,
@@ -580,7 +580,7 @@ mod tests {
         
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &format!("{}/dns-query", mock_server.uri()),
                 "example.com",
                 "--validate", validation_args,
@@ -619,7 +619,7 @@ mod tests {
         
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 server_url,
                 "example.com",
                 "--no-color",
@@ -668,7 +668,7 @@ mod tests {
         info!("Executing CLI command with HTTP/1.1 version specified...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--http", "http1",
@@ -739,7 +739,7 @@ mod tests {
         info!("Executing CLI command with HTTP/2 version specified...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--http", "http2",
@@ -814,7 +814,7 @@ mod tests {
         info!("Executing CLI command with AAAA record type...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--record", "AAAA",
@@ -879,7 +879,7 @@ mod tests {
         info!("Executing CLI command with MX record type...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--record", "MX",
@@ -950,7 +950,7 @@ mod tests {
         info!("Executing CLI command with TXT record type...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--record", "TXT",
@@ -1054,7 +1054,7 @@ mod tests {
         info!("Executing CLI command with DNSSEC and validation flags...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--dnssec",
@@ -1119,7 +1119,7 @@ mod tests {
         info!("Executing CLI command with hex payload...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &format!("{}/dns-query", mock_server.uri()),
                 "example.com", // 应该被忽略，因为提供了 payload
                 "--method", "post", // 强制使用 POST 方法
@@ -1171,7 +1171,7 @@ mod tests {
         info!("Executing CLI command expecting HTTP 404 error...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &format!("{}/dns-query", mock_server.uri()),
                 "example.com",
                 "--no-color",
@@ -1222,7 +1222,7 @@ mod tests {
         info!("Executing CLI command expecting HTTP 500 error...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &format!("{}/dns-query", mock_server.uri()),
                 "example.com",
                 "--no-color",
@@ -1299,7 +1299,7 @@ mod tests {
         info!("Executing CLI command with nonexistent domain...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "nonexistent.example.com",
                 "--no-color",
@@ -1348,7 +1348,7 @@ mod tests {
         info!("Executing CLI command with connection that will be refused...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 invalid_url,
                 "example.com",
                 "--no-color",
@@ -1416,7 +1416,7 @@ mod tests {
         info!("Executing CLI command with GET method explicitly specified...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "--method", "get",
@@ -1487,7 +1487,7 @@ mod tests {
         info!("Executing CLI command with GET method (short form)...");
         let output = Command::cargo_bin("owdns-cli")
             .unwrap()
-            .args(&[
+            .args([
                 &mock_server.uri(),
                 "example.com",
                 "-X", "get",

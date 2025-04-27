@@ -5,13 +5,13 @@ mod tests {
     use oxide_wdns::client::error::{ClientError, ClientResult};
     use oxide_wdns::client::args::{CliArgs, DohFormat, HttpMethod};
     
-    use reqwest;
+    
     use trust_dns_proto::op::{Header, ResponseCode};
     
     use trust_dns_proto::serialize::binary::BinEncodable;
     use url::Url;
     use std::io;
-    use hex;
+    
     use wiremock::{Mock, MockServer, ResponseTemplate};
     use wiremock::matchers::{method, path};
     use tracing::info;
@@ -109,7 +109,7 @@ mod tests {
         // 验证结果
         info!("Verifying result is Ok and contains expected value...");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 42);
+        assert_eq!(result, Ok(42));
         info!("Result verified");
         info!("Test completed: test_client_result_success");
     }
@@ -122,12 +122,13 @@ mod tests {
 
         // 创建一个失败的 ClientResult
         info!("Creating failed ClientResult with InvalidArgument error...");
-        let result: ClientResult<i32> = Err(ClientError::InvalidArgument("Test error".to_string()));
+        let error = ClientError::InvalidArgument("Test error".to_string());
+        let result: ClientResult<i32> = Err(error.clone());
         
         // 验证结果
         info!("Verifying result is Err and contains expected error type...");
         assert!(result.is_err());
-        match result.unwrap_err() {
+        match error {
             ClientError::InvalidArgument(msg) => {
                 info!(error_message = %msg, "Error message verified");
                 assert_eq!(msg, "Test error");
