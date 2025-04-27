@@ -3,6 +3,7 @@
 pub mod cache;
 pub mod config;
 pub mod doh_handler;
+pub mod error;
 pub mod health;
 pub mod metrics;
 pub mod security;
@@ -18,7 +19,7 @@ use tokio::sync::oneshot;
 use tokio::time;
 use tracing::{error, info};
 
-use crate::common::error::Result;
+use crate::server::error::Result;
 use crate::server::cache::DnsCache;
 use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};

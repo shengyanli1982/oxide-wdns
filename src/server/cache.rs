@@ -5,7 +5,7 @@ use moka::future::Cache;
 use trust_dns_proto::op::{Message, ResponseCode};
 use trust_dns_proto::rr::RecordType;
 use tracing::{debug, trace, warn};
-use crate::common::error::Result;
+use crate::server::error::Result;
 use crate::server::config::CacheConfig;
 
 // 缓存条目

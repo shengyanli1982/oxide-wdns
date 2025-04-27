@@ -1,17 +1,14 @@
-// src/common/error.rs
+// src/server/error.rs
 
-// 标准库导入
 use std::io;
 use std::result;
-
-// 第三方库导入
 use thiserror::Error;
 use trust_dns_proto::error::ProtoError;
 use trust_dns_resolver::error::ResolveError;
 
-// 应用程序错误类型
+// 服务器错误类型
 #[derive(Debug, Error)]
-pub enum AppError {
+pub enum ServerError {
     // IO 错误
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
@@ -50,4 +47,4 @@ pub enum AppError {
 }
 
 // 结果类型别名
-pub type Result<T> = result::Result<T, AppError>; 
+pub type Result<T> = result::Result<T, ServerError>;
