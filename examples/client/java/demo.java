@@ -4,20 +4,55 @@ import org.xbill.DNS.*;
 import okhttp3.*;
 
 import java.io.IOException;
+import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
+import javax.net.ssl.*;
 
 public class DoHClient {
     private static final Logger logger = LoggerFactory.getLogger(DoHClient.class);
-    private static final OkHttpClient httpClient = new OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .build();
+    private static final OkHttpClient httpClient = createOkHttpClient();
+
+    /**
+     * 创建忽略证书验证的 OkHttpClient（仅用于测试）
+     */
+    private static OkHttpClient createOkHttpClient() {
+        try {
+            // 创建一个信任所有证书的 TrustManager
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                }
+            };
+
+            // 创建 SSLContext，并使用上面的 TrustManager
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+
+            // 创建 OkHttpClient
+            return new OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0])
+                .hostnameVerifier((hostname, session) -> true)
+                .build();
+        } catch (Exception e) {
+            logger.error("Failed to create OkHttpClient: {}", e.getMessage());
+            // 如果出错，使用默认配置
+            return new OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .build();
+        }
+    }
 
     /**
      * 向指定的 DoH 服务器发送 DNS 查询。
      *
-     * @param serverUrl DoH 服务器的 URL (例如: "https://cloudflare-dns.com/dns-query")。
+     * @param serverUrl DoH 服务器的 URL (例如: "http://localhost:8080/dns-query")。
      * @param domainName 要查询的域名 (例如: "example.com")。
      * @param queryType 查询记录的类型 (例如: Type.A, Type.AAAA, Type.MX)。
      *                  默认为 A 记录。
@@ -45,110 +80,104 @@ public class DoHClient {
                     .build();
 
             // 3. 发送 HTTPS POST 请求
-            logger.info("向 {} 发送查询: {} ({})", serverUrl, domainName, Type.string(queryType));
+            logger.info("Sending query to {}: {} ({})", serverUrl, domainName, Type.string(queryType));
             try (Response response = httpClient.newCall(request).execute()) {
                 // 4. 检查 HTTP 响应状态码
                 if (!response.isSuccessful()) {
-                    logger.error("HTTP 请求失败: {}", response.code());
+                    logger.error("HTTP request failed: {}", response.code());
                     return null;
                 }
 
                 // 5. 检查响应的内容类型
                 String contentType = response.header("Content-Type");
                 if (!"application/dns-message".equals(contentType)) {
-                    logger.error("服务器返回了非预期的 Content-Type: {}", contentType);
+                    logger.error("Server returned unexpected Content-Type: {}", contentType);
                     return null;
                 }
 
                 // 6. 使用 dnsjava 解析响应体中的 DNS 消息
                 byte[] responseBody = response.body().bytes();
                 Message responseMessage = new Message(responseBody);
-                logger.info("收到来自 {} 的响应", serverUrl);
+                logger.info("Received response from {}", serverUrl);
                 return responseMessage;
             }
         } catch (IOException e) {
-            logger.error("请求 DoH 服务器时出错: {}", e.getMessage());
+            logger.error("Error requesting DoH server: {}", e.getMessage());
             return null;
         } catch (TextParseException e) {
-            logger.error("解析域名时出错: {}", e.getMessage());
+            logger.error("Error parsing domain name: {}", e.getMessage());
             return null;
         } catch (Exception e) {
-            logger.error("发生未知错误: {}", e.getMessage());
+            logger.error("Unexpected error occurred: {}", e.getMessage());
             return null;
         }
     }
 
     // --- 示例用法 ---
     public static void main(String[] args) {
-        // 常用的公共 DoH 服务器 URL
-        // Cloudflare: "https://cloudflare-dns.com/dns-query"
-        // Google: "https://dns.google/dns-query"
-        // Quad9: "https://dns.quad9.net/dns-query"
-        String dohServer = "https://localhost:8080/dns-query";
+        // 标准路由
+        String dohServer = "http://localhost:8080/dns-query";
         String domainToQuery = "www.example.com";
 
         // 查询 A 记录
-        System.out.println("\n--- 查询 A 记录 (" + domainToQuery + ") ---");
+        System.out.println("\n--- Querying A Record (" + domainToQuery + ") ---");
         Message aResponse = queryDoh(dohServer, domainToQuery, Type.A);
         if (aResponse != null) {
-            System.out.println("原始响应:\n" + aResponse);
-            System.out.println("\n解析结果 (Answer Section):");
+            System.out.println("Raw Response:\n" + aResponse);
+            System.out.println("\nParsed Results (Answer Section):");
             Record[] answers = aResponse.getSectionArray(Section.ANSWER);
             if (answers.length > 0) {
                 for (Record record : answers) {
                     System.out.println(record);
                 }
             } else {
-                System.out.println("未找到 A 记录。");
+                System.out.println("No A records found.");
             }
         }
 
         // 查询 AAAA 记录
-        System.out.println("\n--- 查询 AAAA 记录 (" + domainToQuery + ") ---");
+        System.out.println("\n--- Querying AAAA Record (" + domainToQuery + ") ---");
         Message aaaaResponse = queryDoh(dohServer, domainToQuery, Type.AAAA);
         if (aaaaResponse != null) {
-            // System.out.println("原始响应:\n" + aaaaResponse); // 可以取消注释查看完整响应
-            System.out.println("\n解析结果 (Answer Section):");
+            System.out.println("\nParsed Results (Answer Section):");
             Record[] answers = aaaaResponse.getSectionArray(Section.ANSWER);
             if (answers.length > 0) {
                 for (Record record : answers) {
                     System.out.println(record);
                 }
             } else {
-                System.out.println("未找到 AAAA 记录。");
+                System.out.println("No AAAA records found.");
             }
         }
 
         // 查询 MX 记录
-        System.out.println("\n--- 查询 MX 记录 (google.com) ---");
+        System.out.println("\n--- Querying MX Record (google.com) ---");
         Message mxResponse = queryDoh(dohServer, "google.com", Type.MX);
         if (mxResponse != null) {
-            // System.out.println("原始响应:\n" + mxResponse); // 可以取消注释查看完整响应
-            System.out.println("\n解析结果 (Answer Section):");
+            System.out.println("\nParsed Results (Answer Section):");
             Record[] answers = mxResponse.getSectionArray(Section.ANSWER);
             if (answers.length > 0) {
                 for (Record record : answers) {
                     System.out.println(record);
                 }
             } else {
-                System.out.println("未找到 MX 记录。");
+                System.out.println("No MX records found.");
             }
         }
 
         // 查询一个不存在的域名
-        System.out.println("\n--- 查询不存在的域名 (nonexistent-domain-askljhfdsa.com) ---");
+        System.out.println("\n--- Querying Non-existent Domain (nonexistent-domain-askljhfdsa.com) ---");
         Message nxResponse = queryDoh(dohServer, "nonexistent-domain-askljhfdsa.com", Type.A);
         if (nxResponse != null) {
-            System.out.println("原始响应:\n" + nxResponse);
-            System.out.println("\n解析结果 (Answer Section):");
+            System.out.println("Response Code: " + Rcode.string(nxResponse.getRcode()));
+            System.out.println("\nParsed Results (Answer Section):");
             Record[] answers = nxResponse.getSectionArray(Section.ANSWER);
             if (answers.length > 0) {
                 for (Record record : answers) {
                     System.out.println(record);
                 }
             } else {
-                // 对于不存在的域名，Answer Section 通常为空，RCODE 会是 NXDOMAIN
-                System.out.println("未找到记录。响应码 (RCODE): " + Rcode.string(nxResponse.getRcode()));
+                System.out.println("No records found.");
             }
         }
     }

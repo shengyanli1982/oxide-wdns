@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -20,7 +21,7 @@ func queryDoH(serverURL string, domainName string, queryType dnsmessage.Type) (*
 	}
 	name, err := dnsmessage.NewName(domainName)
 	if err != nil {
-		return nil, fmt.Errorf("无效的域名 '%s': %w", domainName, err)
+		return nil, fmt.Errorf("invalid domain name '%s': %w", domainName, err)
 	}
 
 	// 创建查询问题
@@ -46,13 +47,13 @@ func queryDoH(serverURL string, domainName string, queryType dnsmessage.Type) (*
 	// 将查询消息打包为 wire 格式 (二进制数据)
 	queryWire, err := msg.Pack()
 	if err != nil {
-		return nil, fmt.Errorf("打包 DNS 查询失败: %w", err)
+		return nil, fmt.Errorf("failed to pack DNS query: %w", err)
 	}
 
 	// 2. 准备 HTTP POST 请求
 	req, err := http.NewRequest(http.MethodPost, serverURL, bytes.NewReader(queryWire))
 	if err != nil {
-		return nil, fmt.Errorf("创建 HTTP 请求失败: %w", err)
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	// 设置 HTTP 请求头
@@ -60,15 +61,20 @@ func queryDoH(serverURL string, domainName string, queryType dnsmessage.Type) (*
 	req.Header.Set("Content-Type", "application/dns-message")
 
 	// 3. 发送 HTTPS POST 请求
-	// 创建带超时的 HTTP 客户端
-	client := &http.Client{
-		Timeout: 10 * time.Second, // 设置超时
+	// 创建带超时的 HTTP 客户端，并忽略证书验证（仅用于测试）
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 
-	log.Printf("向 %s 发送查询: %s (%s)\n", serverURL, domainName, queryType.String())
+	client := &http.Client{
+		Timeout:   10 * time.Second, // 设置超时
+		Transport: transport,
+	}
+
+	log.Printf("Sending query to %s: %s (%s)\n", serverURL, domainName, queryType.String())
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("执行 HTTP 请求失败: %w", err)
+		return nil, fmt.Errorf("failed to execute HTTP request: %w", err)
 	}
 	// 确保在函数结束时关闭响应体
 	defer resp.Body.Close()
@@ -77,127 +83,124 @@ func queryDoH(serverURL string, domainName string, queryType dnsmessage.Type) (*
 	if resp.StatusCode != http.StatusOK {
 		// 尝试读取响应体以获取更多错误信息
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("DoH 服务器返回非预期状态码 %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("DoH server returned unexpected status code %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	// 5. 检查响应的内容类型
 	contentType := resp.Header.Get("Content-Type")
 	if contentType != "application/dns-message" {
-		return nil, fmt.Errorf("DoH 服务器返回了非预期的 Content-Type: %s", contentType)
+		return nil, fmt.Errorf("DoH server returned unexpected Content-Type: %s", contentType)
 	}
 
 	// 6. 读取并解析响应体中的 DNS 消息
 	responseWire, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("读取 HTTP 响应体失败: %w", err)
+		return nil, fmt.Errorf("failed to read HTTP response body: %w", err)
 	}
 
 	var responseMsg dnsmessage.Message
 	err = responseMsg.Unpack(responseWire)
 	if err != nil {
-		return nil, fmt.Errorf("解析 DNS 响应失败: %w", err)
+		return nil, fmt.Errorf("failed to parse DNS response: %w", err)
 	}
 
-	log.Printf("收到来自 %s 的响应\n", serverURL)
+	log.Printf("Received response from %s\n", serverURL)
 	return &responseMsg, nil
 }
 
 // --- 示例用法 ---
 func main() {
-	// 常用的公共 DoH 服务器 URL
-	// Cloudflare: "https://cloudflare-dns.com/dns-query"
-	// Google: "https://dns.google/dns-query"
-	// Quad9: "https://dns.quad9.net/dns-query"
-	dohServer := "https://localhost:8080/dns-query"
+	// 标准路由
+	dohServer := "http://localhost:8080/dns-query"
 	domainToQuery := "www.example.com"
 
 	// --- 查询 A 记录 ---
-	fmt.Printf("\n--- 查询 A 记录 (%s) ---\n", domainToQuery)
+	fmt.Printf("\n--- Querying A Record (%s) ---\n", domainToQuery)
 	aResponse, err := queryDoH(dohServer, domainToQuery, dnsmessage.TypeA)
 	if err != nil {
-		log.Printf("查询 A 记录失败: %v\n", err)
+		log.Printf("Failed to query A record: %v\n", err)
 	} else {
-		fmt.Println("原始响应头:", aResponse.Header) // 打印响应头信息
-		fmt.Println("解析结果 (Answer Section):")
+		fmt.Println("Raw Response Header:", aResponse.Header) // 打印响应头信息
+		fmt.Println("Parsed Results (Answer Section):")
 		if len(aResponse.Answers) > 0 {
 			for _, answer := range aResponse.Answers {
 				// 根据记录类型处理不同的资源记录
 				switch rr := answer.Body.(type) {
 				case *dnsmessage.AResource:
-					fmt.Printf("A记录: %v.%v.%v.%v\n", rr.A[0], rr.A[1], rr.A[2], rr.A[3])
+					fmt.Printf("A Record: %v.%v.%v.%v\n", rr.A[0], rr.A[1], rr.A[2], rr.A[3])
 				default:
-					fmt.Printf("未知记录类型: %T\n", rr)
+					fmt.Printf("Unknown record type: %T\n", rr)
 				}
 			}
 		} else {
-			fmt.Println("未找到 A 记录。")
+			fmt.Println("No A records found.")
 		}
 	}
 
 	// --- 查询 AAAA 记录 ---
-	fmt.Printf("\n--- 查询 AAAA 记录 (%s) ---\n", domainToQuery)
+	fmt.Printf("\n--- Querying AAAA Record (%s) ---\n", domainToQuery)
 	aaaaResponse, err := queryDoH(dohServer, domainToQuery, dnsmessage.TypeAAAA)
 	if err != nil {
-		log.Printf("查询 AAAA 记录失败: %v\n", err)
+		log.Printf("Failed to query AAAA record: %v\n", err)
 	} else {
-		fmt.Println("解析结果 (Answer Section):")
+		fmt.Println("Parsed Results (Answer Section):")
 		if len(aaaaResponse.Answers) > 0 {
 			for _, answer := range aaaaResponse.Answers {
 				switch rr := answer.Body.(type) {
 				case *dnsmessage.AAAAResource:
-					fmt.Printf("AAAA记录: %x:%x:%x:%x:%x:%x:%x:%x\n",
+					fmt.Printf("AAAA Record: %x:%x:%x:%x:%x:%x:%x:%x\n",
 						rr.AAAA[0:2], rr.AAAA[2:4], rr.AAAA[4:6], rr.AAAA[6:8],
 						rr.AAAA[8:10], rr.AAAA[10:12], rr.AAAA[12:14], rr.AAAA[14:16])
 				default:
-					fmt.Printf("未知记录类型: %T\n", rr)
+					fmt.Printf("Unknown record type: %T\n", rr)
 				}
 			}
 		} else {
-			fmt.Println("未找到 AAAA 记录。")
+			fmt.Println("No AAAA records found.")
 		}
 	}
 
 	// --- 查询 MX 记录 ---
-	fmt.Printf("\n--- 查询 MX 记录 (google.com) ---\n")
+	fmt.Printf("\n--- Querying MX Record (google.com) ---\n")
 	mxResponse, err := queryDoH(dohServer, "google.com", dnsmessage.TypeMX)
 	if err != nil {
-		log.Printf("查询 MX 记录失败: %v\n", err)
+		log.Printf("Failed to query MX record: %v\n", err)
 	} else {
-		fmt.Println("解析结果 (Answer Section):")
+		fmt.Println("Parsed Results (Answer Section):")
 		if len(mxResponse.Answers) > 0 {
 			for _, answer := range mxResponse.Answers {
 				switch rr := answer.Body.(type) {
 				case *dnsmessage.MXResource:
-					fmt.Printf("MX记录: 优先级=%d, 服务器=%s\n", rr.Pref, rr.MX.String())
+					fmt.Printf("MX Record: Priority=%d, Server=%s\n", rr.Pref, rr.MX.String())
 				default:
-					fmt.Printf("未知记录类型: %T\n", rr)
+					fmt.Printf("Unknown record type: %T\n", rr)
 				}
 			}
 		} else {
-			fmt.Println("未找到 MX 记录。")
+			fmt.Println("No MX records found.")
 		}
 	}
 
 	// --- 查询一个不存在的域名 ---
-	fmt.Printf("\n--- 查询不存在的域名 (nonexistent-domain-askljhfdsa.com) ---\n")
+	fmt.Printf("\n--- Querying Non-existent Domain (nonexistent-domain-askljhfdsa.com) ---\n")
 	nxDomain := "nonexistent-domain-askljhfdsa.com"
 	nxResponse, err := queryDoH(dohServer, nxDomain, dnsmessage.TypeA)
 	if err != nil {
-		log.Printf("查询 %s 失败: %v\n", nxDomain, err)
+		log.Printf("Failed to query %s: %v\n", nxDomain, err)
 	} else {
-		fmt.Println("原始响应头:", nxResponse.Header)
-		fmt.Println("解析结果 (Answer Section):")
+		fmt.Println("Response Code:", nxResponse.Header.RCode.String())
+		fmt.Println("Parsed Results (Answer Section):")
 		if len(nxResponse.Answers) > 0 {
 			for _, answer := range nxResponse.Answers {
 				switch rr := answer.Body.(type) {
 				case *dnsmessage.AResource:
-					fmt.Printf("A记录: %v.%v.%v.%v\n", rr.A[0], rr.A[1], rr.A[2], rr.A[3])
+					fmt.Printf("A Record: %v.%v.%v.%v\n", rr.A[0], rr.A[1], rr.A[2], rr.A[3])
 				default:
-					fmt.Printf("未知记录类型: %T\n", rr)
+					fmt.Printf("Unknown record type: %T\n", rr)
 				}
 			}
 		} else {
-			fmt.Printf("未找到记录。响应码 (RCode): %s (%d)\n", nxResponse.Header.RCode.String(), nxResponse.Header.RCode)
+			fmt.Println("No records found.")
 		}
 	}
 }
