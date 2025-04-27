@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
-use crate::common::error::{AppError, Result};
+use crate::server::error::{ServerError, Result};
 use crate::common::consts::{
     // 服务器配置相关常量
     default_listen_addr, DEFAULT_LISTEN_TIMEOUT,
@@ -257,10 +257,10 @@ impl ServerConfig {
     // 从配置文件加载配置
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let contents = fs::read_to_string(path)
-            .map_err(|e| AppError::Config(format!("Failed to read config file: {}", e)))?;
+            .map_err(|e| ServerError::Config(format!("Failed to read config file: {}", e)))?;
         
         let config: ServerConfig = serde_yaml::from_str(&contents)
-            .map_err(|e| AppError::Config(format!("Invalid config file format: {}", e)))?;
+            .map_err(|e| ServerError::Config(format!("Invalid config file format: {}", e)))?;
         
         Ok(config)
     }
@@ -289,18 +289,18 @@ impl ServerConfig {
     pub fn test(&self) -> Result<()> {
         // 检查上游解析器列表
         if self.dns.upstream.resolvers.is_empty() {
-            return Err(AppError::Config("No upstream DNS resolvers defined".to_string()));
+            return Err(ServerError::Config("No upstream DNS resolvers defined".to_string()));
         }
         
         // 检查上游解析器地址
         for resolver in &self.dns.upstream.resolvers {
             if resolver.address.is_empty() {
-                return Err(AppError::Config("Empty resolver address".to_string()));
+                return Err(ServerError::Config("Empty resolver address".to_string()));
             }
             
             // 检查 DoH 地址格式
             if resolver.protocol == ResolverProtocol::Doh && !resolver.address.starts_with("https://") {
-                return Err(AppError::Config(format!(
+                return Err(ServerError::Config(format!(
                     "DoH resolver address must start with 'https://': {}",
                     resolver.address
                 )));

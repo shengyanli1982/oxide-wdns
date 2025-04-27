@@ -10,7 +10,7 @@ use tracing::{debug, info, warn, error};
 use reqwest::{self, Client, header};
 use std::sync::Arc;
 
-use crate::common::error::{AppError, Result};
+use crate::server::error::{ServerError, Result};
 use crate::server::config::{ResolverProtocol, ServerConfig, UpstreamConfig};
 use crate::common::consts::{CONTENT_TYPE_DNS_MESSAGE};
 
@@ -35,7 +35,7 @@ impl DoHClient {
             .danger_accept_invalid_certs(true)  // 允许自签名证书
             .danger_accept_invalid_hostnames(true)  // 允许不匹配的主机名
             .build()
-            .map_err(|e| AppError::Upstream(format!("Failed to create HTTP client: {}", e)))?;
+            .map_err(|e| ServerError::Upstream(format!("Failed to create HTTP client: {}", e)))?;
             
         Ok(Self { client, url })
     }
@@ -53,11 +53,11 @@ impl DoHClient {
             .body(dns_wire)
             .send()
             .await
-            .map_err(|e| AppError::Upstream(format!("DoH request failed: {}", e)))?;
+            .map_err(|e| ServerError::Upstream(format!("DoH request failed: {}", e)))?;
         
         // 检查HTTP状态码
         if !response.status().is_success() {
-            return Err(AppError::Upstream(format!(
+            return Err(ServerError::Upstream(format!(
                 "DoH server returned error status: {}", 
                 response.status()
             )));
@@ -70,7 +70,7 @@ impl DoHClient {
             .unwrap_or("");
             
         if content_type != CONTENT_TYPE_DNS_MESSAGE {
-            return Err(AppError::Upstream(format!(
+            return Err(ServerError::Upstream(format!(
                 "DoH server returned invalid content type: {}", 
                 content_type
             )));
@@ -79,11 +79,11 @@ impl DoHClient {
         // 读取响应体
         let response_bytes = response.bytes()
             .await
-            .map_err(|e| AppError::Upstream(format!("Failed to read DoH response: {}", e)))?;
+            .map_err(|e| ServerError::Upstream(format!("Failed to read DoH response: {}", e)))?;
             
         // 解析DNS消息
         let response_message = Message::from_vec(&response_bytes)
-            .map_err(|e| AppError::Upstream(format!("Failed to parse DNS response: {}", e)))?;
+            .map_err(|e| ServerError::Upstream(format!("Failed to parse DNS response: {}", e)))?;
             
         Ok(response_message)
     }
@@ -152,11 +152,11 @@ impl UpstreamManager {
     // 执行 DNS 查询
     pub async fn resolve(&self, query_message: &Message) -> Result<Message> {
         if query_message.message_type() != MessageType::Query {
-            return Err(AppError::Upstream("Not a query message type".to_string()));
+            return Err(ServerError::Upstream("Not a query message type".to_string()));
         }
         
         if query_message.op_code() != OpCode::Query {
-            return Err(AppError::Upstream(format!(
+            return Err(ServerError::Upstream(format!(
                 "Unsupported operation code: {:?}", 
                 query_message.op_code()
             )));
@@ -165,7 +165,7 @@ impl UpstreamManager {
         // 获取第一个查询
         let query = match query_message.queries().first() {
             Some(q) => q,
-            None => return Err(AppError::Upstream("No Query section in query message".to_string())),
+            None => return Err(ServerError::Upstream("No Query section in query message".to_string())),
         };
         
         debug!(   
@@ -221,7 +221,7 @@ impl UpstreamManager {
         // trust-dns-resolver会根据CD标志自动处理DNSSEC验证
         let lookup_result = self.resolver.lookup(query.name().clone(), query.query_type())
             .await
-            .map_err(AppError::DnsResolve);
+            .map_err(ServerError::DnsResolve);
         
         match lookup_result {
             Ok(dns_response) => {
@@ -262,7 +262,7 @@ impl UpstreamManager {
                 response_message.add_query(query.clone());
                 
                 // 根据错误类型设置响应码
-                if let AppError::DnsResolve(resolve_err) = &e {
+                if let ServerError::DnsResolve(resolve_err) = &e {
                     match resolve_err.kind() {
                         trust_dns_resolver::error::ResolveErrorKind::NoRecordsFound { .. } => {
                             response_message.set_response_code(ResponseCode::NXDomain);
@@ -371,7 +371,7 @@ impl UpstreamManager {
                 // 解析 DoT 地址 (IP:port) 和域名
                 let parts: Vec<&str> = resolver_config.address.split('@').collect();
                 if parts.len() != 2 {
-                    return Err(AppError::Config(format!(
+                    return Err(ServerError::Config(format!(
                         "Invalid DoT address format, should be 'domain@IP:port': {}",
                         resolver_config.address
                     )));
@@ -391,7 +391,7 @@ impl UpstreamManager {
             ResolverProtocol::Doh => {
                 // DoH现在使用自定义客户端实现，这里不再需要实现
                 // 为了保持API兼容性，返回一个错误
-                Err(AppError::Config(
+                Err(ServerError::Config(
                     "DoH protocol is now handled by custom client implementation".to_string()
                 ))
             }
@@ -401,7 +401,7 @@ impl UpstreamManager {
     // 解析套接字地址
     fn parse_socket_addr(addr_str: &str) -> Result<SocketAddr> {
         addr_str.parse().map_err(|e| {
-            AppError::Config(format!("Invalid socket address '{}': {}", addr_str, e))
+            ServerError::Config(format!("Invalid socket address '{}': {}", addr_str, e))
         })
     }
 } 

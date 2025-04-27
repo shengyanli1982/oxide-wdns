@@ -12,7 +12,7 @@ const logger = {
 /**
  * 向指定的 DoH 服务器发送 DNS 查询。
  *
- * @param {string} serverUrl DoH 服务器的 URL (例如: "https://cloudflare-dns.com/dns-query")。
+ * @param {string} serverUrl DoH 服务器的 URL (例如: "http://localhost:8080/dns-query")。
  * @param {string} domainName 要查询的域名 (例如: "example.com")。
  * @param {string} queryType 查询记录的类型 (例如: "A", "AAAA", "MX")。默认为 "A"。
  * @returns {Promise<object|null>} 如果成功，返回解析后的 DNS 响应对象。如果失败，返回 null。
@@ -32,7 +32,7 @@ async function queryDoh(serverUrl, domainName, queryType = "A") {
         ],
     });
 
-    // 2. 设置 HTTP 请求头 
+    // 2. 设置 HTTP 请求头
     const headers = {
         Accept: "application/dns-message",
         "Content-Type": "application/dns-message",
@@ -40,7 +40,7 @@ async function queryDoh(serverUrl, domainName, queryType = "A") {
 
     try {
         // 3. 发送 HTTPS POST 请求
-        logger.info(`向 ${serverUrl} 发送查询: ${domainName} (${queryType})`);
+        logger.info(`Sending query to ${serverUrl}: ${domainName} (${queryType})`);
         const response = await fetch(serverUrl, {
             method: "POST",
             headers: headers,
@@ -56,27 +56,25 @@ async function queryDoh(serverUrl, domainName, queryType = "A") {
         // 5. 检查响应的内容类型
         const contentType = response.headers.get("content-type");
         if (contentType !== "application/dns-message") {
-            logger.error(`服务器返回了非预期的 Content-Type: ${contentType}`);
+            logger.error(`Server returned unexpected Content-Type: ${contentType}`);
             return null;
         }
 
         // 6. 使用 dns-packet 解析响应体中的 DNS 消息
-        // node-fetch v2 返回 Buffer, v3+ 或内置 fetch 返回 ArrayBuffer
-        const responseBuf = await response.buffer(); // 获取响应体为 Buffer (node-fetch v2)
-        // 如果使用内置 fetch 或 node-fetch v3+, 需要:
-        // const arrayBuffer = await response.arrayBuffer();
-        // const responseBuf = Buffer.from(arrayBuffer);
+        // 获取响应体为 ArrayBuffer
+        const arrayBuffer = await response.arrayBuffer();
+        const responseBuf = Buffer.from(arrayBuffer);
 
         const responseMessage = decode(responseBuf);
-        logger.info(`收到来自 ${serverUrl} 的响应`);
+        logger.info(`Received response from ${serverUrl}`);
         return responseMessage;
     } catch (error) {
         if (error.name === "AbortError" || error.code === "ETIMEOUT" || error.code === "ECONNRESET") {
-            logger.error(`请求 DoH 服务器超时或连接重置: ${error.message}`);
+            logger.error(`Request timeout or connection reset: ${error.message}`);
         } else if (error instanceof Error && error.message.startsWith("HTTP error!")) {
-            logger.error(`请求 DoH 服务器时出错: ${error.message}`);
+            logger.error(`Error requesting DoH server: ${error.message}`);
         } else {
-            logger.error(`处理 DoH 请求/响应时出错: ${error}`);
+            logger.error(`Error processing DoH request/response: ${error}`);
         }
         return null;
     }
@@ -84,69 +82,65 @@ async function queryDoh(serverUrl, domainName, queryType = "A") {
 
 // --- 示例用法 ---
 async function runExamples() {
-    // 常用的公共 DoH 服务器 URL
-    // Cloudflare: "https://cloudflare-dns.com/dns-query"
-    // Google: "https://dns.google/dns-query"
-    // Quad9: "https://dns.quad9.net/dns-query"
-    // 本地: "https://localhost:8080/dns-query" or "http://localhost:8080/dns-query"
-    const dohServer = "https://localhost:8080/dns-query";
+    // 标准路由
+    const dohServer = "http://localhost:8080/dns-query";
     const domainToQuery = "www.example.com";
 
     // 查询 A 记录
-    console.log(`\n--- 查询 A 记录 (${domainToQuery}) ---`);
+    console.log(`\n--- Querying A Record (${domainToQuery}) ---`);
     const aResponse = await queryDoh(dohServer, domainToQuery, "A");
     if (aResponse) {
-        console.log("原始响应:\n", JSON.stringify(aResponse, null, 2)); // 打印 JSON 格式
-        console.log("\n解析结果 (Answers):");
+        console.log("Raw Response:\n", JSON.stringify(aResponse, null, 2)); // 打印 JSON 格式
+        console.log("\nParsed Results (Answers):");
         if (aResponse.answers && aResponse.answers.length > 0) {
             aResponse.answers.forEach((answer) => console.log(answer));
         } else {
-            console.log("未找到 A 记录。");
+            console.log("No A records found.");
         }
     }
 
     // 查询 AAAA 记录
-    console.log(`\n--- 查询 AAAA 记录 (${domainToQuery}) ---`);
+    console.log(`\n--- Querying AAAA Record (${domainToQuery}) ---`);
     const aaaaResponse = await queryDoh(dohServer, domainToQuery, "AAAA");
     if (aaaaResponse) {
-        // console.log("原始响应:\n", JSON.stringify(aaaaResponse, null, 2));
-        console.log("\n解析结果 (Answers):");
+        console.log("\nParsed Results (Answers):");
         if (aaaaResponse.answers && aaaaResponse.answers.length > 0) {
             aaaaResponse.answers.forEach((answer) => console.log(answer));
         } else {
-            console.log("未找到 AAAA 记录。");
+            console.log("No AAAA records found.");
         }
     }
 
     // 查询 MX 记录
-    console.log(`\n--- 查询 MX 记录 (google.com) ---`);
+    console.log(`\n--- Querying MX Record (google.com) ---`);
     const mxResponse = await queryDoh(dohServer, "google.com", "MX");
     if (mxResponse) {
-        // console.log("原始响应:\n", JSON.stringify(mxResponse, null, 2));
-        console.log("\n解析结果 (Answers):");
+        console.log("\nParsed Results (Answers):");
         if (mxResponse.answers && mxResponse.answers.length > 0) {
             mxResponse.answers.forEach((answer) => console.log(answer)); // MX 记录包含 preference 和 exchange
         } else {
-            console.log("未找到 MX 记录。");
+            console.log("No MX records found.");
         }
     }
 
     // 查询一个不存在的域名
-    console.log(`\n--- 查询不存在的域名 (nonexistent-domain-askljhfdsa.com) ---`);
+    console.log(`\n--- Querying Non-existent Domain (nonexistent-domain-askljhfdsa.com) ---`);
     const nxResponse = await queryDoh(dohServer, "nonexistent-domain-askljhfdsa.com", "A");
     if (nxResponse) {
-        console.log("原始响应:\n", JSON.stringify(nxResponse, null, 2));
-        console.log("\n解析结果 (Answers):");
+        console.log("Response Code:", nxResponse.rcode);
+        console.log("\nParsed Results (Answers):");
         if (nxResponse.answers && nxResponse.answers.length > 0) {
             nxResponse.answers.forEach((answer) => console.log(answer));
         } else {
-            // 检查响应状态码 (RCODE)
-            console.log(`未找到记录。响应状态: ${nxResponse.rcode || "N/A"}`); // NXDOMAIN 表示不存在
+            console.log("No records found.");
         }
     }
 }
 
+// 添加忽略SSL证书验证的代码（仅用于本地测试）
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 // 执行示例
 runExamples().catch((err) => {
-    console.error("运行示例时发生意外错误:", err);
+    console.error("Unexpected error running examples:", err);
 });

@@ -18,7 +18,7 @@ def query_doh(
     向指定的 DoH 服务器发送 DNS 查询。
 
     Args:
-        server_url: DoH 服务器的 URL (例如: "https://localhost:8080/dns-query")。
+        server_url: DoH 服务器的 URL (例如: "http://localhost:8080/dns-query")。
         domain_name: 要查询的域名 (例如: "example.com")。
         query_type: 查询记录的类型 (例如: dns.rdatatype.A, dns.rdatatype.AAAA, dns.rdatatype.MX)。
                     默认为 A 记录。
@@ -42,50 +42,81 @@ def query_doh(
 
     try:
         # 3. 发送 HTTPS POST 请求
-        logger.info(f"向 {server_url} 发送查询: {domain_name} ({dns.rdatatype.to_text(query_type)})")
-        response = requests.post(server_url, headers=headers, data=query_wire, timeout=10)  # 设置超时时间
+        logger.info(f"Sending query to {server_url}: {domain_name} ({dns.rdatatype.to_text(query_type)})")
+        response = requests.post(server_url, headers=headers, data=query_wire, timeout=10, verify=False)  # 设置超时时间
 
         # 4. 检查 HTTP 响应状态码
         response.raise_for_status()  # 如果状态码不是 2xx，则抛出异常
 
         # 5. 检查响应的内容类型
         if response.headers.get("Content-Type") != "application/dns-message":
-            logger.error(f"服务器返回了非预期的 Content-Type: {response.headers.get('Content-Type')}")
+            logger.error(f"Server returned unexpected Content-Type: {response.headers.get('Content-Type')}")
             return None
 
         # 6. 使用 dnspython 解析响应体中的 DNS 消息
         response_message = dns.message.from_wire(response.content)
-        logger.info(f"收到来自 {server_url} 的响应")
+        logger.info(f"Received response from {server_url}")
         return response_message
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"请求 DoH 服务器时出错: {e}")
+        logger.error(f"Error requesting DoH server: {e}")
         return None
     except dns.exception.DNSException as e:
-        logger.error(f"解析 DNS 响应时出错: {e}")
+        logger.error(f"Error parsing DNS response: {e}")
         return None
     except Exception as e:
-        logger.error(f"发生未知错误: {e}")
+        logger.error(f"Unexpected error occurred: {e}")
         return None
 
 
 # --- 示例用法 ---
 if __name__ == "__main__":
-    # 常用的公共 DoH 服务器 URL
-    # Cloudflare: "https://cloudflare-dns.com/dns-query"
-    # Google: "https://dns.google/dns-query"
-    # Quad9: "https://dns.quad9.net/dns-query"
-    doh_server = "https://localhost:8080/dns-query"
+    # 标准路由
+    doh_server = "http://localhost:8080/dns-query"
     domain_to_query = "www.example.com"
 
     # 查询 A 记录
-    print(f"\n--- 查询 A 记录 ({domain_to_query}) ---")
+    print(f"\n--- Querying A Record ({domain_to_query}) ---")
     a_response = query_doh(doh_server, domain_to_query, dns.rdatatype.A)
     if a_response:
-        print("原始响应:\n", a_response)
-        print("\n解析结果 (Answer Section):")
+        print("Raw Response:\n", a_response)
+        print("\nParsed Results (Answer Section):")
         if a_response.answer:
             for rrset in a_response.answer:
                 print(rrset.to_text())
         else:
-            print("未找到 A 记录。")
+            print("No A records found.")
+
+    # 查询 AAAA 记录
+    print(f"\n--- Querying AAAA Record ({domain_to_query}) ---")
+    aaaa_response = query_doh(doh_server, domain_to_query, dns.rdatatype.AAAA)
+    if aaaa_response:
+        print("\nParsed Results (Answer Section):")
+        if aaaa_response.answer:
+            for rrset in aaaa_response.answer:
+                print(rrset.to_text())
+        else:
+            print("No AAAA records found.")
+
+    # 查询 MX 记录
+    print("\n--- Querying MX Record (google.com) ---")
+    mx_response = query_doh(doh_server, "google.com", dns.rdatatype.MX)
+    if mx_response:
+        print("\nParsed Results (Answer Section):")
+        if mx_response.answer:
+            for rrset in mx_response.answer:
+                print(rrset.to_text())
+        else:
+            print("No MX records found.")
+
+    # 查询一个不存在的域名
+    print("\n--- Querying Non-existent Domain (nonexistent-domain-askljhfdsa.com) ---")
+    nx_response = query_doh(doh_server, "nonexistent-domain-askljhfdsa.com", dns.rdatatype.A)
+    if nx_response:
+        print("Response Code:", dns.rcode.to_text(nx_response.rcode()))
+        print("\nParsed Results (Answer Section):")
+        if nx_response.answer:
+            for rrset in nx_response.answer:
+                print(rrset.to_text())
+        else:
+            print("No records found.")

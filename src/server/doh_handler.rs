@@ -15,7 +15,7 @@ use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
 use tracing::{debug, warn, info};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
-use crate::common::error::{AppError, Result};
+use crate::server::error::{ServerError, Result};
 use crate::common::consts::{
     CONTENT_TYPE_DNS_JSON, 
     CONTENT_TYPE_DNS_MESSAGE,
@@ -521,7 +521,7 @@ async fn process_query(
 ) -> Result<(Message, bool)> {  // 返回元组，第二个参数表示是否缓存命中
     // 检查查询消息是否有效
     if query_message.message_type() != MessageType::Query {
-        return Err(AppError::Http("Not a query message type".to_string()));
+        return Err(ServerError::Http("Not a query message type".to_string()));
     }
     
     // 仅在存在查询时才记录查询类型
@@ -529,7 +529,7 @@ async fn process_query(
         let query_type = query.query_type().to_string();
         METRICS.with(|m| m.record_dns_query_type(&query_type));
     } else {
-        return Err(AppError::Http("No query found in message".to_string()));
+        return Err(ServerError::Http("No query found in message".to_string()));
     }
     
     // 从查询消息构建缓存键
@@ -598,14 +598,14 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
     let name = match Name::parse(&request.name, None) {
         Ok(name) => name,
         Err(e) => {
-            return Err(AppError::Http(format!("Invalid domain name: {}", e)));
+            return Err(ServerError::Http(format!("Invalid domain name: {}", e)));
         }
     };
     
     // 解析记录类型
     let rtype = match RecordType::from(request.type_value) {
         RecordType::Unknown(..) => {
-            return Err(AppError::Http(format!("Invalid record type: {}", request.type_value)));
+            return Err(ServerError::Http(format!("Invalid record type: {}", request.type_value)));
         }
         rt => rt,
     };
@@ -616,7 +616,7 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
             // 检查已知有效的 DNS 类型
             match class {
                 1 | 3 | 4 | 254 | 255 => DNSClass::from_u16(class),
-                _ => return Err(AppError::Http(format!("Invalid DNS class: {}", class))),
+                _ => return Err(ServerError::Http(format!("Invalid DNS class: {}", class))),
             }
         },
         None => Ok(DNSClass::IN),
