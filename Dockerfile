@@ -1,5 +1,6 @@
 # Stage 1: Build static binaries using Rust MUSL target
-FROM rust:1.78-alpine AS builder # Use an appropriate Rust version like 1.78 or newer
+# 构建阶段
+FROM rust:1.84.1-alpine AS builder
 
 # 设置构建环境 (静态链接)
 ENV RUSTFLAGS="-C target-feature=+crt-static"
