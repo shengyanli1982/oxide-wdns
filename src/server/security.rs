@@ -3,10 +3,10 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
-use axum::{Router, http::StatusCode, response::Response, extract::ConnectInfo};
+use axum::{Router, http::StatusCode, response::Response};
 use axum::body::Body;
 use tokio::time;
-use tracing::{info, warn};
+use tracing::{info, warn, debug};
 use tower_governor::{
     governor::GovernorConfigBuilder,
     key_extractor::SmartIpKeyExtractor,
@@ -44,10 +44,12 @@ pub fn apply_rate_limiting(routes: Router, config: &RateLimitConfig) -> Router {
             .key_extractor(SmartIpKeyExtractor)
             .per_second(config.per_ip_rate.into()) 
             .burst_size(burst_size_u32) 
-            .error_handler(|err: &GovernorError| {
+            .error_handler(|err: GovernorError| {
                 // 获取客户端 IP 并记录指标
-                if let GovernorError::TooManyRequests { key, .. } = err {
-                    let client_ip = key.to_string();
+                if let GovernorError::TooManyRequests { .. } = &err {
+                    // 从错误中提取客户端 IP
+                    let client_ip = err.to_string();
+                    
                     // 记录速率限制指标
                     METRICS.with(|m| {
                         m.record_rate_limit(&client_ip);
