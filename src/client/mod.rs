@@ -7,7 +7,8 @@ pub mod request;
 pub mod response;
 pub mod core;
 
-// 可以考虑 re-export 关键类型，方便外部使用
-// pub use args::CliArgs;
-// pub use error::{ClientError, ClientResult};
-// pub use core::run_query; 
+// 重新导出关键类型，方便外部使用
+pub use args::CliArgs;
+pub use error::{ClientError, ClientResult};
+pub use response::DohResponse;
+pub use core::{run_query, print_error}; 

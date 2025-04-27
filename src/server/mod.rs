@@ -9,6 +9,7 @@ pub mod metrics;
 pub mod security;
 pub mod signal;
 pub mod upstream;
+pub mod args;
 
 use std::sync::Arc;
 use std::time::Duration;
