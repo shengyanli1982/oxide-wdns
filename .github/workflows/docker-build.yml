@@ -1,0 +1,131 @@
+name: Docker Build and Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: "要构建的版本标签 (例如: v1.0.0)"
+        required: true
+        type: string
+  push:
+    tags:
+      - "v*" # 当推送 v 开头的 tag 时触发
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: shengyanli1982/oxide-wdns
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.version_tag && github.event.inputs.version_tag || 'latest' }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Build and export Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+
+      - name: Save Docker image as tar
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        run: |
+          # 获取版本号
+          IMAGE_TAG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            IMAGE_TAG="${{ github.event.inputs.version_tag }}"
+          else
+            IMAGE_TAG="${{ github.ref_name }}"
+          fi
+          VERSION=$(echo "$IMAGE_TAG" | sed 's/^v//')
+
+          # 确保从 registry 拉取最新构建的镜像
+          echo "Pulling image from registry..."
+          docker pull "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+
+          # 列出当前 Docker 镜像
+          echo "Available Docker images:"
+          docker images
+
+          # 保存镜像为 tar 文件
+          echo "Saving image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+          docker save "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG" > "oxide-wdns-alpine-$VERSION.tar"
+
+          # 验证 tar 文件是否创建成功
+          if [ -f "oxide-wdns-alpine-$VERSION.tar" ]; then
+            echo "Successfully created tar file: oxide-wdns-alpine-$VERSION.tar"
+            ls -lh "oxide-wdns-alpine-$VERSION.tar"
+          else
+            echo "Failed to create tar file"
+            exit 1
+          fi
+
+      - name: Delete existing release assets
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
+        run: |
+          # 获取版本号
+          VERSION=$(echo "$TAG_NAME" | sed 's/^v//')
+
+          echo "Checking for existing release assets..."
+
+          # 获取 release ID
+          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases/tags/$TAG_NAME | jq -r '.id')
+
+          if [ "$RELEASE_ID" != "null" ]; then
+            echo "Found release with ID: $RELEASE_ID"
+            
+            # 获取所有资源并删除匹配的 tar 文件
+            gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets |
+            jq -r '.[] | select(.name | contains("oxide-wdns-alpine-")) | .id' |
+            while read asset_id; do
+              if [ ! -z "$asset_id" ]; then
+                echo "Deleting asset ID: $asset_id"
+                gh api -X DELETE repos/${{ github.repository }}/releases/assets/$asset_id
+              fi
+            done
+          else
+            echo "No existing release found for tag: $TAG_NAME"
+          fi
+
+      - name: Upload tar to release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          files: oxide-wdns-alpine-*.tar
+          fail_on_unmatched_files: true
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag || github.ref_name }}
