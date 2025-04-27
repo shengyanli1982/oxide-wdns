@@ -444,8 +444,11 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
             // 如果是 JSON 响应，打印原始 JSON
             if response.is_json && verbose_level >= 2 {
                 println!("\n{}", ";; Raw JSON Response:".bold());
-                match String::from_utf8(response.raw_body.clone()) {
-                    Ok(json_str) => {
+                // 使用 from_utf8_lossy 避免在UTF-8有效时克隆 raw_body
+                // 它返回 Cow<str>，如果需要分配，它会这样做
+                let json_str_cow = String::from_utf8_lossy(&response.raw_body);
+                match json_str_cow {
+                    std::borrow::Cow::Borrowed(json_str) => {
                         // 尝试格式化 JSON
                         match serde_json::from_str::<serde_json::Value>(&json_str) {
                             Ok(json_value) => {
@@ -458,7 +461,20 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
                             Err(_) => println!("{}", json_str),
                         }
                     },
-                    Err(_) => println!("<invalid UTF-8>"),
+                    std::borrow::Cow::Owned(json_str) => {
+                        // 如果是 Owned，说明发生了替换，可以直接打印
+                        // （虽然理论上 lossy 替换后可能不是有效的 JSON，但我们仍然尝试解析）
+                        match serde_json::from_str::<serde_json::Value>(&json_str) {
+                            Ok(json_value) => {
+                                if let Ok(pretty_json) = serde_json::to_string_pretty(&json_value) {
+                                    println!("{}", pretty_json);
+                                } else {
+                                    println!("{}", json_str); // 格式化失败，打印原始（可能已替换的）字符串
+                                }
+                            },
+                            Err(_) => println!("{}\n;; Note: Original data contained invalid UTF-8 sequences.", json_str),
+                        }
+                    }
                 }
             }
         }
@@ -489,26 +505,39 @@ fn get_flags_description(message: &Message) -> String {
 
 /// 打印十六进制转储
 fn print_hex_dump(data: &[u8]) {
+    // 预先计算一行的容量：8位地址 + ":" + 空格 + 空格 + 48字符(16字节×3) + 空格 + "|" + 16字符 + "|"
+    const LINE_CAPACITY: usize = 8 + 1 + 1 + 1 + 48 + 1 + 1 + 16 + 1;
+    
     for (i, chunk) in data.chunks(16).enumerate() {
-        let mut hex_line = String::new();
-        let mut ascii_line = String::new();
+        // 使用预分配容量减少重新分配
+        let mut line = String::with_capacity(LINE_CAPACITY);
         
-        for b in chunk {
-            write!(&mut hex_line, "{:02x} ", b).unwrap();
-            
-            // ASCII 部分只显示可打印字符，其他用点代替
-            if *b >= 32 && *b <= 126 {
-                ascii_line.push(*b as char);
-            } else {
-                ascii_line.push('.');
-            }
+        // 添加地址部分
+        write!(&mut line, "{:08x}:  ", i * 16).unwrap();
+        
+        // 十六进制部分
+        for (j, &b) in chunk.iter().enumerate() {
+            write!(&mut line, "{:02x} ", b).unwrap();
         }
         
-        // 对齐短行
+        // 对齐短行 - 计算剩余空间
         for _ in chunk.len()..16 {
-            hex_line.push_str("   ");
+            line.push_str("   ");
         }
         
-        println!("{:08x}:  {}  |{}|", i * 16, hex_line, ascii_line);
+        // 添加分隔符
+        line.push_str(" |");
+        
+        // ASCII 部分
+        for &b in chunk {
+            // 优化：避免使用 if 判断，使用条件表达式
+            line.push(if b >= 32 && b <= 126 { b as char } else { '.' });
+        }
+        
+        // 完成行
+        line.push('|');
+        
+        // 一次性打印整行
+        println!("{}", line);
     }
 } 
