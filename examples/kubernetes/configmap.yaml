@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oxide-wdns-config
+  labels:
+    app: oxide-wdns
+data:
+  config.yaml: |
+    # HTTP 服务器配置
+    http_server:
+      # 服务器监听地址，在Kubernetes中使用0.0.0.0以接收所有流量
+      listen_addr: "0.0.0.0:3053"
+      # 服务器连接超时（秒）
+      timeout: 120
+      # 速率限制配置
+      rate_limit:
+        enabled: true
+        per_ip_rate: 100
+        per_ip_concurrent: 10
+
+    # DNS 解析器配置
+    dns_resolver:
+      # 上游 DNS 服务器配置
+      upstream:
+        enable_dnssec: true
+        query_timeout: 30
+        # 上游解析器列表
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: "udp" # Cloudflare DNS
+          - address: "8.8.8.8:53"
+            protocol: "udp" # Google DNS
+          # - address: "cloudflare-dns.com@1.1.1.1:853"
+          #   protocol: "dot"
+          # - address: "https://cloudflare-dns.com/dns-query"
+          #   protocol: "doh"
+
+      # HTTP 客户端配置
+      http_client:
+        timeout: 120
+        pool:
+          idle_timeout: 30
+          max_idle_connections: 10
+        request:
+          user_agent: "Oxide-WDNS Client"
+          ip_header_names:
+            - "X-Forwarded-For"
+            - "X-Real-IP"
+            - "CF-Connecting-IP"
+
+      # 缓存配置
+      cache:
+        enabled: true
+        size: 10000
+        ttl:
+          min: 60
+          max: 86400
+          negative: 300
