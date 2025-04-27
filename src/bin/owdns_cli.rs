@@ -11,7 +11,7 @@
 //! - 支持通过条件验证响应内容
 
 use clap::Parser;
-use oxide_wdns::client::{CliArgs, run_query, print_error, ClientError};
+use oxide_wdns::client::{CliArgs, run_query, print_error};
 
 #[tokio::main]
 async fn main() {

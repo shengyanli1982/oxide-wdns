@@ -24,8 +24,6 @@ use std::fmt::Write;
 use std::time::Duration;
 use trust_dns_proto::op::{Message, MessageType, Query, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RData, Record, RecordType};
-use trust_dns_proto::rr::rdata::{CNAME, NS, NULL, TXT};
-use trust_dns_proto::serialize::binary::BinDecodable;
 
 /// DoH JSON 响应格式
 #[derive(Debug, Deserialize)]
@@ -124,7 +122,7 @@ pub async fn parse_doh_response(response: reqwest::Response) -> ClientResult<Doh
         ct if ct.starts_with(CONTENT_TYPE_DNS_MESSAGE) => {
             // 解析二进制 DNS 消息
             let message = Message::from_vec(&raw_body)
-                .map_err(|e| ClientError::DnsProtoError(e))?;
+                .map_err(ClientError::DnsProtoError)?;
             (message, false, None)
         },
         ct if ct.starts_with(CONTENT_TYPE_DNS_JSON) => {

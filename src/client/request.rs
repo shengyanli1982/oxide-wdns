@@ -91,11 +91,11 @@ fn create_dns_query(args: &CliArgs) -> ClientResult<Message> {
     if let Some(hex_payload) = &args.payload {
         // 解析十六进制数据
         let payload = hex::decode(hex_payload)
-            .map_err(|e| ClientError::HexError(e))?;
+            .map_err(ClientError::HexError)?;
         
         // 解析为 DNS 消息
         return Message::from_vec(&payload)
-            .map_err(|e| ClientError::DnsProtoError(e));
+            .map_err(ClientError::DnsProtoError);
     }
     
     // 否则，根据提供的域名和记录类型创建 DNS 查询
@@ -146,7 +146,7 @@ fn encode_dns_message(message: &Message, format: &DohFormat, args: &CliArgs) -> 
             let mut buffer = Vec::with_capacity(512);
             let mut encoder = BinEncoder::new(&mut buffer);
             message.emit(&mut encoder)
-                .map_err(|e| ClientError::DnsProtoError(e))?;
+                .map_err(ClientError::DnsProtoError)?;
             
             Ok((CONTENT_TYPE_DNS_MESSAGE.to_string(), buffer))
         },
