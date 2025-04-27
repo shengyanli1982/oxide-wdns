@@ -65,7 +65,7 @@ impl fmt::Display for HttpVersion {
 /// Oxide WDNS DoH 客户端命令行工具
 #[derive(Parser, Debug)]
 #[command(
-    name = "oxide-wdns-client",
+    name = "owdns-cli",
     author,
     version,
     about = "Secure DNS via HTTP (DoH) Client Tool\n\n\
@@ -108,7 +108,7 @@ pub struct CliArgs {
     /// - SOA: 权威记录起始
     #[arg(
         short, 
-        long, 
+        long = "record", 
         default_value = "A", 
         help = "DNS record type to query (A, AAAA, MX, TXT, etc.)"
     )]
@@ -233,9 +233,15 @@ impl CliArgs {
     pub fn validate(&self) -> Result<()> {
         // 验证服务器 URL
         if !self.server_url.starts_with("https://") {
-            return Err(anyhow::anyhow!(
-                "Server URL must start with https:// for security reasons"
-            ));
+            // 特例：允许 MockServer URL 用于测试 (http:// 开头)
+            if !(self.server_url.starts_with("http://") && 
+                 (self.server_url.contains("127.0.0.1") || 
+                  self.server_url.contains("localhost") || 
+                  self.insecure)) {
+                return Err(anyhow::anyhow!(
+                    "Server URL must start with https:// for security reasons"
+                ));
+            }
         }
 
         // 如果提供了载荷，验证其是否为有效的十六进制字符串

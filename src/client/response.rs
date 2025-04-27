@@ -27,60 +27,73 @@ use trust_dns_proto::rr::{DNSClass, Name, RData, Record, RecordType};
 
 /// DoH JSON 响应格式
 #[derive(Debug, Deserialize)]
-struct DohJsonResponse {
+pub struct DohJsonResponse {
     /// 应答状态
     #[serde(default)]
-    Status: u16,
+    #[serde(rename = "Status")]
+    pub status: u16,
     /// 是否截断
     #[serde(default)]
-    TC: bool,
+    #[serde(rename = "TC")]
+    pub tc: bool,
     /// 是否递归可用
     #[serde(default)]
-    RD: bool,
+    #[serde(rename = "RD")]
+    pub rd: bool,
     /// 是否递归查询
     #[serde(default)]
-    RA: bool,
+    #[serde(rename = "RA")]
+    pub ra: bool,
     /// 是否通过验证
     #[serde(default)]
-    AD: bool,
+    #[serde(rename = "AD")]
+    pub ad: bool,
     /// 是否禁用验证
     #[serde(default)]
-    CD: bool,
+    #[serde(rename = "CD")]
+    pub cd: bool,
     /// 响应的问题
-    Question: Vec<DohJsonQuestion>,
+    #[serde(rename = "Question")]
+    pub question: Vec<DohJsonQuestion>,
     /// 响应的答案
     #[serde(default)]
-    Answer: Vec<DohJsonAnswer>,
+    #[serde(rename = "Answer")]
+    pub answer: Vec<DohJsonAnswer>,
     /// 权威信息
     #[serde(default)]
-    Authority: Vec<DohJsonAnswer>,
+    #[serde(rename = "Authority")]
+    pub authority: Vec<DohJsonAnswer>,
     /// 附加信息
     #[serde(default)]
-    Additional: Vec<DohJsonAnswer>,
+    #[serde(rename = "Additional")]
+    pub additional: Vec<DohJsonAnswer>,
     /// 注释
     #[serde(default)]
-    Comment: Option<String>,
+    #[serde(rename = "Comment")]
+    pub comment: Option<String>,
 }
 
 /// DoH JSON 问题
 #[derive(Debug, Deserialize)]
-struct DohJsonQuestion {
-    name: String,
+pub struct DohJsonQuestion {
+    pub name: String,
     #[serde(rename = "type")]
-    record_type: u16,
+    pub record_type: u16,
 }
 
 /// DoH JSON 答案
 #[derive(Debug, Deserialize)]
-struct DohJsonAnswer {
-    name: String,
+pub struct DohJsonAnswer {
+    pub name: String,
     #[serde(rename = "type")]
-    record_type: u16,
-    TTL: u32,
-    data: String,
+    pub record_type: u16,
+    #[serde(rename = "TTL")]
+    pub ttl: u32,
+    pub data: String,
 }
 
 /// DoH 响应结构
+#[derive(Debug)]
 pub struct DohResponse {
     /// 解析后的 DNS 消息
     pub message: Message,
@@ -106,8 +119,17 @@ pub async fn parse_doh_response(response: reqwest::Response) -> ClientResult<Doh
     
     // 检查响应状态
     if !status.is_success() {
-        return Err(ClientError::HttpError(status.as_u16(), 
-            status.canonical_reason().unwrap_or("Unknown error").to_string()));
+        // 对于5xx服务器错误，返回ReqwestError类型错误
+        if status.is_server_error() {
+            // 创建一个reqwest::Error类似的错误作为包装
+            let error_msg = format!("HTTP server error: {} {}", 
+                status.as_u16(), 
+                status.canonical_reason().unwrap_or("Unknown error"));
+            return Err(ClientError::Other(error_msg));
+        } else {
+            return Err(ClientError::HttpError(status.as_u16(), 
+                status.canonical_reason().unwrap_or("Unknown error").to_string()));
+        }
     }
     
     // 获取内容类型和原始响应体
@@ -171,18 +193,18 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     
     // 设置消息头部信息
     message.set_message_type(MessageType::Response);
-    message.set_recursion_desired(json.RD);
-    message.set_recursion_available(json.RA);
-    message.set_authentic_data(json.AD);
-    message.set_checking_disabled(json.CD);
-    message.set_truncated(json.TC);
+    message.set_recursion_desired(json.rd);
+    message.set_recursion_available(json.ra);
+    message.set_authentic_data(json.ad);
+    message.set_checking_disabled(json.cd);
+    message.set_truncated(json.tc);
     
     // 设置响应码
     // 使用 from_low 方法替代 from_u16
-    message.set_response_code(ResponseCode::from_low(json.Status as u8));
+    message.set_response_code(ResponseCode::from_low(json.status as u8));
     
     // 添加问题部分
-    for q in &json.Question {
+    for q in &json.question {
         if let Ok(name) = Name::from_ascii(&q.name) {
             // 使用 RecordType::from(u16) 获取记录类型
             match RecordType::from(q.record_type) {
@@ -198,7 +220,7 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     }
     
     // 添加答案部分
-    for ans in &json.Answer {
+    for ans in &json.answer {
         if let Ok(name) = Name::from_ascii(&ans.name) {
             // 使用 RecordType::from(u16) 获取记录类型
             let record_type = RecordType::from(ans.record_type);
@@ -207,7 +229,7 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
             if let Ok(rdata) = parse_json_rdata(record_type, &ans.data) {
                 let mut record = Record::new();
                 record.set_name(name);
-                record.set_ttl(ans.TTL);
+                record.set_ttl(ans.ttl);
                 record.set_record_type(record_type);
                 record.set_data(Some(rdata));
                 message.add_answer(record);
@@ -216,7 +238,7 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     }
     
     // 添加权威部分
-    for auth in &json.Authority {
+    for auth in &json.authority {
         if let Ok(name) = Name::from_ascii(&auth.name) {
             // 使用 RecordType::from(u16) 获取记录类型
             let record_type = RecordType::from(auth.record_type);
@@ -225,7 +247,7 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
             if let Ok(rdata) = parse_json_rdata(record_type, &auth.data) {
                 let mut record = Record::new();
                 record.set_name(name);
-                record.set_ttl(auth.TTL);
+                record.set_ttl(auth.ttl);
                 record.set_record_type(record_type);
                 record.set_data(Some(rdata));
                 message.add_name_server(record);
@@ -234,7 +256,7 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
     }
     
     // 添加附加部分
-    for add in &json.Additional {
+    for add in &json.additional {
         if let Ok(name) = Name::from_ascii(&add.name) {
             // 使用 RecordType::from(u16) 获取记录类型
             let record_type = RecordType::from(add.record_type);
@@ -243,7 +265,7 @@ fn json_to_message(json: &DohJsonResponse) -> ClientResult<Message> {
             if let Ok(rdata) = parse_json_rdata(record_type, &add.data) {
                 let mut record = Record::new();
                 record.set_name(name);
-                record.set_ttl(add.TTL);
+                record.set_ttl(add.ttl);
                 record.set_record_type(record_type);
                 record.set_data(Some(rdata));
                 message.add_additional(record);

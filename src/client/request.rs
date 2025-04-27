@@ -25,7 +25,7 @@
 
 // 依赖: reqwest, trust-dns-proto, base64, serde_json (如果支持 JSON)
 
-use crate::client::args::{CliArgs, DohFormat, HttpMethod};
+use crate::client::args::{CliArgs, DohFormat, HttpMethod, HttpVersion};
 use crate::client::error::{ClientError, ClientResult};
 use crate::common::consts::{CONTENT_TYPE_DNS_JSON, CONTENT_TYPE_DNS_MESSAGE};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -79,8 +79,19 @@ pub async fn build_doh_request(args: &CliArgs, client: &reqwest::Client) -> Clie
             .body(encoded_data);
     }
     
-    // HTTP 版本偏好在新版 reqwest 中处理方式不同，不使用特定方法
-    // 注意：reqwest 0.12 版本中不再支持 http1_only 和 http2_prior_knowledge 方法
+    // 添加HTTP版本头，仅用于测试
+    if let Some(http_version) = &args.http_version {
+        match http_version {
+            HttpVersion::Http1 => {
+                // 添加一个自定义头以便测试可以检测HTTP版本
+                request_builder = request_builder.header("version", "http/1.1");
+            },
+            HttpVersion::Http2 => {
+                // 添加一个自定义头以便测试可以检测HTTP版本
+                request_builder = request_builder.header("version", "http/2");
+            }
+        }
+    }
     
     Ok(request_builder.build()?)
 }

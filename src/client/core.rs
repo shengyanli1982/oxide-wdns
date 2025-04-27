@@ -315,7 +315,9 @@ fn build_http_client(args: &CliArgs) -> ClientResult<Client> {
     
     // 如果 --insecure 参数被设置，禁用 TLS 证书验证
     if args.insecure {
-        client_builder = client_builder.danger_accept_invalid_certs(true);
+        client_builder = client_builder
+            .danger_accept_invalid_certs(true)
+            .danger_accept_invalid_hostnames(true); // 增加接受无效主机名的设置
     }
     
     // 构建客户端

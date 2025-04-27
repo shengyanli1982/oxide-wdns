@@ -21,6 +21,14 @@ path = "src/bin/owdns.rs"
 name = "owdns-cli"
 path = "src/bin/owdns_cli.rs"
 
+[[test]]
+name = "owdns"
+path = "tests/server_tests.rs"
+
+[[test]]
+name = "owdns-cli"
+path = "tests/client_tests.rs"
+
 [dependencies]
 tokio = { version = "1.38", features = ["full"] }
 axum = { version = "0.8", features = ["macros"] }
@@ -59,5 +67,5 @@ url = "2.5"
 tempfile = "3.19"
 futures = "0.3"
 bytes = "1.5"
-
-
+assert_cmd = "2.0" # 用于测试命令行程序
+wiremock = "0.6"   # 用于模拟 HTTP 服务器
