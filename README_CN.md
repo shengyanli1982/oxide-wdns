@@ -1,7 +1,9 @@
+[English](./README.md) | 中文
+
 <div align="center">
     <h1>Oxide WDNS</h1>
-    <h4>🚀 一个高性能的 DNS 网关，支持 DNS-over-HTTPS (DoH) 和 DNS-over-HTTP (已弃用)，使用 Rust 编写。</h4>
-    <img src="./images/logo.png" alt="logo">
+    <h4>🚀 一款使用 Rust 编写的高性能 DNS 网关，支持 DNS-over-HTTPS (DoH)。</h4>
+    <img src="./images/logo.png" alt="标志">
 </div>
 
 ## 简介
@@ -33,9 +35,20 @@ DNS-over-HTTPS (DoH) 是一种将 DNS 查询封装在加密的 HTTPS 连接中�
 
 Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性能处理能力，直接解决了传统 DNS 面临的隐私泄露、劫持和封锁问题。
 
+### 🎯 适用场景
+
+`owdns` 的设计使其特别适合以下需要高度安全、可靠和高性能 DNS 解析的环境：
+
+-   **大型互联网服务:** 为海量用户和内部系统提供可扩展、安全、高可用的 DNS 解析，通过 DoH 加密保护用户隐私，防止 DNS 缓存投毒和劫持。
+-   **工业互联网与智能制造:** 在工业控制系统 (ICS) 和物联网 (IIoT) 环境中，确保设备、传感器和平台之间 DNS 查询的机密性和完整性，防止关键操作指令被篡改或泄露。
+-   **中小型云服务提供商:** 将安全的 DoH 解析作为增值服务提供给租户，提升平台安全能力和客户信任度，`owdns` 的高性能和易部署特性使其成为理想选择。
+-   **物联网 (IoT) 平台:** 为大量接入的 IoT 设备提供轻量级、安全的 DNS 解析服务，防止设备被 DNS 欺骗攻击劫持，尤其适用于资源受限的边缘计算场景。
+-   **医疗保健行业:** 保护访问电子健康记录 (EHR)、远程医疗平台等敏感系统时的 DNS 查询隐私，符合严格的数据安全与合规要求 (如 HIPAA)。
+-   **机器人与自动化系统:** 确保机器人集群、自动化产线设备在与控制中心或云平台通信时，能够安全、准确地解析目标服务地址，防止因 DNS 错误导致的操作中断或恶意控制。
+
 ### 📐 部署架构图
 
-![architecture](./images/architecture.png)
+![architecture](./images/architecture_cn.png)
 
 ## 主要特性
 
