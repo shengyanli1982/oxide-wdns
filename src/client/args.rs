@@ -68,31 +68,30 @@ impl fmt::Display for HttpVersion {
     name = "owdns-cli",
     author,
     version,
-    about = "Secure DNS via HTTP (DoH) Client Tool\n\n\
-             Key Features:\n\
-             - RFC 8484 compliant binary DNS message format (wireformat)\n\
-             - Google/Cloudflare compatible JSON query format\n\
+    about = "A command-line client for Secure DNS via HTTP (DoH).\n\n\
+             Features:\n\
+             - RFC 8484 wireformat and Google/Cloudflare JSON support\n\
              - DNSSEC validation requests\n\
-             - Flexible HTTP method selection (GET/POST)\n\
-             - Multi-protocol version support (HTTP/1.1, HTTP/2)\n\
-             - Detailed response analysis and display\n\
-             - Response validation capabilities\n\n\
+             - GET/POST method selection (automatic or manual)\n\
+             - HTTP/1.1 and HTTP/2 support\n\
+             - Response analysis and validation\n\n\
              Author: shengyanli1982\n\
              Email: shengyanlee36@gmail.com\n\
              GitHub: https://github.com/shengyanli1982"
 )]
+
 pub struct CliArgs {
     /// DoH 服务器完整 URL
     /// 
     /// 完整的 DoH 服务器端点 URL，用于发送 DNS 查询
     /// 必须包含协议前缀 (https://) 和路径部分
-    #[arg(required = true, help = "DoH server URL")]
+    #[arg(required = true, help = "Full URL of the DoH server endpoint (e.g., https://cloudflare-dns.com/dns-query)")]
     pub server_url: String,
 
     /// 要查询的域名
     ///
     /// 通过 DoH 服务器查询的域名
-    #[arg(required = true, help = "Domain to query")]
+    #[arg(required = true, help = "Domain name to query via the DoH server (e.g., example.com)")]
     pub domain: String,
 
     /// DNS 记录类型
@@ -110,7 +109,7 @@ pub struct CliArgs {
         short, 
         long = "record", 
         default_value = "A", 
-        help = "DNS record type to query (A, AAAA, MX, TXT, etc.)"
+        help = "DNS record type to query (e.g., A, AAAA, MX, TXT)"
     )]
     pub record_type: String,
 
@@ -123,7 +122,7 @@ pub struct CliArgs {
         long, 
         value_enum, 
         default_value_t = DohFormat::Wire,
-        help = "DoH request format (json or wire)"
+        help = "DoH request format: 'wire' (application/dns-message) or 'json' (application/dns-json)"
     )]
     pub format: DohFormat,
 
@@ -135,7 +134,7 @@ pub struct CliArgs {
         short = 'X', 
         long, 
         value_enum,
-        help = "HTTP method to use (GET or POST)"
+        help = "Force the HTTP method (GET or POST). Auto-selected if unspecified"
     )]
     pub method: Option<HttpMethod>,
 
@@ -145,7 +144,7 @@ pub struct CliArgs {
     #[arg(
         long = "http", 
         value_enum,
-        help = "Preferred HTTP version (1.1 or 2)"
+        help = "Preferred HTTP version for communication (1.1 or 2)"
     )]
     pub http_version: Option<HttpVersion>,
 
@@ -156,7 +155,7 @@ pub struct CliArgs {
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Set DNSSEC OK (DO) bit in the DNS query"
+        help = "Enable DNSSEC validation by setting the DNSSEC OK (DO) bit"
     )]
     pub dnssec: bool,
 
@@ -167,7 +166,7 @@ pub struct CliArgs {
     /// 用于高级或边缘情况测试
     #[arg(
         long,
-        help = "Send a raw DNS query payload (hex-encoded)"
+        help = "Send a raw, hex-encoded DNS query payload (overrides domain/type)"
     )]
     pub payload: Option<String>,
     
@@ -184,7 +183,7 @@ pub struct CliArgs {
     /// - dnssec-validated: 检查 AD (认证数据) 位是否已设置
     #[arg(
         long,
-        help = "Validate the response against specified conditions"
+        help = "Validate the response against comma-separated conditions (e.g., 'rcode=NOERROR', 'has-ip=1.2.3.4')"
     )]
     pub validate: Option<String>,
 
@@ -197,7 +196,7 @@ pub struct CliArgs {
         short = 'k', 
         long,
         action = ArgAction::SetTrue,
-        help = "Skip TLS certificate validation"
+        help = "Skip TLS certificate verification (use with caution)"
     )]
     pub insecure: bool,
 
@@ -211,7 +210,7 @@ pub struct CliArgs {
         short, 
         long, 
         action = ArgAction::Count,
-        help = "Increase output verbosity (display HTTP headers, etc.)"
+        help = "Increase output verbosity (-v, -vv, -vvv)"
     )]
     pub verbose: u8,
     
@@ -223,7 +222,7 @@ pub struct CliArgs {
     #[arg(
         long,
         action = ArgAction::SetTrue,
-        help = "Disable colored output in terminal"
+        help = "Disable colored output in the terminal"
     )]
     pub no_color: bool,
 }
