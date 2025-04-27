@@ -33,6 +33,10 @@ DNS-over-HTTPS (DoH) 是一种将 DNS 查询封装在加密的 HTTPS 连接中�
 
 Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性能处理能力，直接解决了传统 DNS 面临的隐私泄露、劫持和封锁问题。
 
+### 📐 部署架构图
+
+![architecture](./images/architecture.png)
+
 ## 主要特性
 
 **服务端 (`owdns`)**
