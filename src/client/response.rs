@@ -516,7 +516,7 @@ fn print_hex_dump(data: &[u8]) {
         write!(&mut line, "{:08x}:  ", i * 16).unwrap();
         
         // 十六进制部分
-        for (j, &b) in chunk.iter().enumerate() {
+        for (_j, &b) in chunk.iter().enumerate() {
             write!(&mut line, "{:02x} ", b).unwrap();
         }
         

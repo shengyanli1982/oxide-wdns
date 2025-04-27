@@ -10,8 +10,13 @@
 //! - 显示详细的请求和响应信息
 //! - 支持通过条件验证响应内容
 
+use mimalloc::MiMalloc;
 use clap::Parser;
 use oxide_wdns::client::{CliArgs, run_query, print_error};
+
+// 使用 mimalloc 作为全局内存分配器
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[tokio::main]
 async fn main() {

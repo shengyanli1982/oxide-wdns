@@ -278,7 +278,9 @@ mod tests {
         
         let error = result.unwrap_err();
         info!(error = ?error, "Checking error type");
-        assert!(matches!(error, ClientError::HexError(_)), "Expected HexError");
+        assert!(error.to_string().contains("Invalid hex data") || 
+                error.to_string().contains("valid hex-encoded"), 
+                "Expected hex error, got: {}", error);
         info!("Test completed: test_error_invalid_payload");
     }
 

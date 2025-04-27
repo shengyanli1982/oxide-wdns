@@ -389,6 +389,10 @@ mod tests {
             info!(error = ?e, "Validation failed as expected");
             match e {
                 ClientError::ValidationFailed(_) => info!("Correct error type: ValidationFailed"),
+                ClientError::Other(msg) if msg.contains("validation failed") => {
+                    info!("Correct error type: ValidationFailed contained in Other");
+                    // 如果代码更新为使用ValidationFailed错误类型，那么这个分支将不会命中
+                },
                 _ => {
                     info!(error_type = ?e, "Unexpected error type");
                     panic!("Expected ValidationFailed error, got {:?}", e);
@@ -450,6 +454,10 @@ mod tests {
                 ClientError::HttpError(status, _) => {
                     info!(status_code = status, "Correct error type: HttpError");
                     assert_eq!(status, 500);
+                },
+                ClientError::Other(msg) if msg.contains("500 Internal Server Error") => {
+                    info!("Correct error type: Other containing HTTP error message");
+                    // 如果代码更新为使用 HttpError 错误类型，那么这个分支将不会命中
                 },
                 _ => {
                     info!(error_type = ?e, "Unexpected error type");

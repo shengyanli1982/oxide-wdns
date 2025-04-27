@@ -50,6 +50,10 @@ pub enum ClientError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
+    /// 验证失败错误
+    #[error("DNS response validation failed: {0}")]
+    ValidationFailed(String),
+
     /// 其他未分类错误
     #[error("An unexpected error occurred: {0}")]
     Other(String),
