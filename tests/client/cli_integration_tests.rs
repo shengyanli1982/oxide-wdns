@@ -1322,16 +1322,14 @@ mod tests {
         
         // 检查所有可能的 NXDOMAIN 表示方式
         info!(contains_nxdomain = stdout.contains("NXDOMAIN") || stdout.contains("NXDomain"), 
-              contains_non_exist = stdout.contains("Non-Existent Domain") || stdout.contains("不存在"), 
+              contains_non_exist = stdout.contains("Non-Existent Domain") || stdout.contains("non-existent"), 
               "Verifying output contains NXDomain information");
         assert!(
             stdout.contains("NXDOMAIN") || 
             stdout.contains("NXDomain") || 
             stdout.contains("Non-Existent Domain") || 
-            stdout.contains("不存在") || 
-            stdout.contains("找不到") ||
-            stdout.contains("域名不存在"),
-            "输出应该包含某种形式的域名不存在信息，实际 stdout: {}", stdout
+            stdout.contains("non-existent"),
+            "Output should contain some form of non-existent domain information, actual stdout: {}", stdout
         );
         info!("Test completed: test_cli_error_dns_nxdomain");
     }
@@ -1367,23 +1365,23 @@ mod tests {
         let stderr = String::from_utf8_lossy(&output.stderr);
         info!(stderr = %stderr, "Error output");
         info!(contains_connection = stderr.contains("connection") || stderr.contains("connect"), 
-              contains_refused = stderr.contains("refused") || stderr.contains("拒绝"), 
-              contains_network = stderr.contains("network") || stderr.contains("网络"), 
+              contains_refused = stderr.contains("refused") || stderr.contains("rejected"), 
+              contains_network = stderr.contains("network") || stderr.contains("network error"), 
               "Verifying error message contains connection refused information");
         // 检查是否包含任何连接错误或网络错误相关的字符串
         assert!(
             stderr.contains("connection") || 
             stderr.contains("connect") ||
             stderr.contains("Failed to connect") ||
-            stderr.contains("无法连接") ||
+            stderr.contains("unable to connect") ||
             stderr.contains("refused") ||
-            stderr.contains("拒绝") ||
+            stderr.contains("rejected") ||
             stderr.contains("network") ||
-            stderr.contains("网络") ||
+            stderr.contains("network error") ||
             stderr.contains("HTTP request failed") ||
             stderr.contains("error sending request") ||
             stderr.contains("localhost:1"),  // 直接检查URL的关键部分
-            "错误应包含连接问题，实际错误: {}", stderr
+            "Error should include connection issues, actual error: {}", stderr
         );
         info!("Test completed: test_cli_error_connection_refused");
     }

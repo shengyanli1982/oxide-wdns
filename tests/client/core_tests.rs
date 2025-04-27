@@ -161,7 +161,7 @@ mod tests {
         // 仅检查是否成功，不过多断言
         if let Err(ref e) = result {
             info!(error = ?e, "Query failed");
-            println!("测试失败，错误: {:?}", e);
+            info!("Test failed, error: {:?}", e);
         } else {
             info!("Query successful");
         }
@@ -242,7 +242,7 @@ mod tests {
         // 仅检查是否成功，不过多断言
         if let Err(ref e) = result {
             info!(error = ?e, "JSON query failed");
-            println!("JSON测试失败，错误: {:?}", e);
+            info!("JSON test failed, error: {:?}", e);
         } else {
             info!("JSON query successful");
         }
@@ -302,7 +302,7 @@ mod tests {
         // 仅检查是否成功，不过多断言
         if let Err(ref e) = result {
             info!(error = ?e, "Validation query failed");
-            println!("验证测试失败，错误: {:?}", e);
+            info!("Validation test failed, error: {:?}", e);
         } else {
             info!("Validation query successful");
         }

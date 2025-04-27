@@ -322,7 +322,7 @@ mod tests {
         info!("Building DoH request...");
         let result = oxide_wdns::client::request::build_doh_request(&args, &reqwest::Client::new()).await;
         info!(result_is_ok = result.is_ok(), "Request build completed");
-        assert!(result.is_ok(), "构建请求应该成功");
+        assert!(result.is_ok(), "Request building should succeed");
         
         info!("Creating HTTP client...");
         let http_client = reqwest::Client::new();
@@ -378,7 +378,7 @@ mod tests {
         info!("Building DoH request...");
         let result = oxide_wdns::client::request::build_doh_request(&args, &reqwest::Client::new()).await;
         info!(result_is_ok = result.is_ok(), "Request build completed");
-        assert!(result.is_ok(), "构建请求应该成功");
+        assert!(result.is_ok(), "Request building should succeed");
         
         info!("Creating HTTP client...");
         let http_client = reqwest::Client::new();
@@ -435,7 +435,7 @@ mod tests {
         info!("Building DoH request...");
         let result = oxide_wdns::client::request::build_doh_request(&args, &reqwest::Client::new()).await;
         info!(result_is_ok = result.is_ok(), "Request build completed");
-        assert!(result.is_ok(), "构建请求应该成功");
+        assert!(result.is_ok(), "Request building should succeed");
         
         info!("Creating HTTP client...");
         let http_client = reqwest::Client::new();
@@ -499,7 +499,7 @@ mod tests {
         info!("Building DoH request...");
         let result = oxide_wdns::client::request::build_doh_request(&args, &reqwest::Client::new()).await;
         info!(result_is_ok = result.is_ok(), "Request build completed");
-        assert!(result.is_ok(), "构建请求应该成功");
+        assert!(result.is_ok(), "Request building should succeed");
         
         info!("Creating HTTP client...");
         let http_client = reqwest::Client::new();
@@ -566,7 +566,7 @@ mod tests {
         info!("Building DoH request...");
         let result = oxide_wdns::client::request::build_doh_request(&args, &reqwest::Client::new()).await;
         info!(result_is_ok = result.is_ok(), "Request build completed");
-        assert!(result.is_ok(), "构建请求应该成功");
+        assert!(result.is_ok(), "Request building should succeed");
         
         info!("Creating HTTP client...");
         let http_client = reqwest::Client::new();
@@ -648,7 +648,7 @@ mod tests {
         info!("Building DoH request...");
         let result = oxide_wdns::client::request::build_doh_request(&args, &reqwest::Client::new()).await;
         info!(result_is_ok = result.is_ok(), "Request build completed");
-        assert!(result.is_ok(), "构建请求应该成功");
+        assert!(result.is_ok(), "Request building should succeed");
         
         info!("Creating HTTP client...");
         let http_client = reqwest::Client::new();
@@ -662,7 +662,7 @@ mod tests {
         let result = oxide_wdns::client::response::parse_doh_response(response).await;
         
         info!(result_is_ok = result.is_ok(), "Response parsing completed");
-        assert!(result.is_ok(), "解析响应应该成功");
+        assert!(result.is_ok(), "Response parsing should succeed");
         
         let doh_response = result.unwrap();
         info!(response_code = ?doh_response.message.response_code(), "DNS response code verified");
