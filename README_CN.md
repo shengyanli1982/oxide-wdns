@@ -2,7 +2,7 @@
 
 <div align="center">
     <h1>Oxide WDNS</h1>
-    <h4>🚀 一款使用 Rust 编写的高性能 DNS 网关，支持 DNS-over-HTTPS (DoH)。</h4>
+    <h4>🚀 一款使用 Rust 编写的高性能 DNS-over-HTTPS (DoH) 网关。</h4>
     <img src="./images/logo.png" alt="标志">
 </div>
 
