@@ -538,7 +538,7 @@ async fn process_query(
     // 尝试从缓存获取响应
     if let Some(cached_response) = cache.get(&cache_key).await {
         debug!(?cache_key, "Cache hit");
-        METRICS.with(|m| m.cache_hits.inc());
+        METRICS.with(|m| m.record_cache_hit());
         
         // 创建新的响应消息，更新 ID 与查询消息匹配
         let mut response = cached_response.clone();
@@ -553,7 +553,7 @@ async fn process_query(
     
     // 缓存未命中，转发到上游服务器
     debug!(?cache_key, "Cache miss, querying upstream server");
-    METRICS.with(|m| m.cache_misses.inc());
+    METRICS.with(|m| m.record_cache_miss());
     
     // 执行上游查询
     let start = Instant::now();

@@ -119,9 +119,9 @@ mod tests {
         info!("DnsMetrics set up.");
 
         // 2. 调用记录缓存命中的方法
-        info!("Incrementing cache_hits counter...");
-        metrics.cache_hits.inc();
-        info!("Counter incremented.");
+        info!("Recording cache hit...");
+        metrics.record_cache_hit();
+        info!("Cache hit recorded.");
 
         // 3. 读取缓存命中计数器的值
         let value = metrics.cache_hits.get();
@@ -145,9 +145,9 @@ mod tests {
         info!("DnsMetrics set up.");
 
         // 2. 调用记录缓存未命中的方法
-        info!("Incrementing cache_misses counter...");
-        metrics.cache_misses.inc();
-        info!("Counter incremented.");
+        info!("Recording cache miss...");
+        metrics.record_cache_miss();
+        info!("Cache miss recorded.");
 
         // 3. 读取缓存未命中计数器的值
         let value = metrics.cache_misses.get();
@@ -218,7 +218,7 @@ mod tests {
         info!("Recording some metrics data...");
         METRICS.with(|m| {
             m.record_request("GET", "application/dns-message");
-            m.cache_hits.inc();
+            m.record_cache_hit();
             m.record_dns_query_type("A");
             m.record_error("parse_error");
             info!("Metrics data recorded.");
@@ -268,7 +268,7 @@ mod tests {
         let metrics1 = DnsMetrics::new();
         info!("Recording data in metrics1...");
         metrics1.total_requests.inc();
-        metrics1.cache_hits.inc();
+        metrics1.record_cache_hit();
         let val1_req = metrics1.total_requests.get();
         let val1_hit = metrics1.cache_hits.get();
         info!(total_requests = val1_req, cache_hits = val1_hit, "Initial values for metrics1.");

@@ -284,6 +284,16 @@ impl DnsMetrics {
         self.cache_size.set(size as i64);
     }
     
+    // 记录缓存命中
+    pub fn record_cache_hit(&self) {
+        self.cache_hits.inc();
+    }
+    
+    // 记录缓存未命中
+    pub fn record_cache_miss(&self) {
+        self.cache_misses.inc();
+    }
+    
     // 更新 DNSSEC 验证结果
     pub fn record_dnssec_validation(&self, success: bool) {
         if success {
@@ -297,9 +307,20 @@ impl DnsMetrics {
     pub fn record_rate_limit(&self, client_ip: &str) {
         self.rate_limited_requests.inc();
         
-        // 直接使用客户端真实IP
+        // 匿名化客户端 IP 的最后一个八位字节以增强隐私保护
+        let anonymized_ip = if let Some(last_dot_pos) = client_ip.rfind('.') {
+            // IPv4
+            format!("{}.*", &client_ip[..last_dot_pos])
+        } else if let Some(last_colon_pos) = client_ip.rfind(':') {
+            // IPv6
+            format!("{}:*", &client_ip[..last_colon_pos])
+        } else {
+            // 无法识别的格式，使用通用值
+            "unknown".to_string()
+        };
+        
         self.rate_limited_requests_by_ip
-            .with_label_values(&[client_ip])
+            .with_label_values(&[&anonymized_ip])
             .inc();
     }
 }
