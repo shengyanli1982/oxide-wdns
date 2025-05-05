@@ -390,7 +390,7 @@ impl UpstreamManager {
                                 socket_addr,
                                 protocol: Protocol::Udp,
                                 tls_dns_name: None,
-                                trust_nx_responses: true,
+                                trust_negative_responses: true,
                                 bind_addr: None,
                             });
                         },
@@ -399,7 +399,7 @@ impl UpstreamManager {
                                 socket_addr,
                                 protocol: Protocol::Tcp,
                                 tls_dns_name: None,
-                                trust_nx_responses: true,
+                                trust_negative_responses: true,
                                 bind_addr: None,
                             });
                         },
@@ -425,7 +425,7 @@ impl UpstreamManager {
                         socket_addr,
                         protocol: Protocol::Tls,
                         tls_dns_name: Some(domain),
-                        trust_nx_responses: true,
+                        trust_negative_responses: true,
                         bind_addr: None,
                     });
                 },

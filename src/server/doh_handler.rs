@@ -7,8 +7,9 @@ use axum::{
     http::{header, StatusCode, Request},
     response::IntoResponse,
     routing::{get, post},
-    Router, Json,
+    Router as AxumRouter, Json,
 };
+use axum::body::to_bytes;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
@@ -26,7 +27,7 @@ use crate::common::consts::{
 use crate::server::cache::{CacheKey, DnsCache};
 use crate::server::config::ServerConfig;
 use crate::server::metrics::{DnsMetrics, METRICS};
-use crate::server::routing::{Router, RouteDecision};
+use crate::server::routing::{RouteDecision, Router as DnsRouter};
 use crate::server::upstream::{UpstreamManager, UpstreamSelection};
 
 
@@ -38,7 +39,7 @@ pub struct ServerState {
     // 上游解析管理器
     pub upstream: Arc<UpstreamManager>,
     // DNS 路由器
-    pub router: Arc<Router>,
+    pub router: Arc<DnsRouter>,
     // DNS 缓存
     pub cache: Arc<DnsCache>,
     // 指标收集器
@@ -123,8 +124,8 @@ pub struct DnsJsonAnswer {
 }
 
 // 创建 DoH 路由
-pub fn doh_routes(state: ServerState) -> Router {
-    Router::new()
+pub fn doh_routes(state: ServerState) -> AxumRouter {
+    AxumRouter::new()
         // JSON API 路由（兼容性）
         .route("/resolve", get(handle_dns_json_query))
         // RFC 8484 标准路由
@@ -407,7 +408,7 @@ async fn handle_dns_wire_post(
     }
     
     // 读取请求体
-    let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+    let body_bytes = match to_bytes(req.into_body(), MAX_REQUEST_SIZE).await {
         Ok(bytes) => bytes,
         Err(e) => {
             info!(
@@ -548,7 +549,7 @@ fn get_client_ip_from_request<T>(req: &Request<T>) -> IpAddr {
 // 处理 DNS 查询
 async fn process_query(
     upstream: &UpstreamManager,
-    router: &Router,
+    router: &DnsRouter,
     cache: &DnsCache,
     query_message: &Message,
     client_ip: IpAddr,
@@ -615,7 +616,7 @@ async fn process_query(
         
         // 如果启用了缓存，使用负缓存 TTL 进行缓存
         if cache.is_enabled() {
-            cache.put(&cache_key, &response, cache.negative_ttl()).await;
+            let _ = cache.put(&cache_key, &response, cache.negative_ttl()).await;
         }
         
         return Ok((response, false));
@@ -643,7 +644,7 @@ async fn process_query(
     // 缓存结果（如果启用）
     if cache.is_enabled() {
         let ttl = cache.calculate_ttl(&response_message);
-        cache.put(&cache_key, &response_message, ttl).await;
+        let _ = cache.put(&cache_key, &response_message, ttl).await;
     }
     
     Ok((response_message, false))

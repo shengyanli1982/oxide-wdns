@@ -146,25 +146,26 @@ impl Router {
         }
         
         // 规范化域名（转换为小写，去除尾部的点）
-        let domain = domain.to_lowercase().trim_end_matches('.');
+        let domain_normalized = domain.to_lowercase().trim_end_matches('.').to_string();
+        let domain = &domain_normalized;
         
         // 按顺序检查每个规则
         for rule in &self.rules {
             let matches = match &rule.matcher {
-                CompiledMatcher::Exact(set) => set.contains(&domain),
+                CompiledMatcher::Exact(set) => set.contains(domain),
                 
                 CompiledMatcher::Regex(patterns) => {
-                    patterns.iter().any(|re| re.is_match(&domain))
+                    patterns.iter().any(|re| re.is_match(domain))
                 },
                 
                 CompiledMatcher::Wildcard(patterns) => {
-                    Self::match_wildcard_patterns(&domain, patterns)
+                    Self::match_wildcard_patterns(domain, patterns)
                 },
                 
                 CompiledMatcher::File { exact, regex, wildcard, .. } => {
-                    exact.contains(&domain) ||
-                    regex.iter().any(|re| re.is_match(&domain)) ||
-                    Self::match_wildcard_patterns(&domain, wildcard)
+                    exact.contains(domain) ||
+                    regex.iter().any(|re| re.is_match(domain)) ||
+                    Self::match_wildcard_patterns(domain, wildcard)
                 },
                 
                 CompiledMatcher::Url { rules, .. } => {
@@ -172,9 +173,9 @@ impl Router {
                     let url_rules = rules.read().await;
                     
                     // 检查是否匹配
-                    url_rules.exact.contains(&domain) ||
-                    url_rules.regex.iter().any(|re| re.is_match(&domain)) ||
-                    Self::match_wildcard_patterns(&domain, &url_rules.wildcard)
+                    url_rules.exact.contains(domain) ||
+                    url_rules.regex.iter().any(|re| re.is_match(domain)) ||
+                    Self::match_wildcard_patterns(domain, &url_rules.wildcard)
                 },
             };
             

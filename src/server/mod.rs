@@ -14,7 +14,7 @@ pub mod args;
 
 use std::sync::Arc;
 use std::time::Duration;
-use axum::Router;
+use axum::Router as AxumRouter;
 use reqwest::Client;
 use tokio::net::TcpListener;
 use tokio::signal::ctrl_c;
@@ -93,7 +93,7 @@ impl DoHServer {
         doh_specific_routes = apply_rate_limiting(doh_specific_routes, &self.config.http.rate_limit);
         
         // 创建主应用路由，合并所有路由
-        let app = Router::new()
+        let app = AxumRouter::new()
             .merge(health_routes()) // 添加健康检查路由 
             .merge(metrics_routes()) // 添加指标收集路由
             .merge(doh_specific_routes); // 合并已应用中间件的 DoH 路由
