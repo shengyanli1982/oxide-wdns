@@ -26,6 +26,7 @@ mod tests {
     use oxide_wdns::server::metrics::DnsMetrics;
     use oxide_wdns::server::cache::DnsCache;
     use oxide_wdns::server::upstream::UpstreamManager;
+    use oxide_wdns::server::routing::Router;
     
     // 引入 wiremock 库和公共模块
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -75,7 +76,9 @@ mod tests {
     // 创建服务器状态
     async fn create_server_state(port: u16, rate_limit_enabled: bool, cache_enabled: bool) -> ServerState {
         let config = build_test_config(port, rate_limit_enabled, cache_enabled);
-        let upstream = Arc::new(UpstreamManager::new(&config).await.unwrap());
+        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let http_client = Client::new();
+        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -83,7 +86,8 @@ mod tests {
             config, 
             upstream, 
             cache, 
-            metrics
+            metrics,
+            router,
         }
     }
 
@@ -206,8 +210,10 @@ mod tests {
         ];
         
         // 3. 创建服务器状态与组件
+        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let http_client = Client::new();
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
-        let upstream = Arc::new(UpstreamManager::new(&config).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
         let metrics = Arc::new(DnsMetrics::new());
         
         let server_state = ServerState {
@@ -215,6 +221,7 @@ mod tests {
             upstream,
             cache,
             metrics,
+            router,
         };
         
         // 4. 启动测试服务器

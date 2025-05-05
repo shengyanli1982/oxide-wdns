@@ -22,7 +22,7 @@ use tokio::sync::oneshot;
 use tokio::time;
 use tracing::{error, info};
 
-use crate::server::error::{ServerError, Result};
+use crate::server::error::Result;
 use crate::server::cache::DnsCache;
 use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};

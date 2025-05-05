@@ -160,7 +160,7 @@ impl UpstreamManager {
     }
     
     // 创建上游组配置
-    fn create_upstream_group_config(config: &ServerConfig, upstream_config: &UpstreamConfig, http_client: Client) -> Result<UpstreamGroupConfig> {
+    fn create_upstream_group_config(_config: &ServerConfig, upstream_config: &UpstreamConfig, http_client: Client) -> Result<UpstreamGroupConfig> {
         // 构建 trust-dns-resolver 配置（用于非DoH协议）
         let (resolver_config, resolver_opts) = Self::build_resolver_config(upstream_config)?;
         

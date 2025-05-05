@@ -3,13 +3,16 @@
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
+    use std::sync::Arc;
     
     use tracing::info;
     use trust_dns_proto::op::ResponseCode;
     use trust_dns_proto::rr::RecordType;
+    use reqwest::Client;
     
     use oxide_wdns::server::config::{ResolverConfig, ResolverProtocol, ServerConfig};
-    use oxide_wdns::server::upstream::UpstreamManager;
+    use oxide_wdns::server::upstream::{UpstreamManager, UpstreamSelection};
+    use oxide_wdns::server::routing::Router;
     use oxide_wdns::common::consts::CONTENT_TYPE_DNS_MESSAGE;
     
     // 引入 wiremock 库和公共测试模块
@@ -71,7 +74,9 @@ mod tests {
 
         // 创建UpstreamManager
         info!("Creating UpstreamManager...");
-        let upstream_manager = UpstreamManager::new(&config).await.unwrap();
+        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let http_client = Client::new();
+        let upstream_manager = UpstreamManager::new(&config, router, http_client).await.unwrap();
         info!("UpstreamManager created successfully.");
 
         // 创建测试查询
@@ -80,7 +85,7 @@ mod tests {
 
         // 执行查询
         info!("Executing query via UpstreamManager...");
-        let response = upstream_manager.resolve(&query).await.unwrap();
+        let response = upstream_manager.resolve(&query, UpstreamSelection::Global).await.unwrap();
         info!("Query executed successfully.");
         
         // 验证响应
@@ -137,11 +142,13 @@ mod tests {
         ];
         
         // 创建 UpstreamManager
-        let upstream_manager = UpstreamManager::new(&config).await.unwrap();
+        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let http_client = Client::new();
+        let upstream_manager = UpstreamManager::new(&config, router, http_client).await.unwrap();
         
         // 执行查询
         let query = create_test_query("example.com", RecordType::A);
-        let response = upstream_manager.resolve(&query).await.unwrap();
+        let response = upstream_manager.resolve(&query, UpstreamSelection::Global).await.unwrap();
         
         // 验证响应
         assert_eq!(response.response_code(), ResponseCode::NoError);

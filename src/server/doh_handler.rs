@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
-use tracing::{debug, warn, info};
+use tracing::{debug, info};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
 use crate::server::error::{ServerError, Result};
 use crate::common::consts::{
@@ -22,7 +22,6 @@ use crate::common::consts::{
     CONTENT_TYPE_DNS_MESSAGE,
     DNS_RECORD_TYPE_A, DNS_CLASS_IN, IP_HEADER_NAMES,
     MAX_REQUEST_SIZE,
-    BLACKHOLE_UPSTREAM_GROUP_NAME,
 };
 use crate::server::cache::{CacheKey, DnsCache};
 use crate::server::config::ServerConfig;
@@ -552,7 +551,7 @@ async fn process_query(
     router: &DnsRouter,
     cache: &DnsCache,
     query_message: &Message,
-    client_ip: IpAddr,
+    _client_ip: IpAddr,
 ) -> Result<(Message, bool)> {  // 返回元组，第二个参数表示是否缓存命中
     // 检查查询消息
     let queries = query_message.queries();

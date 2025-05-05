@@ -1,18 +1,17 @@
 // src/server/routing.rs
 
-use std::collections::{HashSet, HashMap};
+use std::collections::HashSet;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader};
-use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::io::{BufRead, BufReader};
+use std::sync::Arc;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tokio::sync::RwLock as AsyncRwLock;
-use tracing::{debug, warn, error, info};
+use tracing::{error, info};
 use reqwest::Client;
 use tokio::time::{Duration, interval};
 
-use crate::server::config::{RoutingConfig, Rule, MatchType, MatchCondition};
+use crate::server::config::{RoutingConfig, MatchType, MatchCondition};
 use crate::server::error::{ServerError, Result};
 use crate::common::consts::BLACKHOLE_UPSTREAM_GROUP_NAME;
 use crate::server::metrics::METRICS;
@@ -377,7 +376,7 @@ impl Router {
         // 检查特殊前缀
         if line.starts_with("regex:") {
             // 提取正则表达式
-            let pattern = line[6..].trim();
+            let pattern = line.strip_prefix("regex:").unwrap().trim();
             match Regex::new(pattern) {
                 Ok(re) => regex.push(re),
                 Err(e) => return Err(ServerError::RegexCompilation(format!(
@@ -387,7 +386,7 @@ impl Router {
             }
         } else if line.starts_with("wildcard:") {
             // 提取通配符模式
-            let pattern = line[9..].trim();
+            let pattern = line.strip_prefix("wildcard:").unwrap().trim();
             wildcard.push(Self::parse_wildcard_pattern(pattern));
         } else {
             // 默认为精确匹配（转换为小写）
@@ -413,7 +412,7 @@ impl Router {
         
         // 处理特殊情况：*.domain.com
         if pattern.starts_with("*.") {
-            let suffix = pattern[2..].to_string();
+            let suffix = pattern.strip_prefix("*.").unwrap().to_string();
             return WildcardPattern {
                 pattern: pattern.to_string(),
                 prefix: None,

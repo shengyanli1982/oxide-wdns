@@ -5,7 +5,6 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
-use url::Url;
 use crate::server::error::{ServerError, Result};
 use crate::common::consts::{
     // 服务器配置相关常量
@@ -201,6 +200,7 @@ pub struct RequestConfig {
 
 // 路由配置（DNS分流）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct RoutingConfig {
     // 是否启用DNS分流
     #[serde(default)]
@@ -663,13 +663,3 @@ impl Default for DnsResolverConfig {
     }
 }
 
-impl Default for RoutingConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            upstream_groups: Vec::new(),
-            rules: Vec::new(),
-            default_upstream_group: None,
-        }
-    }
-}

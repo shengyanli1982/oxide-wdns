@@ -12,7 +12,6 @@ mod tests {
     use tower::util::ServiceExt; // 用于oneshot方法的trait
     use trust_dns_proto::op::{Message, MessageType, OpCode};
     use trust_dns_proto::rr::{Name, RecordType};
-    
     use oxide_wdns::common::consts::CONTENT_TYPE_DNS_MESSAGE;
     use oxide_wdns::server::config::ServerConfig;
     use oxide_wdns::server::upstream::UpstreamManager;
@@ -20,6 +19,8 @@ mod tests {
     use oxide_wdns::server::metrics::DnsMetrics;
     use oxide_wdns::server::doh_handler::{ServerState, doh_routes};
     use tracing::info; // 添加 tracing 引用
+    use oxide_wdns::server::routing::Router;
+    use reqwest::Client;
 
     // === 辅助函数 / 模拟 ===
     
@@ -55,7 +56,9 @@ mod tests {
     // 创建模拟的服务器状态，用于测试
     async fn create_mock_server_state() -> ServerState {
         let config = create_test_config();
-        let upstream = Arc::new(UpstreamManager::new(&config).await.unwrap());
+        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let http_client = Client::new();
+        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone())); // 移除unwrap并传递值而非引用
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -64,6 +67,7 @@ mod tests {
             upstream,
             cache,
             metrics,
+            router,
         }
     }
     
