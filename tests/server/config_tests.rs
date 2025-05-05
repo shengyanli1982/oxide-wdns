@@ -467,4 +467,249 @@ dns_resolver:
         info!("Validated error message.");
         info!("Test completed: test_config_validate_upstream_format");
     }
+
+    #[test]
+    fn test_config_load_valid_with_routing() {
+        // 启用 tracing 日志
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_config_load_valid_with_routing");
+
+        // 测试：加载一个包含DNS分流配置的有效配置文件
+        // 1. 定义包含分流配置的内容
+        let routing_config = r#"
+# 包含DNS分流配置的完整配置
+http_server:
+  listen_addr: "127.0.0.1:8053"
+  timeout: 30
+
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+      - address: "1.1.1.1:53"
+        protocol: tcp
+    query_timeout: 5
+    enable_dnssec: false
+  
+  http_client:
+    timeout: 10
+  
+  cache:
+    enabled: true
+    size: 10000
+  
+  # 新增DNS分流配置
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "cn_group"
+        resolvers:
+          - address: "114.114.114.114:53"
+            protocol: udp
+        query_timeout: 3
+      - name: "secure_group"
+        resolvers:
+          - address: "9.9.9.9:53"
+            protocol: dot
+        enable_dnssec: true
+    default_upstream_group: "secure_group"
+    rules:
+      - match:
+          type: regex
+          values: [".*\\.cn$", ".*\\.com\\.cn$"]
+        upstream_group: "cn_group"
+      - match:
+          type: wildcard
+          values: ["*.example.com", "example.org"]
+        upstream_group: "secure_group"
+      - match:
+          type: exact
+          values: ["ads.example.net", "tracker.example.com"]
+        upstream_group: "__blackhole__"
+      - match:
+          type: file
+          path: "/tmp/blocked-domains.txt"
+        upstream_group: "__blackhole__"
+      - match:
+          type: url
+          url: "https://example.com/blocked-domains.txt"
+        upstream_group: "__blackhole__"
+"#;
+        info!(config_content_len = routing_config.len(), "Defined routing config content.");
+
+        // 2. 创建临时配置文件
+        info!("Creating temporary config file...");
+        let (_temp_dir, config_path) = create_temp_config_file(routing_config);
+        info!(config_path = %config_path.display(), "Temporary config file created.");
+        
+        // 3. 加载配置
+        info!("Loading config from file...");
+        let config_result = ServerConfig::from_file(&config_path);
+        info!(is_ok = config_result.is_ok(), "Config loading finished.");
+        
+        // 4. 断言：成功返回 `Ok(ServerConfig)`
+        assert!(config_result.is_ok(), "Loading file with routing config should succeed");
+        
+        // 5. 验证分流配置
+        let config = config_result.unwrap();
+        
+        // 验证路由总体配置
+        assert!(config.dns.routing.enabled, "Routing should be enabled");
+        assert_eq!(config.dns.routing.default_upstream_group.as_deref(), Some("secure_group"), 
+                  "Default upstream group should be secure_group");
+        
+        // 验证上游组配置
+        assert_eq!(config.dns.routing.upstream_groups.len(), 2, "Should have 2 upstream groups");
+        
+        // 验证cn_group
+        let cn_group = config.dns.routing.upstream_groups.iter()
+            .find(|g| g.name == "cn_group")
+            .expect("cn_group should exist");
+        assert_eq!(cn_group.resolvers.len(), 1, "cn_group should have 1 resolver");
+        assert_eq!(cn_group.resolvers[0].address, "114.114.114.114:53");
+        assert_eq!(cn_group.resolvers[0].protocol, ResolverProtocol::Udp);
+        assert_eq!(cn_group.query_timeout, Some(3), "cn_group timeout should be 3");
+        
+        // 验证secure_group
+        let secure_group = config.dns.routing.upstream_groups.iter()
+            .find(|g| g.name == "secure_group")
+            .expect("secure_group should exist");
+        assert_eq!(secure_group.resolvers.len(), 1, "secure_group should have 1 resolver");
+        assert_eq!(secure_group.resolvers[0].address, "9.9.9.9:53");
+        assert_eq!(secure_group.resolvers[0].protocol, ResolverProtocol::Dot);
+        assert!(secure_group.enable_dnssec.unwrap_or(false), "secure_group should have DNSSEC enabled");
+        
+        // 验证规则
+        assert_eq!(config.dns.routing.rules.len(), 5, "Should have 5 routing rules");
+        
+        // 验证正则规则
+        let regex_rule = &config.dns.routing.rules[0];
+        assert_eq!(regex_rule.match_.type_, "regex", "First rule should be regex match");
+        assert_eq!(regex_rule.match_.values.len(), 2, "Regex rule should have 2 values");
+        assert_eq!(regex_rule.match_.values[0], ".*\\.cn$");
+        assert_eq!(regex_rule.match_.values[1], ".*\\.com\\.cn$");
+        assert_eq!(regex_rule.upstream_group, "cn_group", "Regex rule should use cn_group");
+        
+        // 验证通配符规则
+        let wildcard_rule = &config.dns.routing.rules[1];
+        assert_eq!(wildcard_rule.match_.type_, "wildcard", "Second rule should be wildcard match");
+        assert_eq!(wildcard_rule.match_.values.len(), 2, "Wildcard rule should have 2 values");
+        assert_eq!(wildcard_rule.match_.values[0], "*.example.com");
+        assert_eq!(wildcard_rule.match_.values[1], "example.org");
+        assert_eq!(wildcard_rule.upstream_group, "secure_group", "Wildcard rule should use secure_group");
+        
+        // 验证精确规则
+        let exact_rule = &config.dns.routing.rules[2];
+        assert_eq!(exact_rule.match_.type_, "exact", "Third rule should be exact match");
+        assert_eq!(exact_rule.match_.values.len(), 2, "Exact rule should have 2 values");
+        assert_eq!(exact_rule.match_.values[0], "ads.example.net");
+        assert_eq!(exact_rule.match_.values[1], "tracker.example.com");
+        assert_eq!(exact_rule.upstream_group, "__blackhole__", "Exact rule should use __blackhole__");
+        
+        // 验证文件规则
+        let file_rule = &config.dns.routing.rules[3];
+        assert_eq!(file_rule.match_.type_, "file", "Fourth rule should be file match");
+        assert_eq!(file_rule.match_.path.as_deref(), Some("/tmp/blocked-domains.txt"), 
+                  "File path should be correct");
+        assert_eq!(file_rule.upstream_group, "__blackhole__", "File rule should use __blackhole__");
+        
+        // 验证URL规则
+        let url_rule = &config.dns.routing.rules[4];
+        assert_eq!(url_rule.match_.type_, "url", "Fifth rule should be URL match");
+        assert_eq!(url_rule.match_.url.as_deref(), Some("https://example.com/blocked-domains.txt"), 
+                  "URL should be correct");
+        assert_eq!(url_rule.upstream_group, "__blackhole__", "URL rule should use __blackhole__");
+        
+        info!("Configuration validation successful");
+        info!("Test completed: test_config_load_valid_with_routing");
+    }
+    
+    #[test]
+    fn test_config_validate_routing_references() {
+        // 启用 tracing 日志
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_config_validate_routing_references");
+        
+        // 测试验证引用不存在的上游组
+        let invalid_config = r#"
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "group1"
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: udp
+    rules:
+      - match:
+          type: exact
+          values: ["example.com"]
+        upstream_group: "non_existent_group"  # 引用不存在的组
+        "#;
+        
+        // 创建临时配置文件
+        let (_temp_dir, config_path) = create_temp_config_file(invalid_config);
+        
+        // 加载配置
+        let config_result = ServerConfig::from_file(&config_path);
+        
+        // 验证配置加载失败，错误信息包含关于组不存在的信息
+        assert!(config_result.is_err(), "Config referencing non-existent upstream group should fail to load");
+        let err = config_result.err().unwrap();
+        assert!(err.to_string().contains("non_existent_group"), 
+                "Error message should mention the non-existent upstream group name");
+        
+        info!("Test completed: test_config_validate_routing_references");
+    }
+    
+    #[test]
+    fn test_config_validate_regex_compile() {
+        // 启用 tracing 日志
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_config_validate_regex_compile");
+        
+        // 测试无效的正则表达式
+        let invalid_regex_config = r#"
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "group1"
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: udp
+    rules:
+      - match:
+          type: regex
+          values: ["[invalid(regex"]  # 无效的正则表达式
+        upstream_group: "group1"
+        "#;
+        
+        // 创建临时配置文件
+        let (_temp_dir, config_path) = create_temp_config_file(invalid_regex_config);
+        
+        // 加载配置
+        let config_result = ServerConfig::from_file(&config_path);
+        
+        // 验证配置加载失败，错误信息包含关于正则表达式无效的信息
+        assert!(config_result.is_err(), "Config with invalid regex should fail to load");
+        let err = config_result.err().unwrap();
+        assert!(err.to_string().contains("regex"), 
+                "Error message should mention regex compilation error");
+        
+        info!("Test completed: test_config_validate_regex_compile");
+    }
 } 

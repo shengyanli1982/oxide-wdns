@@ -331,42 +331,17 @@ pub fn print_error(error: &ClientError) {
     // 提供一些额外的上下文信息
     match error {
         ClientError::InvalidArgument(_) => {
-            eprintln!("请检查命令行参数是否正确。使用 --help 查看帮助信息。");
+            eprintln!("Please check if the command line arguments are correct. Use --help to view help information.");
         }
         ClientError::HttpClientError(_) => {
-            eprintln!("请检查网络连接和服务器 URL 是否正确。使用 -k 参数跳过 TLS 证书验证。");
+            eprintln!("Please check your network connection and server URL. Use -k parameter to skip TLS certificate verification.");
         }
         ClientError::UrlError(_) => {
-            eprintln!("请确保提供了正确的 URL，包括协议前缀 (https://) 和路径 (/dns-query)。");
+            eprintln!("Please ensure you have provided the correct URL, including protocol prefix (https://) and path (/dns-query).");
         }
         _ => {
             // 通用提示
-            eprintln!("使用 -v 参数可以查看更多详细信息。");
+            eprintln!("Use -v parameter to view more detailed information.");
         }
     }
 }
-
-// 示例函数签名 (具体实现待定):
-// use crate::client::args::CliArgs;
-// use crate::client::error::ClientError;
-//
-// pub async fn run_query(args: CliArgs) -> Result<(), ClientError> {
-//     // 1. 初始化 HTTP Client
-//     // let http_client = ...;
-//
-//     // 2. 构建请求
-//     // let request = request::build_doh_request(&args).await?;
-//
-//     // 3. 发送请求并计时
-//     // let start_time = std::time::Instant::now();
-//     // let response = http_client.execute(request).await?;
-//     // let duration = start_time.elapsed();
-//
-//     // 4. 解析响应
-//     // let dns_message = response::parse_doh_response(response).await?;
-//
-//     // 5. 显示结果
-//     // response::display_response(&dns_message, duration, args.verbose);
-//
-//     Ok(())
-// } 

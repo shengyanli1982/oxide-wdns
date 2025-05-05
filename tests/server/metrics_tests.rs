@@ -289,4 +289,78 @@ mod tests {
         info!("Validated that new instance counters start at 0.");
         info!("Test completed: test_metrics_reset_or_recreate");
     }
+
+    #[tokio::test]
+    async fn test_metrics_dns_routing() {
+        // 启用 tracing 日志
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_metrics_dns_routing");
+        
+        // 创建指标实例
+        let metrics = Arc::new(DnsMetrics::new());
+        
+        // 记录各种路由情况的指标
+        metrics.record_routing_decision("special_group", "example.com");
+        metrics.record_routing_decision("special_group", "example.org");
+        metrics.record_routing_decision("cn_group", "example.cn");
+        metrics.record_routing_decision("__blackhole__", "ads.example.com");
+        metrics.record_routing_decision("__blackhole__", "malware.example.com");
+        metrics.record_routing_decision("__global__", "random.example.net");
+        
+        // 导出指标
+        let metrics_text = metrics.export_metrics();
+        
+        // 验证是否包含各个上游组的指标
+        assert!(metrics_text.contains("dns_routing_decisions{group=\"special_group\"} 2"), 
+                "Metrics should include 2 routings for special_group");
+        assert!(metrics_text.contains("dns_routing_decisions{group=\"cn_group\"} 1"), 
+                "Metrics should include 1 routing for cn_group");
+        assert!(metrics_text.contains("dns_routing_decisions{group=\"__blackhole__\"} 2"), 
+                "Metrics should include 2 routings for __blackhole__");
+        assert!(metrics_text.contains("dns_routing_decisions{group=\"__global__\"} 1"), 
+                "Metrics should include 1 routing for __global__");
+        
+        // 验证黑洞请求指标
+        assert!(metrics_text.contains("dns_blackhole_requests_total 2"), 
+                "Metrics should include 2 blackhole requests");
+        
+        info!("Test completed: test_metrics_dns_routing");
+    }
+    
+    #[tokio::test]
+    async fn test_metrics_rule_file_updates() {
+        // 启用 tracing 日志
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_metrics_rule_file_updates");
+        
+        // 创建指标实例
+        let metrics = Arc::new(DnsMetrics::new());
+        
+        // 记录规则文件更新指标
+        metrics.record_rule_file_update_success("/tmp/blocked.txt");
+        metrics.record_rule_file_update_success("/tmp/blocked.txt");
+        metrics.record_rule_file_update_failure("/tmp/nonexistent.txt", "File not found");
+        
+        // 记录规则URL更新指标
+        metrics.record_rule_url_update_success("https://example.com/blocked.txt");
+        metrics.record_rule_url_update_failure("https://invalid.com/404.txt", "404 Not Found");
+        metrics.record_rule_url_update_failure("https://invalid.com/404.txt", "404 Not Found");
+        
+        // 导出指标
+        let metrics_text = metrics.export_metrics();
+        
+        // 验证文件更新指标
+        assert!(metrics_text.contains("dns_rule_file_updates_total{status=\"success\"} 2"), 
+                "Metrics should include 2 successful file updates");
+        assert!(metrics_text.contains("dns_rule_file_updates_total{status=\"failure\"} 1"), 
+                "Metrics should include 1 failed file update");
+        
+        // 验证URL更新指标
+        assert!(metrics_text.contains("dns_rule_url_updates_total{status=\"success\"} 1"), 
+                "Metrics should include 1 successful URL update");
+        assert!(metrics_text.contains("dns_rule_url_updates_total{status=\"failure\"} 2"), 
+                "Metrics should include 2 failed URL updates");
+        
+        info!("Test completed: test_metrics_rule_file_updates");
+    }
 } 

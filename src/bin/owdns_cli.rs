@@ -28,7 +28,7 @@ async fn main() {
     
     // 验证命令行参数
     if let Err(err) = args.validate() {
-        eprintln!("参数错误: {}", err);
+        eprintln!("Argument error: {}", err);
         std::process::exit(1);
     }
     
