@@ -72,7 +72,7 @@ impl DoHServer {
         let router = Arc::new(DnsRouter::new(self.config.dns.routing.clone(), Some(client.clone())).await?);
         
         // 初始化上游管理器
-        let upstream = Arc::new(UpstreamManager::new(&self.config, router.clone(), client.clone()).await?);
+        let upstream = Arc::new(UpstreamManager::new(&self.config, client.clone()).await?);
         
         // 创建指标收集器
         let metrics = Arc::new(DnsMetrics::new());

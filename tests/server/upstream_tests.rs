@@ -74,9 +74,8 @@ mod tests {
 
         // 创建UpstreamManager
         info!("Creating UpstreamManager...");
-        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream_manager = UpstreamManager::new(&config, router, http_client).await.unwrap();
+        let upstream_manager = UpstreamManager::new(&config, http_client).await.unwrap();
         info!("UpstreamManager created successfully.");
 
         // 创建测试查询
@@ -142,9 +141,9 @@ mod tests {
         ];
         
         // 创建 UpstreamManager
-        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let _router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream_manager = UpstreamManager::new(&config, router, http_client).await.unwrap();
+        let upstream_manager = UpstreamManager::new(&config, http_client).await.unwrap();
         
         // 执行查询
         let query = create_test_query("example.com", RecordType::A);

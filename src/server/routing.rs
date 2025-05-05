@@ -38,7 +38,6 @@ enum CompiledMatcher {
     Wildcard(Vec<WildcardPattern>),
     // 文件规则（包含各种类型）
     File {
-        path: String,
         exact: HashSet<String>,
         regex: Vec<Regex>,
         wildcard: Vec<WildcardPattern>,
@@ -259,7 +258,6 @@ impl Router {
                 let (exact, regex, wildcard) = Self::load_rules_from_file(&path)?;
                 
                 Ok(CompiledMatcher::File {
-                    path,
                     exact,
                     regex,
                     wildcard,

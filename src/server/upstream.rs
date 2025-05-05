@@ -3,18 +3,18 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
+
+use reqwest::{Client, header};
+use tracing::{debug, error, info, warn};
+use trust_dns_resolver::TokioAsyncResolver;
+use trust_dns_resolver::proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_resolver::config::{
     NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
-use trust_dns_resolver::TokioAsyncResolver;
-use tracing::{debug, info, warn, error};
-use reqwest::{self, Client, header};
 
-use crate::server::error::{ServerError, Result};
-use crate::server::config::{ResolverProtocol, ServerConfig, UpstreamConfig};
-use crate::server::routing::Router;
-use crate::common::consts::{CONTENT_TYPE_DNS_MESSAGE};
+use crate::server::config::{ServerConfig, UpstreamConfig, ResolverProtocol};
+use crate::server::error::{Result, ServerError};
+use crate::common::consts::CONTENT_TYPE_DNS_MESSAGE;
 
 // 上游选择
 #[derive(Debug, Clone)]
@@ -104,17 +104,11 @@ pub struct UpstreamManager {
     global_config: UpstreamGroupConfig,
     // 上游组配置 (组名 -> 配置)
     group_configs: HashMap<String, UpstreamGroupConfig>,
-    // DNS 路由器
-    router: Arc<Router>,
-    // 服务器配置
-    config: Arc<ServerConfig>,
-    // HTTP 客户端
-    http_client: Client,
 }
 
 impl UpstreamManager {
     // 创建新的上游解析管理器
-    pub async fn new(config: &ServerConfig, router: Arc<Router>, http_client: Client) -> Result<Self> {
+    pub async fn new(config: &ServerConfig, http_client: Client) -> Result<Self> {
         // 创建全局上游配置
         let global_config = Self::create_upstream_group_config(config, &config.dns.upstream, http_client.clone())?;
         
@@ -153,9 +147,6 @@ impl UpstreamManager {
         Ok(Self {
             global_config,
             group_configs,
-            router,
-            config: Arc::new(config.clone()),
-            http_client,
         })
     }
     

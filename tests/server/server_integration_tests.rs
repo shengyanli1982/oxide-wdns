@@ -78,7 +78,7 @@ mod tests {
         let config = build_test_config(port, rate_limit_enabled, cache_enabled);
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -214,7 +214,7 @@ mod tests {
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
-        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
         let metrics = Arc::new(DnsMetrics::new());
         
         let server_state = ServerState {
@@ -272,20 +272,15 @@ mod tests {
               mock_default.uri(), mock_cn.uri(), mock_secure.uri());
         
         // 为每个模拟服务器配置不同的响应IP，用于区分请求路由到了哪个上游
-        let default_response = create_test_response(
-            &create_test_query("example.com", RecordType::A),
-            std::net::Ipv4Addr::new(192, 168, 0, 1) // 默认组IP
-        );
+        // 创建查询和响应示例，用于后面的测试验证
+        let _default_query = create_test_query("example.com", RecordType::A);
+        let default_ip = std::net::Ipv4Addr::new(192, 168, 0, 1); // 默认组IP
         
-        let cn_response = create_test_response(
-            &create_test_query("example.cn", RecordType::A),
-            std::net::Ipv4Addr::new(192, 168, 0, 2) // CN组IP
-        );
+        let _cn_query = create_test_query("example.cn", RecordType::A);
+        let cn_ip = std::net::Ipv4Addr::new(192, 168, 0, 2); // CN组IP
         
-        let secure_response = create_test_response(
-            &create_test_query("secure.example.com", RecordType::A),
-            std::net::Ipv4Addr::new(192, 168, 0, 3) // 安全组IP
-        );
+        let _secure_query = create_test_query("secure.example.com", RecordType::A);
+        let secure_ip = std::net::Ipv4Addr::new(192, 168, 0, 3); // 安全组IP
         
         // 通用响应处理函数 - 每个服务器总是返回固定IP，不管查询什么域名
         async fn setup_mock_upstream(mock_server: &MockServer, test_ip: std::net::Ipv4Addr) {
@@ -311,9 +306,9 @@ mod tests {
         }
         
         // 配置每个模拟服务器
-        setup_mock_upstream(&mock_default, std::net::Ipv4Addr::new(192, 168, 0, 1)).await;
-        setup_mock_upstream(&mock_cn, std::net::Ipv4Addr::new(192, 168, 0, 2)).await;
-        setup_mock_upstream(&mock_secure, std::net::Ipv4Addr::new(192, 168, 0, 3)).await;
+        setup_mock_upstream(&mock_default, default_ip).await;
+        setup_mock_upstream(&mock_cn, cn_ip).await;
+        setup_mock_upstream(&mock_secure, secure_ip).await;
         
         // 2. 选择空闲端口并创建分流配置
         let port = find_free_port().await;
@@ -375,7 +370,7 @@ mod tests {
         info!("Creating server state with DNS routing configuration...");
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -451,12 +446,8 @@ mod tests {
         message.answers()
             .iter()
             .filter_map(|answer| {
-                if let Some(data) = answer.data() {
-                    if let trust_dns_proto::rr::RData::A(ipv4) = data {
-                        Some(ipv4.to_string())
-                    } else {
-                        None
-                    }
+                if let Some(trust_dns_proto::rr::RData::A(ipv4)) = answer.data() {
+                    Some(ipv4.to_string())
                 } else {
                     None
                 }

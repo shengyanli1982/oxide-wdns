@@ -60,7 +60,7 @@ mod tests {
         let config = create_test_config();
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone())); // 移除unwrap并传递值而非引用
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -541,7 +541,7 @@ mod tests {
         // 创建服务器状态
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -641,7 +641,6 @@ mod tests {
         let mock_custom = MockServer::start().await;
         
         // 配置模拟上游服务器响应
-        let default_uri = mock_default.uri().to_string();
         let setup_mock_default = async {
             use wiremock::{Mock, ResponseTemplate};
             use wiremock::matchers::{method, path, header};
@@ -736,7 +735,7 @@ mod tests {
         // 创建服务器状态
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, router.clone(), http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -772,12 +771,8 @@ mod tests {
         // 在answers中查找A记录
         let ip1 = dns_response1.answers().iter()
             .find_map(|answer| {
-                if let Some(data) = answer.data() {
-                    if let trust_dns_proto::rr::RData::A(ipv4) = data {
-                        Some(ipv4.to_string())
-                    } else {
-                        None
-                    }
+                if let Some(trust_dns_proto::rr::RData::A(ipv4)) = answer.data() {
+                    Some(ipv4.to_string())
                 } else {
                     None
                 }
@@ -806,12 +801,8 @@ mod tests {
         // 在answers中查找A记录
         let ip2 = dns_response2.answers().iter()
             .find_map(|answer| {
-                if let Some(data) = answer.data() {
-                    if let trust_dns_proto::rr::RData::A(ipv4) = data {
-                        Some(ipv4.to_string())
-                    } else {
-                        None
-                    }
+                if let Some(trust_dns_proto::rr::RData::A(ipv4)) = answer.data() {
+                    Some(ipv4.to_string())
                 } else {
                     None
                 }

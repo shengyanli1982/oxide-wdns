@@ -35,6 +35,7 @@ mod tests {
     }
     
     // 创建DNS查询消息
+    #[allow(dead_code)]
     fn create_test_query(domain: &str, record_type: RecordType) -> Message {
         let name = Name::from_ascii(domain).unwrap();
         let mut query = Message::new();
