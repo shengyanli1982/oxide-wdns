@@ -26,6 +26,7 @@ mod tests {
     use oxide_wdns::server::metrics::DnsMetrics;
     use oxide_wdns::server::cache::DnsCache;
     use oxide_wdns::server::upstream::UpstreamManager;
+    use oxide_wdns::server::routing::Router;
     
     // 引入 wiremock 库和公共模块
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -75,7 +76,9 @@ mod tests {
     // 创建服务器状态
     async fn create_server_state(port: u16, rate_limit_enabled: bool, cache_enabled: bool) -> ServerState {
         let config = build_test_config(port, rate_limit_enabled, cache_enabled);
-        let upstream = Arc::new(UpstreamManager::new(&config).await.unwrap());
+        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let http_client = Client::new();
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -83,7 +86,8 @@ mod tests {
             config, 
             upstream, 
             cache, 
-            metrics
+            metrics,
+            router,
         }
     }
 
@@ -194,7 +198,8 @@ mod tests {
             .await;
         
         // 2. 选择空闲端口并创建测试服务器配置
-        let port = find_free_port();
+        let port = find_free_port().await;
+        info!("Using port {}", port);
         
         // 自定义配置，使用 mock 上游服务器
         let mut config = build_test_config(port, false, false);
@@ -206,8 +211,10 @@ mod tests {
         ];
         
         // 3. 创建服务器状态与组件
+        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let http_client = Client::new();
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
-        let upstream = Arc::new(UpstreamManager::new(&config).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
         let metrics = Arc::new(DnsMetrics::new());
         
         let server_state = ServerState {
@@ -215,6 +222,7 @@ mod tests {
             upstream,
             cache,
             metrics,
+            router,
         };
         
         // 4. 启动测试服务器
@@ -249,6 +257,204 @@ mod tests {
         info!("Test completed: test_server_with_mock_upstream");
     }
     
+    // 测试DNS分流功能，不同域名被路由到不同上游服务器
+    #[tokio::test]
+    async fn test_server_dns_routing_integration() {
+        // 启用 tracing 日志
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_server_dns_routing_integration");
+
+        // 1. 启动两个不同的 mock DoH 服务器，模拟不同的上游服务器组
+        let mock_default = MockServer::start().await;
+        let mock_cn = MockServer::start().await;
+        let mock_secure = MockServer::start().await;
+        info!("Mock upstream DoH servers started at: default={}, cn={}, secure={}", 
+              mock_default.uri(), mock_cn.uri(), mock_secure.uri());
+        
+        // 为每个模拟服务器配置不同的响应IP，用于区分请求路由到了哪个上游
+        // 创建查询和响应示例，用于后面的测试验证
+        let _default_query = create_test_query("example.com", RecordType::A);
+        let default_ip = std::net::Ipv4Addr::new(192, 168, 0, 1); // 默认组IP
+        
+        let _cn_query = create_test_query("example.cn", RecordType::A);
+        let cn_ip = std::net::Ipv4Addr::new(192, 168, 0, 2); // CN组IP
+        
+        let _secure_query = create_test_query("secure.example.com", RecordType::A);
+        let secure_ip = std::net::Ipv4Addr::new(192, 168, 0, 3); // 安全组IP
+        
+        // 通用响应处理函数 - 每个服务器总是返回固定IP，不管查询什么域名
+        async fn setup_mock_upstream(mock_server: &MockServer, test_ip: std::net::Ipv4Addr) {
+            // 设置通用响应处理器
+            Mock::given(method("POST"))
+                .and(path("/dns-query"))
+                .and(header("Content-Type", CONTENT_TYPE_DNS_MESSAGE))
+                .respond_with(move |req: &wiremock::Request| {
+                    // 解析DNS查询
+                    let body = req.body.clone();
+                    let query = Message::from_vec(&body).expect("Invalid DNS query");
+                    
+                    // 创建DNS响应，始终使用固定IP
+                    let resp = create_test_response(&query, test_ip);
+                    let resp_bytes = resp.to_vec().unwrap();
+                    
+                    ResponseTemplate::new(200)
+                        .insert_header("Content-Type", CONTENT_TYPE_DNS_MESSAGE)
+                        .set_body_bytes(resp_bytes.clone())
+                })
+                .mount(mock_server)
+                .await;
+        }
+        
+        // 配置每个模拟服务器
+        setup_mock_upstream(&mock_default, default_ip).await;
+        setup_mock_upstream(&mock_cn, cn_ip).await;
+        setup_mock_upstream(&mock_secure, secure_ip).await;
+        
+        // 2. 选择空闲端口并创建分流配置
+        let port = find_free_port().await;
+        info!("Using port {}", port);
+        
+        // 创建包含分流配置的测试配置
+        let config_str = format!(r#"
+        http_server:
+          listen_addr: "127.0.0.1:{}"
+          timeout: 10
+          rate_limit:
+            enabled: false
+        dns_resolver:
+          upstream:
+            resolvers:
+              - address: "{}/dns-query"
+                protocol: doh
+            query_timeout: 3
+            enable_dnssec: false
+          http_client:
+            timeout: 5
+            pool:
+              idle_timeout: 60
+              max_idle_connections: 20
+            request:
+              user_agent: "oxide-wdns-test/0.1.0"
+          cache:
+            enabled: false
+          routing:
+            enabled: true
+            upstream_groups:
+              - name: "cn_group"
+                resolvers:
+                  - address: "{}/dns-query"
+                    protocol: doh
+              - name: "secure_group"
+                resolvers:
+                  - address: "{}/dns-query"
+                    protocol: doh
+            rules:
+              - match:
+                  type: regex
+                  values: [".*\\.cn$", ".*\\.com\\.cn$"]
+                upstream_group: "cn_group"
+              - match:
+                  type: exact
+                  values: ["secure.example.com"]
+                upstream_group: "secure_group"
+              - match:
+                  type: exact
+                  values: ["blocked.example.com"]
+                upstream_group: "__blackhole__"
+        "#, port, mock_default.uri(), mock_cn.uri(), mock_secure.uri());
+        
+        // 解析配置
+        let config: ServerConfig = serde_yaml::from_str(&config_str).expect("Failed to parse configuration");
+        
+        // 3. 创建服务器状态并启动服务器
+        info!("Creating server state with DNS routing configuration...");
+        let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
+        let http_client = Client::new();
+        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
+        let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
+        let metrics = Arc::new(DnsMetrics::new());
+        
+        let server_state = ServerState {
+            config,
+            upstream,
+            cache,
+            metrics,
+            router,
+        };
+        
+        // 启动服务器
+        info!("Starting test server with DNS routing...");
+        let (server_addr, shutdown_tx) = start_test_server(server_state).await;
+        
+        // 4. 创建HTTP客户端
+        let client = Client::new();
+        
+        // 5. 测试不同类型的域名请求
+        
+        // a. 测试全局默认上游 (example.com)
+        info!("Testing default upstream routing (example.com)...");
+        let response = query_doh(&client, &server_addr, "example.com", RecordType::A).await;
+        let addresses = extract_ip_addresses(&response);
+        assert_eq!(addresses, vec!["192.168.0.1"], "example.com should use default upstream group");
+        
+        // b. 测试CN组上游 (example.cn)
+        info!("Testing CN group routing (example.cn)...");
+        let response = query_doh(&client, &server_addr, "example.cn", RecordType::A).await;
+        let addresses = extract_ip_addresses(&response);
+        assert_eq!(addresses, vec!["192.168.0.2"], "example.cn should use CN upstream group");
+        
+        // c. 测试安全组上游 (secure.example.com)
+        info!("Testing secure group routing (secure.example.com)...");
+        let response = query_doh(&client, &server_addr, "secure.example.com", RecordType::A).await;
+        let addresses = extract_ip_addresses(&response);
+        assert_eq!(addresses, vec!["192.168.0.3"], "secure.example.com should use secure upstream group");
+        
+        // d. 测试黑洞组 (blocked.example.com)
+        info!("Testing blackhole routing (blocked.example.com)...");
+        let response = query_doh(&client, &server_addr, "blocked.example.com", RecordType::A).await;
+        assert_eq!(response.response_code(), trust_dns_proto::op::ResponseCode::NXDomain, 
+                   "blocked.example.com should be blackholed (return NXDomain)");
+        
+        // 关闭服务器
+        let _ = shutdown_tx.send(());
+        info!("Test completed: test_server_dns_routing_integration");
+    }
+    
+    // 辅助函数：发送DoH查询
+    async fn query_doh(client: &Client, server_addr: &str, domain: &str, record_type: RecordType) -> Message {
+        // 创建DNS查询消息
+        let query = create_test_query(domain, record_type);
+        let query_bytes = query.to_vec().unwrap();
+        
+        // 发送DoH POST请求
+        let response = client.post(format!("{}/dns-query", server_addr))
+            .header(reqwest::header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)
+            .body(query_bytes)
+            .send()
+            .await
+            .expect("DoH request failed");
+        
+        assert_eq!(response.status(), StatusCode::OK, "DoH request should return OK status");
+        
+        // 解析响应
+        let response_bytes = response.bytes().await.expect("Failed to get response content");
+        Message::from_vec(&response_bytes).expect("Failed to parse DNS response")
+    }
+    
+    // 辅助函数：从DNS响应中提取IP地址
+    fn extract_ip_addresses(message: &Message) -> Vec<String> {
+        message.answers()
+            .iter()
+            .filter_map(|answer| {
+                if let Some(trust_dns_proto::rr::RData::A(ipv4)) = answer.data() {
+                    Some(ipv4.to_string())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     // === 其余原始测试保持不变 ===
     
     #[tokio::test]
@@ -258,7 +464,7 @@ mod tests {
         info!("Starting test: test_server_starts_and_responds_to_health_check");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -297,7 +503,7 @@ mod tests {
         info!("Starting test: test_server_handles_basic_doh_query");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -351,7 +557,7 @@ mod tests {
         info!("Starting test: test_server_metrics_endpoint_works");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -410,7 +616,7 @@ mod tests {
             .try_init();
         
         // 1. 选择空闲端口，创建配置，启用较低的速率限制（每秒1个请求，并发1个 -> burst_size 1）
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
         let server_state = create_server_state(port, true, false).await;
         
@@ -503,7 +709,7 @@ mod tests {
         info!("Starting test: test_server_cache_integration");
 
         // 1. 配置并启动服务器，启用缓存
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
         let server_state = create_server_state(port, false, true).await; // cache_enabled: true
         info!("Server configured with cache enabled.");
@@ -594,7 +800,7 @@ mod tests {
         info!("Starting test: test_server_doh_get_request");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -654,7 +860,7 @@ mod tests {
         info!("Starting test: test_server_rejects_invalid_content_type");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -686,8 +892,8 @@ mod tests {
         let status = response.status();
         info!("Response status for invalid Content-Type: {}", status);
 
-        // 7. 断言：收到 400 Bad Request 响应
-        assert_eq!(status, StatusCode::BAD_REQUEST);
+        // 7. 断言：收到 415 Unsupported Media Type 响应
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
 
         // 8. 清理：关闭服务器
         info!("Shutting down server...");
@@ -702,7 +908,7 @@ mod tests {
         info!("Starting test: test_server_handles_different_query_types");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器

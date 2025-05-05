@@ -1373,7 +1373,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
 name = "oxide-wdns"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1388,6 +1388,7 @@ dependencies = [
  "governor",
  "hex",
  "hyper",
+ "lazy_static",
  "mimalloc",
  "moka",
  "native-tls",

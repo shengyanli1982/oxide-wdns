@@ -67,9 +67,16 @@ The design of `owdns` makes it particularly suitable for environments requiring 
     -   Supports **HTTP/1.1** and **HTTP/2**.
     -   Configurable multiple **upstream DNS resolvers** supporting UDP, TCP, DoT (DNS-over-TLS), and DoH protocols.
     -   Flexible upstream selection strategies (e.g., round-robin, random).
+-   🔀 **Powerful DNS Routing/Splitting:**
+    -   Define multiple **upstream DNS server groups** (`upstream_groups`), each with potentially different resolvers, DNSSEC settings, and timeouts.
+    -   Route DNS queries to specific groups based on flexible **rules**.
+    -   Supported rule types: **Exact** domain match, **Regex** pattern match, **Wildcard** match (e.g., `*.example.com`), rules loaded from local **File**, and rules fetched from remote **URL**.
+    -   Special built-in `__blackhole__` group to **block/drop** specific DNS queries (e.g., for ad blocking).
+    -   Configure a **default upstream group** for unmatched queries, or fall back to the global upstream configuration.
+    -   Supports **automatic periodic reloading** of rules from remote URLs.
 -   ⚡ **Intelligent Caching:**
     -   Built-in high-performance **LRU cache** significantly reduces latency and upstream load.
-    -   Supports **Negative Caching**.
+    -   Supports **Negative Caching** (including for `__blackhole__` responses).
     -   Configurable cache size and TTL.
 -   📊 **Observability:**
     -   Integrated **Prometheus metrics** (`/metrics` endpoint) for easy monitoring of service status and performance.
@@ -123,76 +130,186 @@ You can install Oxide WDNS in the following ways:
 ### Server (`owdns`)
 
 1.  **Configuration File (`config.yaml`):**
-    The server is configured via a YAML file. You need to create a `config.yaml` file (or specify another path using `-c`). A basic configuration example is shown below (refer to `config.default.yaml` for structure):
+    The server is configured via a YAML file. You need to create a `config.yaml` file (or specify another path using `-c`). Refer to `config.default.yaml` for the full structure and default values. Below is an example showcasing key features including DNS routing:
 
     ```yaml
-    # config.yaml
+    # config.yaml - Example with Routing
 
     # HTTP Server Configuration
     http_server:
-        # Server listen address
-        listen_addr: "127.0.0.1:3053" # Modify to your desired listen address and port
-        # Server connection timeout (seconds)
-        timeout: 120
-        # Rate Limiting Configuration
-        rate_limit:
-            enabled: true # Enable rate limiting
-            per_ip_rate: 100 # Max requests per second per IP
-            per_ip_concurrent: 10 # Concurrent request limit per IP
+      listen_addr: "127.0.0.1:3053"
+      timeout: 120
+      rate_limit:
+        enabled: true
+        per_ip_rate: 100
+        per_ip_concurrent: 10
 
     # DNS Resolver Configuration
     dns_resolver:
-        # Upstream DNS Server Configuration
-        upstream:
-            enable_dnssec: true # Enable DNSSEC for upstream queries
-            query_timeout: 30 # Upstream query timeout (seconds)
-            # List of upstream resolvers (supports udp, tcp, dot, doh)
+
+      # HTTP Client Configuration (used for DoH upstream & fetching URL rules)
+      http_client:
+        timeout: 120
+        pool:
+          idle_timeout: 30
+          max_idle_connections: 10
+        request:
+          user_agent: "Oxide-WDNS Client"
+          ip_header_names: ["X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP"]
+
+      # Cache Configuration
+      cache:
+        enabled: true
+        size: 10000
+        ttl:
+          min: 60
+          max: 86400
+          negative: 300 # TTL for negative responses (NXDOMAIN), including __blackhole__
+
+      # --- Global/Default Upstream DNS Configuration ---
+      # These settings act as global defaults and the final fallback if no routing rules match
+      # and no default_upstream_group is specified.
+      upstream:
+        enable_dnssec: true
+        query_timeout: 30 # seconds
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: "udp"
+          - address: "8.8.8.8:53"
+            protocol: "udp"
+          # Example DoT/DoH upstream:
+          # - address: "cloudflare-dns.com@1.1.1.1:853"
+          #   protocol: "dot"
+          # - address: "https://cloudflare-dns.com/dns-query"
+          #   protocol: "doh"
+
+      # --- DNS Routing Configuration ---
+      routing:
+        # Enable DNS routing feature
+        enabled: true
+
+        # Define upstream DNS server groups
+        # Each group can have its own resolvers and override global settings (enable_dnssec, query_timeout).
+        upstream_groups:
+          - name: "clean_dns" # Example: A clean DNS group
+            # Inherits global enable_dnssec (true) and query_timeout (30)
             resolvers:
-                - address: "1.1.1.1:53"
-                  protocol: "udp" # Cloudflare (UDP)
-                - address: "8.8.8.8:53"
-                  protocol: "udp" # Google (UDP)
-                # - address: "cloudflare-dns.com@1.1.1.1:853"
-                #   protocol: "dot"       # Cloudflare (DoT)
-                # - address: "1.1.1.1:853"
-                #   protocol: "tcp"       # Cloudflare (TCP, requires FQDN)
-                # - address: "https://cloudflare-dns.com/dns-query"
-                #   protocol: "doh"       # Cloudflare (DoH)
+              - address: "https://dns.quad9.net/dns-query"
+                protocol: "doh"
+              - address: "9.9.9.9:53"
+                protocol: "udp"
 
-        # HTTP Client Configuration (mainly for DoH upstream)
-        http_client:
-            timeout: 120 # HTTP client timeout (seconds)
-            pool:
-                idle_timeout: 30 # Connection pool idle timeout (seconds)
-                max_idle_connections: 10 # Max idle connections in the pool
-            request:
-                # Custom User-Agent can be set
-                user_agent: "Oxide-WDNS Client"
-                # HTTP headers to identify the real client IP (if owdns is behind a reverse proxy)
-                ip_header_names:
-                    - "X-Forwarded-For"
-                    - "X-Real-IP"
+          - name: "domestic_dns" # Example: DNS group optimized for domestic domains
+            enable_dnssec: false # Override global setting for this group
+            query_timeout: 15   # Override global setting for this group
+            resolvers:
+              - address: "https://dns.alidns.com/dns-query"
+                protocol: "doh"
+              - address: "223.5.5.5:53"
+                protocol: "udp"
 
-        # Cache Configuration
-        cache:
-            enabled: true # Enable caching
-            size: 10000 # Max number of cache entries
-            ttl: # TTL configuration (seconds)
-                min: 60 # Minimum TTL
-                max: 86400 # Maximum TTL (1 day)
-                negative: 300 # Negative cache TTL (5 minutes)
+          - name: "adblock_dns" # Example: DNS group known for ad blocking
+            resolvers:
+              - address: "https://dns.adguard-dns.com/dns-query"
+                protocol: "doh"
+
+        # Define routing rules (processed in order, first match wins)
+        rules:
+          # Rule 1: Block specific ad domains using the special __blackhole__ group
+          - match:
+              type: exact
+              values: ["ads.example.com", "analytics.example.org"]
+            upstream_group: "__blackhole__" # Special group: drops the query, returns NXDOMAIN
+
+          # Rule 2: Route specific domestic domains to the domestic_dns group
+          - match:
+              type: exact
+              values: ["bilibili.com", "qq.com", "taobao.com", "jd.com"]
+            upstream_group: "domestic_dns"
+
+          # Rule 3: Route domains matching regex patterns to the clean_dns group
+          - match:
+              type: regex
+              values:
+                - "^(.*\.)?(google|youtube|gstatic)\.com$"
+                - "^(.*\.)?github\.com$"
+            upstream_group: "clean_dns"
+
+          # Rule 4: Route domains matching wildcards to the clean_dns group
+          - match:
+              type: wildcard
+              values: ["*.googleapis.com", "*.ggpht.com"]
+            upstream_group: "clean_dns"
+
+          # Rule 5: Load domestic domains from a local file, route to domestic_dns
+          # See "Domain List File Format" section below for file format details.
+          - match:
+              type: file
+              path: "/etc/oxide-wdns/china_domains.txt"
+            upstream_group: "domestic_dns"
+
+          # Rule 6: Load ad domains from a remote URL, block them using __blackhole__
+          # Rules from URLs are fetched periodically. See "Domain List File Format" below.
+          - match:
+              type: url
+              url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
+            upstream_group: "__blackhole__"
+
+        # Optional: Default upstream group for queries not matching any rule.
+        # If set to a valid group name (e.g., "clean_dns"), that group is used.
+        # If null or omitted, the global `dns_resolver.upstream` config is used.
+        default_upstream_group: "clean_dns" # Use clean_dns for anything not matched above
+
     ```
 
-    _Please modify the configuration according to your needs, especially `http_server.listen_addr` and `dns_resolver.upstream.resolvers`. If you need to enable HTTPS, you might need to use a reverse proxy (like Nginx) to handle TLS termination._
+    _Please modify the configuration according to your needs. Note that the `routing` section provides powerful control over DNS resolution behavior._
 
-2.  **Test Configuration File:**
+2.  **Domain List File Format**
+
+    When using `file` or `url` type rules in the `routing.rules` section of your `config.yaml`, Oxide WDNS expects the referenced file (local or fetched from URL) to follow a specific format:
+
+    -   **Encoding:** The file must be UTF-8 encoded.
+    -   **Structure:** One entry per line.
+    -   **Comments:** Lines starting with `#` are treated as comments and ignored.
+    -   **Empty Lines:** Empty lines are ignored.
+    -   **Default Match Type:** By default, each non-comment, non-empty line is treated as an **exact** domain name to match.
+    -   **Prefixes for Other Match Types:**
+
+        -   `regex:`: If a line starts with `regex:`, the remaining part of the line is treated as a **regular expression** pattern to match against the domain name.
+        -   `wildcard:`: If a line starts with `wildcard:`, the remaining part of the line is treated as a **wildcard** pattern (e.g., `*.example.com`, which matches `www.example.com` and `example.com`).
+
+    **Example File (`/etc/oxide-wdns/example_list.txt`):**
+
+    ```
+    # === Example Domain List ===
+    # This is a comment
+
+    # Exact matches (default)
+    google.com
+    github.com
+
+    # Wildcard matches
+    wildcard:*.wikipedia.org
+    wildcard:*.google.ac
+
+    # Regex matches
+    regex:^.*\\.cn$
+    regex:^ads?\\..*\\.com$
+
+    # Another comment
+
+    ```
+
+    This format allows you to combine different matching strategies within a single rule source file or URL. For `url` type rules, Oxide WDNS will periodically fetch and re-parse the content according to this format.
+
+3.  **Test Configuration File:**
     Before starting the service, you can use the `-t` flag to check if the configuration file is valid:
 
     ```bash
     ./owdns -t -c config.yaml
     ```
 
-3.  **Start the Service:**
+4.  **Start the Service:**
 
     **> Method 1: Direct Execution (Foreground)**
 
@@ -316,7 +433,7 @@ You can install Oxide WDNS in the following ways:
     5.  **Access the Service:**
         Depending on your Service configuration (type and port), you can access the deployed `owdns` DoH service via ClusterIP (internal), NodePort, or LoadBalancer IP (external). For example, if the Service is of type LoadBalancer and exposes port 80, you can use `http://<LoadBalancer-IP>/dns-query` as the DoH endpoint.
 
-4.  **Get Help / Command-Line Arguments:**
+5.  **Get Help / Command-Line Arguments:**
     View the complete list of command-line arguments using `-h` or `--help`:
 
     ```bash

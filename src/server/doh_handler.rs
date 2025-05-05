@@ -7,13 +7,14 @@ use axum::{
     http::{header, StatusCode, Request},
     response::IntoResponse,
     routing::{get, post},
-    Router, Json,
+    Router as AxumRouter, Json,
 };
+use axum::body::to_bytes;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
-use tracing::{debug, warn, info};
+use tracing::{debug, info};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
 use crate::server::error::{ServerError, Result};
 use crate::common::consts::{
@@ -25,7 +26,8 @@ use crate::common::consts::{
 use crate::server::cache::{CacheKey, DnsCache};
 use crate::server::config::ServerConfig;
 use crate::server::metrics::{DnsMetrics, METRICS};
-use crate::server::upstream::UpstreamManager;
+use crate::server::routing::{RouteDecision, Router as DnsRouter};
+use crate::server::upstream::{UpstreamManager, UpstreamSelection};
 
 
 // 共享的服务器状态
@@ -35,6 +37,8 @@ pub struct ServerState {
     pub config: ServerConfig,
     // 上游解析管理器
     pub upstream: Arc<UpstreamManager>,
+    // DNS 路由器
+    pub router: Arc<DnsRouter>,
     // DNS 缓存
     pub cache: Arc<DnsCache>,
     // 指标收集器
@@ -119,8 +123,8 @@ pub struct DnsJsonAnswer {
 }
 
 // 创建 DoH 路由
-pub fn doh_routes(state: ServerState) -> Router {
-    Router::new()
+pub fn doh_routes(state: ServerState) -> AxumRouter {
+    AxumRouter::new()
         // JSON API 路由（兼容性）
         .route("/resolve", get(handle_dns_json_query))
         // RFC 8484 标准路由
@@ -167,6 +171,7 @@ async fn handle_dns_json_query(
     // 发送/接收 DNS 查询响应
     let (response_message, is_cached) = match process_query(
         state.upstream.as_ref(),
+        state.router.as_ref(),
         state.cache.as_ref(),
         &query_message,
         client_ip,
@@ -248,7 +253,7 @@ async fn handle_dns_json_query(
     ).into_response()
 }
 
-// 处理 DNS-over-HTTPS GET 请求 (RFC 8484 标准，application/dns-message)
+// 处理 DNS GET 请求（RFC 8484）
 #[axum::debug_handler]
 async fn handle_dns_wire_get(
     State(state): State<ServerState>,
@@ -264,49 +269,51 @@ async fn handle_dns_wire_get(
     // 更新请求指标
     state.metrics.record_request("GET", CONTENT_TYPE_DNS_MESSAGE);
     
-    debug!(client_ip = ?client_ip, "DNS GET RFC 8484 query received");
+    debug!(client_ip = ?client_ip, "DNS-over-HTTPS GET request received");
     
-    // 解码 Base64url 查询参数
-    let dns_wire = match BASE64_ENGINE.decode(&params.dns) {
-        Ok(wire) => wire,
+    // 解码请求参数中的 DNS 消息（Base64url 编码）
+    let query_message = match BASE64_ENGINE.decode(&params.dns) {
+        Ok(data) => {
+            match Message::from_vec(&data) {
+                Ok(msg) => msg,
+                Err(e) => {
+                    info!(
+                        client_ip = ?client_ip,
+                        error = %e,
+                        "Failed to parse DNS message from base64"
+                    );
+                    return (StatusCode::BAD_REQUEST, "Invalid DNS message format").into_response();
+                }
+            }
+        },
         Err(e) => {
-            info!(client_ip = ?client_ip, error = ?e, "Invalid base64url encoding in DNS parameter");
-            return (StatusCode::BAD_REQUEST, "Invalid base64url encoding").into_response();
+            info!(
+                client_ip = ?client_ip,
+                error = %e,
+                "Failed to decode base64 DNS query parameter"
+            );
+            return (StatusCode::BAD_REQUEST, "Invalid base64 encoding").into_response();
         }
     };
     
-    // 检查请求大小
-    if dns_wire.len() > MAX_REQUEST_SIZE {
-        info!(client_ip = ?client_ip, size = dns_wire.len(), "DNS request too large");
-        return (StatusCode::BAD_REQUEST, "DNS request too large").into_response();
-    }
-    
-    // 解析 DNS 查询消息
-    let query_message = match Message::from_vec(&dns_wire) {
-        Ok(msg) => msg,
-        Err(e) => {
-            info!(client_ip = ?client_ip, error = ?e, "Invalid DNS message in request");
-            return (StatusCode::BAD_REQUEST, "Invalid DNS message format").into_response();
-        }
-    };
+    // 从查询获取域名（用于日志）
+    let domain = query_message.queries().first().map_or_else(
+        || String::from("unknown"), 
+        |q| q.name().to_string()
+    );
     
     // 处理查询
-    let query_name = query_message.queries().first().map_or("unknown".to_string(), |q| q.name().to_string());
-    let query_type = query_message.queries().first().map_or(0, |q| q.query_type().into());
-    
-    // 发送/接收 DNS 查询响应
     let (response_message, is_cached) = match process_query(
         state.upstream.as_ref(),
+        state.router.as_ref(),
         state.cache.as_ref(),
         &query_message,
         client_ip,
     ).await {
         Ok((msg, cached)) => (msg, cached),
         Err(e) => {
-            // 记录处理错误
             info!(
-                name = %query_name,
-                type_value = query_type,
+                domain = %domain,
                 client_ip = ?client_ip,
                 error = %e,
                 "DNS-over-HTTPS wire query processing failed"
@@ -315,16 +322,15 @@ async fn handle_dns_wire_get(
         }
     };
     
-    // 序列化响应
-    let response_wire = match response_message.to_vec() {
-        Ok(wire) => wire,
+    // 将响应消息转换为二进制格式
+    let response_bytes = match response_message.to_vec() {
+        Ok(bytes) => bytes,
         Err(e) => {
             info!(
-                name = %query_name,
-                type_value = query_type,
+                domain = %domain,
                 client_ip = ?client_ip,
-                error = ?e,
-                "Failed to serialize DNS response"
+                error = %e,
+                "Failed to serialize DNS response message"
             );
             return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to serialize DNS response").into_response();
         }
@@ -338,32 +344,37 @@ async fn handle_dns_wire_get(
         duration,
     );
     
-    // 记录请求完成的详细日志
+    // 记录请求完成
+    let qtype = query_message.queries().first().map_or_else(
+        || String::from("unknown"), 
+        |q| format!("{:?}", q.query_type())
+    );
+    
     let answer_count = response_message.answer_count();
     let rcode = response_message.response_code();
     let query_time_ms = duration.as_millis();
     
     info!(
-        name = %query_name,
-        type_value = query_type,
+        domain = %domain,
+        qtype = %qtype,
         client_ip = ?client_ip,
-        response_code = ?rcode,
         answer_count = answer_count,
+        response_code = ?rcode,
         dnssec_validated = response_message.authentic_data(),
         query_time_ms = query_time_ms,
         is_cached = is_cached,
-        "DNS-over-HTTPS RFC 8484 GET request completed"
+        "DNS-over-HTTPS wire GET request completed"
     );
     
-    // 返回二进制响应
+    // 返回响应
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)],
-        response_wire,
+        response_bytes,
     ).into_response()
 }
 
-// 处理 DNS-over-HTTPS POST 请求 (RFC 8484 标准，application/dns-message)
+// 处理 DNS POST 请求（RFC 8484）
 #[axum::debug_handler]
 async fn handle_dns_wire_post(
     State(state): State<ServerState>,
@@ -372,66 +383,84 @@ async fn handle_dns_wire_post(
     // 提取客户端 IP
     let client_ip = get_client_ip_from_request(&req);
     
-    // 检查 Content-Type
-    let content_type = req.headers().get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-        
-    if content_type != CONTENT_TYPE_DNS_MESSAGE {
-        info!(client_ip = ?client_ip, content_type = %content_type, "Invalid Content-Type in DNS POST request");
-        return (StatusCode::BAD_REQUEST, "Invalid Content-Type, expected application/dns-message").into_response();
-    }
-    
     // 记录开始时间
     let start = Instant::now();
     
     // 更新请求指标
     state.metrics.record_request("POST", CONTENT_TYPE_DNS_MESSAGE);
     
-    debug!(client_ip = ?client_ip, "DNS POST RFC 8484 query received");
+    debug!(client_ip = ?client_ip, "DNS-over-HTTPS POST request received");
     
-    // 提取请求体 - 限制大小以防止资源耗尽攻击
-    let (_parts, body) = req.into_parts();
-    let body_bytes = match axum::body::to_bytes(body, MAX_REQUEST_SIZE).await {
+    // 验证内容类型
+    let is_valid_content_type = req.headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.starts_with(CONTENT_TYPE_DNS_MESSAGE))
+        .unwrap_or(false);
+        
+    if !is_valid_content_type {
+        info!(
+            client_ip = ?client_ip,
+            "Invalid content type for DNS-over-HTTPS POST request"
+        );
+        return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "Invalid content type").into_response();
+    }
+    
+    // 读取请求体
+    let body_bytes = match to_bytes(req.into_body(), MAX_REQUEST_SIZE).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            info!(client_ip = ?client_ip, error = ?e, "Failed to read request body");
+            info!(
+                client_ip = ?client_ip,
+                error = %e,
+                "Failed to read DNS-over-HTTPS POST request body"
+            );
             return (StatusCode::BAD_REQUEST, "Failed to read request body").into_response();
         }
     };
     
-    // 如果请求体为空，返回错误
-    if body_bytes.is_empty() {
-        info!(client_ip = ?client_ip, "Empty request body");
-        return (StatusCode::BAD_REQUEST, "Empty request body").into_response();
+    // 检查请求大小
+    if body_bytes.len() > MAX_REQUEST_SIZE {
+        info!(
+            client_ip = ?client_ip,
+            size = body_bytes.len(),
+            max_size = MAX_REQUEST_SIZE,
+            "DNS-over-HTTPS POST request body too large"
+        );
+        return (StatusCode::PAYLOAD_TOO_LARGE, "Request body too large").into_response();
     }
     
-    // 解析 DNS 查询消息
+    // 解析 DNS 消息
     let query_message = match Message::from_vec(&body_bytes) {
         Ok(msg) => msg,
         Err(e) => {
-            info!(client_ip = ?client_ip, error = ?e, "Invalid DNS message in POST request body");
+            info!(
+                client_ip = ?client_ip,
+                error = %e,
+                "Failed to parse DNS message from POST body"
+            );
             return (StatusCode::BAD_REQUEST, "Invalid DNS message format").into_response();
         }
     };
     
-    // 处理查询
-    let query_name = query_message.queries().first().map_or("unknown".to_string(), |q| q.name().to_string());
-    let query_type = query_message.queries().first().map_or(0, |q| q.query_type().into());
+    // 从查询获取域名（用于日志）
+    let domain = query_message.queries().first().map_or_else(
+        || String::from("unknown"), 
+        |q| q.name().to_string()
+    );
     
-    // 发送/接收 DNS 查询响应
+    // 处理查询
     let (response_message, is_cached) = match process_query(
         state.upstream.as_ref(),
+        state.router.as_ref(),
         state.cache.as_ref(),
         &query_message,
         client_ip,
     ).await {
         Ok((msg, cached)) => (msg, cached),
         Err(e) => {
-            // 记录处理错误
             info!(
-                name = %query_name,
-                type_value = query_type,
+                domain = %domain,
                 client_ip = ?client_ip,
                 error = %e,
                 "DNS-over-HTTPS wire query processing failed"
@@ -440,16 +469,15 @@ async fn handle_dns_wire_post(
         }
     };
     
-    // 序列化响应
-    let response_wire = match response_message.to_vec() {
-        Ok(wire) => wire,
+    // 将响应消息转换为二进制格式
+    let response_bytes = match response_message.to_vec() {
+        Ok(bytes) => bytes,
         Err(e) => {
             info!(
-                name = %query_name,
-                type_value = query_type,
+                domain = %domain,
                 client_ip = ?client_ip,
-                error = ?e,
-                "Failed to serialize DNS response"
+                error = %e,
+                "Failed to serialize DNS response message"
             );
             return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to serialize DNS response").into_response();
         }
@@ -463,28 +491,33 @@ async fn handle_dns_wire_post(
         duration,
     );
     
-    // 记录请求完成的详细日志
+    // 记录请求完成
+    let qtype = query_message.queries().first().map_or_else(
+        || String::from("unknown"), 
+        |q| format!("{:?}", q.query_type())
+    );
+    
     let answer_count = response_message.answer_count();
     let rcode = response_message.response_code();
     let query_time_ms = duration.as_millis();
     
     info!(
-        name = %query_name,
-        type_value = query_type,
+        domain = %domain,
+        qtype = %qtype,
         client_ip = ?client_ip,
-        response_code = ?rcode,
         answer_count = answer_count,
+        response_code = ?rcode,
         dnssec_validated = response_message.authentic_data(),
         query_time_ms = query_time_ms,
         is_cached = is_cached,
-        "DNS-over-HTTPS RFC 8484 POST request completed"
+        "DNS-over-HTTPS wire POST request completed"
     );
     
-    // 返回二进制响应
+    // 返回响应
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)],
-        response_wire,
+        response_bytes,
     ).into_response()
 }
 
@@ -515,81 +548,105 @@ fn get_client_ip_from_request<T>(req: &Request<T>) -> IpAddr {
 // 处理 DNS 查询
 async fn process_query(
     upstream: &UpstreamManager,
+    router: &DnsRouter,
     cache: &DnsCache,
     query_message: &Message,
     _client_ip: IpAddr,
 ) -> Result<(Message, bool)> {  // 返回元组，第二个参数表示是否缓存命中
-    // 检查查询消息是否有效
-    if query_message.message_type() != MessageType::Query {
-        return Err(ServerError::Http("Not a query message type".to_string()));
+    // 检查查询消息
+    let queries = query_message.queries();
+    if queries.is_empty() {
+        return Err(ServerError::Other("No queries in DNS message".to_string()));
     }
     
-    // 仅在存在查询时才记录查询类型
-    if let Some(query) = query_message.queries().first() {
-        let query_type = query.query_type().to_string();
-        METRICS.with(|m| m.record_dns_query_type(&query_type));
-    } else {
-        return Err(ServerError::Http("No query found in message".to_string()));
-    }
+    // 获取DNS查询域名和类型
+    let query = &queries[0];
+    let domain = query.name().to_string();
+    let qtype = query.query_type();
     
-    // 从查询消息构建缓存键
-    let cache_key = CacheKey::from(query_message);
+    debug!(domain = %domain, qtype = ?qtype, "Processing DNS query");
     
-    // 尝试从缓存获取响应
-    if let Some(cached_response) = cache.get(&cache_key).await {
-        debug!(?cache_key, "Cache hit");
-        METRICS.with(|m| m.cache_hits.inc());
+    // 创建缓存键
+    let cache_key = CacheKey::new(query.name().clone(), query.query_type(), query.query_class());
+    
+    // 检查缓存
+    if cache.is_enabled() {
+        if let Some(cached_message) = cache.get(&cache_key).await {
+            debug!(domain = %domain, qtype = ?qtype, "Cache hit");
+            
+            // 记录缓存命中指标
+            METRICS.with(|m| m.record_cache_hit());
+            
+            // 克隆缓存的消息并复制原始查询的ID
+            let mut response = cached_message.clone();
+            response.set_id(query_message.id());
+            
+            return Ok((response, true));
+        }
         
-        // 创建新的响应消息，更新 ID 与查询消息匹配
-        let mut response = cached_response.clone();
+        // 记录缓存未命中指标
+        METRICS.with(|m| m.record_cache_miss());
+    }
+    
+    // 查询域名并获取路由决策
+    let route_decision = router.match_domain(&domain).await;
+    
+    debug!(domain = %domain, qtype = ?qtype, decision = ?route_decision, "DNS routing decision");
+    
+    // 处理黑洞决策
+    if route_decision == RouteDecision::Blackhole {
+        info!(domain = %domain, "Query blocked by blackhole rule");
+        
+        // 记录被黑洞规则阻止的请求
+        METRICS.with(|m| m.record_blackhole_request());
+        
+        // 记录DNS响应代码
+        METRICS.with(|m| m.record_dns_rcode("NXDomain"));
+        
+        // 创建 NXDOMAIN 响应
+        let mut response = Message::new();
         response.set_id(query_message.id());
+        response.set_message_type(MessageType::Response);
+        response.set_op_code(query_message.op_code());
+        response.set_response_code(ResponseCode::NXDomain); // 不存在的域名
+        response.set_recursion_desired(query_message.recursion_desired());
+        response.set_recursion_available(true);
+        response.add_query(query.clone());
         
-        // 记录DNS响应码
-        let rcode = response.response_code().to_string();
-        METRICS.with(|m| m.record_dns_rcode(&rcode));
+        // 如果启用了缓存，使用负缓存 TTL 进行缓存
+        if cache.is_enabled() {
+            let _ = cache.put(&cache_key, &response, cache.negative_ttl()).await;
+        }
         
-        return Ok((response, true));  // 返回缓存命中标记
+        return Ok((response, false));
     }
     
-    // 缓存未命中，转发到上游服务器
-    debug!(?cache_key, "Cache miss, querying upstream server");
-    METRICS.with(|m| m.cache_misses.inc());
-    
-    // 执行上游查询
-    let start = Instant::now();
-    let response = upstream.resolve(query_message).await?;
-    let duration = start.elapsed();
-    
-    // 记录查询时间 - 使用 get_or_insert_with 避免不必要的字符串分配
-    let resolver_info = match query_message.queries().first() {
-        Some(query) => format!("{}:{}", query.name(), query.query_type()),
-        None => "unknown".to_string(),
+    // 将路由决策转换为上游选择
+    let upstream_selection = match route_decision {
+        RouteDecision::UseGroup(group_name) => {
+            debug!(domain = %domain, group = %group_name, "Using upstream group");
+            UpstreamSelection::Group(group_name)
+        },
+        RouteDecision::UseGlobal => {
+            debug!(domain = %domain, "Using global upstream");
+            UpstreamSelection::Global
+        },
+        RouteDecision::Blackhole => unreachable!(), // 已经在上面处理过
     };
     
-    METRICS.with(|m| m.record_upstream_query(&resolver_info, duration));
+    // 执行上游查询
+    let response_message = upstream.resolve(query_message, upstream_selection).await?;
     
-    // 记录 DNS 响应码
-    let rcode = response.response_code().to_string();
-    METRICS.with(|m| m.record_dns_rcode(&rcode));
+    // 记录DNS响应代码
+    METRICS.with(|m| m.record_dns_rcode(&response_message.response_code().to_string()));
     
-    // 记录 DNSSEC 验证结果
-    METRICS.with(|m| m.record_dnssec_validation(response.authentic_data()));
-    
-    // 将响应存入缓存（只缓存成功的响应）
-    let rcode = response.response_code();
-    if rcode == ResponseCode::NoError || rcode == ResponseCode::NXDomain {
-        if let Err(e) = cache.put(cache_key, response.clone()).await {
-            warn!(error = ?e, "Cache response failed");
-        }
-    } else {
-        // 记录错误响应类型
-        debug!(
-            rcode = ?response.response_code(),
-            "DNS error response"
-        );
+    // 缓存结果（如果启用）
+    if cache.is_enabled() {
+        let ttl = cache.calculate_ttl(&response_message);
+        let _ = cache.put(&cache_key, &response_message, ttl).await;
     }
     
-    Ok((response, false))  // 返回非缓存命中标记
+    Ok((response_message, false))
 }
 
 // 从 JSON 请求创建 DNS 查询消息

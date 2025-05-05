@@ -1,6 +1,6 @@
 [package]
 name = "oxide-wdns"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 [profile.release]
@@ -60,8 +60,9 @@ dashmap = "5.5"
 colored = "2"  # 命令行内容输出
 rand = "0.8"
 hex = "0.4"
-regex = "1.10"
+regex = { version = "1.10", features = ["unicode"] } # 用于域名匹配规则
 url = "2.5"
+lazy_static = "1.4" # 用于正则表达式编译缓存
 
 [dev-dependencies]
 tempfile = "3.19"

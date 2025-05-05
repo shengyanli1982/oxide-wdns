@@ -2,7 +2,7 @@
 
 use axum::{routing::get, Router};
 use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
+    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
 };
 use std::time::Duration;
 use std::thread_local;
@@ -36,9 +36,9 @@ pub struct DnsMetrics {
     pub dnssec_validation_success: IntCounter,
     // DNSSEC 验证失败计数
     pub dnssec_validation_failure: IntCounter,
-    // 按上游解析器分类的查询计数
+    // 按上游组或全局标识分类的查询计数
     pub upstream_queries: IntCounterVec,
-    // 上游解析器查询时间直方图
+    // 上游组或全局标识查询时间直方图
     pub upstream_query_duration: HistogramVec,
     // 按响应代码分类的 DNS 响应计数
     pub dns_responses_by_rcode: IntCounterVec,
@@ -48,6 +48,12 @@ pub struct DnsMetrics {
     pub rate_limited_requests: IntCounter,
     // 按 IP 分类的速率限制计数
     pub rate_limited_requests_by_ip: IntCounterVec,
+    // 被 Blackhole 阻止的请求计数
+    pub blackhole_requests_total: IntCounter,
+    // 规则源更新状态计数
+    pub rule_source_updates_total: IntCounterVec,
+    // 规则源上次成功更新时间戳
+    pub rule_source_last_successful_update_timestamp_seconds: IntGaugeVec,
 }
 
 impl Default for DnsMetrics {
@@ -126,22 +132,22 @@ impl DnsMetrics {
         )
         .unwrap();
         
-        // 创建上游解析器相关指标
+        // 创建上游解析器相关指标 (按上游标识符)
         let upstream_queries = IntCounterVec::new(
-            Opts::new("doh_upstream_queries", "Query count by upstream resolver"),
-            &["resolver"],
+            Opts::new("doh_upstream_queries", "Query count by upstream identifier (group name or global)"),
+            &["upstream_identifier"],
         )
         .unwrap();
         
         let upstream_query_duration = HistogramVec::new(
             HistogramOpts::new(
                 "doh_upstream_query_duration_seconds",
-                "Upstream resolver query time in seconds",
+                "Upstream query time in seconds by upstream identifier (group name or global)",
             )
             .buckets(vec![
                 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
             ]),
-            &["resolver"],
+            &["upstream_identifier"],
         )
         .unwrap();
         
@@ -181,6 +187,33 @@ impl DnsMetrics {
         )
         .unwrap();
         
+        // 创建 Blackhole 阻止计数指标
+        let blackhole_requests_total = IntCounter::new(
+            "doh_blackhole_requests_total",
+            "Total number of requests blocked by blackhole rule",
+        )
+        .unwrap();
+
+        // 创建规则源更新状态指标
+        let rule_source_updates_total = IntCounterVec::new(
+            Opts::new(
+                "doh_rule_source_updates_total",
+                "Count of rule source update attempts by type and status",
+            ),
+            &["source_type", "status"],
+        )
+        .unwrap();
+
+        // 创建规则源上次成功更新时间戳指标
+        let rule_source_last_successful_update_timestamp_seconds = IntGaugeVec::new(
+            Opts::new(
+                "doh_rule_source_last_successful_update_timestamp_seconds",
+                "Timestamp of the last successful rule source update",
+            ),
+            &["source_type", "source_location"],
+        )
+        .unwrap();
+        
         // 注册所有指标
         registry.register(Box::new(total_requests.clone())).unwrap();
         registry.register(Box::new(requests_by_method_type.clone())).unwrap();
@@ -198,6 +231,9 @@ impl DnsMetrics {
         registry.register(Box::new(dns_queries_by_type.clone())).unwrap();
         registry.register(Box::new(rate_limited_requests.clone())).unwrap();
         registry.register(Box::new(rate_limited_requests_by_ip.clone())).unwrap();
+        registry.register(Box::new(blackhole_requests_total.clone())).unwrap();
+        registry.register(Box::new(rule_source_updates_total.clone())).unwrap();
+        registry.register(Box::new(rule_source_last_successful_update_timestamp_seconds.clone())).unwrap();
         
         DnsMetrics {
             registry,
@@ -217,6 +253,9 @@ impl DnsMetrics {
             dns_queries_by_type,
             rate_limited_requests,
             rate_limited_requests_by_ip,
+            blackhole_requests_total,
+            rule_source_updates_total,
+            rule_source_last_successful_update_timestamp_seconds,
         }
     }
     
@@ -263,14 +302,14 @@ impl DnsMetrics {
             .inc();
     }
     
-    // 记录上游查询
-    pub fn record_upstream_query(&self, resolver: &str, duration: Duration) {
+    // 记录上游查询 (按上游标识符)
+    pub fn record_upstream_query(&self, upstream_identifier: &str, duration: Duration) {
         self.upstream_queries
-            .with_label_values(&[resolver])
+            .with_label_values(&[upstream_identifier])
             .inc();
             
         self.upstream_query_duration
-            .with_label_values(&[resolver])
+            .with_label_values(&[upstream_identifier])
             .observe(duration.as_secs_f64());
     }
     
@@ -282,6 +321,16 @@ impl DnsMetrics {
     // 记录缓存大小
     pub fn record_cache_size(&self, size: u64) {
         self.cache_size.set(size as i64);
+    }
+    
+    // 记录缓存命中
+    pub fn record_cache_hit(&self) {
+        self.cache_hits.inc();
+    }
+    
+    // 记录缓存未命中
+    pub fn record_cache_miss(&self) {
+        self.cache_misses.inc();
     }
     
     // 更新 DNSSEC 验证结果
@@ -297,10 +346,50 @@ impl DnsMetrics {
     pub fn record_rate_limit(&self, client_ip: &str) {
         self.rate_limited_requests.inc();
         
-        // 直接使用客户端真实IP
+        // 匿名化客户端 IP 的最后一个八位字节以增强隐私保护
+        let anonymized_ip = if let Some(last_dot_pos) = client_ip.rfind('.') {
+            // IPv4
+            format!("{}.*", &client_ip[..last_dot_pos])
+        } else if let Some(last_colon_pos) = client_ip.rfind(':') {
+            // IPv6
+            format!("{}:*", &client_ip[..last_colon_pos])
+        } else {
+            // 无法识别的格式，使用通用值
+            "unknown".to_string()
+        };
+        
         self.rate_limited_requests_by_ip
-            .with_label_values(&[client_ip])
+            .with_label_values(&[&anonymized_ip])
             .inc();
+    }
+
+    // 记录被 Blackhole 阻止的请求
+    pub fn record_blackhole_request(&self) {
+        self.blackhole_requests_total.inc();
+    }
+
+    // 记录规则源更新状态
+    pub fn record_rule_source_update(&self, source_type: &str, status: &str) {
+        self.rule_source_updates_total
+            .with_label_values(&[source_type, status])
+            .inc();
+    }
+
+    // 记录规则源上次成功更新时间戳
+    // 注意: source_location 可能导致高基数，谨慎使用或进行简化/聚合
+    pub fn record_rule_source_last_update_timestamp(&self, source_type: &str, source_location: &str, timestamp: i64) {
+        self.rule_source_last_successful_update_timestamp_seconds
+            .with_label_values(&[source_type, source_location])
+            .set(timestamp);
+    }
+
+    // 导出当前指标为字符串（用于测试）
+    pub fn export_metrics(&self) -> String {
+        let encoder = prometheus::TextEncoder::new();
+        let metric_families = self.registry.gather();
+        let mut buffer = String::new();
+        encoder.encode_utf8(&metric_families, &mut buffer).unwrap();
+        buffer
     }
 }
 

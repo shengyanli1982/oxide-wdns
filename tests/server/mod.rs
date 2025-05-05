@@ -10,6 +10,7 @@ mod config_tests;
 mod doh_handler_advanced_tests;
 mod health_tests;
 mod metrics_tests;
+mod routing_tests; // 新增的DNS分流测试模块
 mod server_integration_tests;
 mod signal_tests; // 信号测试可能需要特殊处理
 mod upstream_tests;

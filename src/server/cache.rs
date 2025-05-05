@@ -3,7 +3,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 use moka::future::Cache;
 use trust_dns_proto::op::{Message, ResponseCode};
-use trust_dns_proto::rr::RecordType;
+use trust_dns_proto::rr::{DNSClass, Name, RecordType};
 use tracing::{debug, trace, warn};
 use crate::server::error::Result;
 use crate::server::config::CacheConfig;
@@ -34,6 +34,17 @@ pub struct CacheKey {
     pub record_type: u16,
     // 查询类
     pub record_class: u16,
+}
+
+impl CacheKey {
+    // 创建新的缓存键
+    pub fn new(name: Name, record_type: RecordType, record_class: DNSClass) -> Self {
+        Self {
+            name: name.to_string(),
+            record_type: record_type.into(),
+            record_class: record_class.into(),
+        }
+    }
 }
 
 impl DnsCache {
@@ -96,8 +107,8 @@ impl DnsCache {
         None
     }
     
-    // 将 DNS 响应消息存入缓存
-    pub async fn put(&self, key: CacheKey, message: Message) -> Result<()> {
+    // 将 DNS 响应消息存入缓存，指定TTL
+    pub async fn put(&self, key: &CacheKey, message: &Message, ttl: u32) -> Result<()> {
         // 如果缓存被禁用，直接返回
         if !self.config.enabled {
             return Ok(());
@@ -113,39 +124,6 @@ impl DnsCache {
             );
         }
         
-        // 检查响应码
-        if message.response_code() != ResponseCode::NoError {
-            // 对于非成功响应，使用负缓存TTL
-            if message.response_code() == ResponseCode::NXDomain {
-                let ttl = self.config.ttl.negative;
-                
-                // 创建缓存条目
-                let entry = CacheEntry {
-                    message: message.clone(),
-                    expires_at: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                        + ttl as u64,
-                };
-                
-                // 存入缓存
-                let key_clone = key.clone();
-                self.cache.insert(key, entry).await;
-                
-                debug!(
-                    name = ?key_clone.name,
-                    type_value = ?key_clone.record_type,
-                    ttl_seconds = ttl,
-                    "Negative DNS response added to cache"
-                );
-            }
-            return Ok(());
-        }
-        
-        // 计算 TTL
-        let ttl = self.calculate_ttl(&message)?;
-        
         // 创建缓存条目
         let entry = CacheEntry {
             message: message.clone(),
@@ -157,21 +135,45 @@ impl DnsCache {
         };
         
         // 存入缓存
-        let key_clone = key.clone();
-        self.cache.insert(key, entry).await;
+        self.cache.insert(key.clone(), entry).await;
         
         debug!(
-            name = ?key_clone.name,
-            type_value = ?key_clone.record_type,
+            name = ?key.name,
+            type_value = ?key.record_type,
             ttl_seconds = ttl,
+            response_code = ?message.response_code(),
             "DNS response added to cache"
         );
         
         Ok(())
     }
     
+    // 将 DNS 响应消息存入缓存（计算最佳TTL）
+    pub async fn put_with_auto_ttl(&self, key: &CacheKey, message: &Message) -> Result<()> {
+        // 如果缓存被禁用，直接返回
+        if !self.config.enabled {
+            return Ok(());
+        }
+        
+        // 检查响应码
+        if message.response_code() != ResponseCode::NoError {
+            // 对于非成功响应，使用负缓存TTL
+            if message.response_code() == ResponseCode::NXDomain {
+                let ttl = self.config.ttl.negative;
+                self.put(key, message, ttl).await?;
+            }
+            return Ok(());
+        }
+        
+        // 计算最佳TTL
+        let ttl = self.calculate_ttl(message);
+        self.put(key, message, ttl).await?;
+        
+        Ok(())
+    }
+    
     // 计算缓存条目的 TTL
-    fn calculate_ttl(&self, message: &Message) -> Result<u32> {
+    pub fn calculate_ttl(&self, message: &Message) -> u32 {
         let mut min_ttl = self.config.ttl.max;
         
         // 遍历所有记录，找出最小的 TTL
@@ -187,7 +189,7 @@ impl DnsCache {
             }
         }
         
-        // 如果没有找到任何记录，使用最大 TTL
+        // 如果没有找到任何记录，使用最小 TTL
         if message.answer_count() == 0 {
             min_ttl = self.config.ttl.min;
         }
@@ -195,7 +197,17 @@ impl DnsCache {
         // 应用配置的最小/最大 TTL 限制
         min_ttl = min_ttl.max(self.config.ttl.min).min(self.config.ttl.max);
         
-        Ok(min_ttl)
+        min_ttl
+    }
+    
+    // 获取负缓存TTL
+    pub fn negative_ttl(&self) -> u32 {
+        self.config.ttl.negative
+    }
+    
+    // 检查缓存是否启用
+    pub fn is_enabled(&self) -> bool {
+        self.config.enabled
     }
     
     // 清除所有缓存条目

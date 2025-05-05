@@ -6,6 +6,7 @@ pub mod doh_handler;
 pub mod error;
 pub mod health;
 pub mod metrics;
+pub mod routing;
 pub mod security;
 pub mod signal;
 pub mod upstream;
@@ -13,7 +14,8 @@ pub mod args;
 
 use std::sync::Arc;
 use std::time::Duration;
-use axum::Router;
+use axum::Router as AxumRouter;
+use reqwest::Client;
 use tokio::net::TcpListener;
 use tokio::signal::ctrl_c;
 use tokio::sync::oneshot;
@@ -26,8 +28,20 @@ use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};
 use crate::server::health::health_routes;
 use crate::server::metrics::{metrics_routes, DnsMetrics};
+use crate::server::routing::Router as DnsRouter;
 use crate::server::security::apply_rate_limiting;
 use crate::server::upstream::UpstreamManager;
+
+// 创建 HTTP 客户端的公共函数
+pub fn create_http_client(config: &ServerConfig) -> Result<Client> {
+    reqwest::ClientBuilder::new()
+        .timeout(config.http_client_timeout())
+        .pool_idle_timeout(config.http_client_pool_idle_timeout())
+        .user_agent(&config.dns.http_client.request.user_agent)
+        .pool_max_idle_per_host(config.dns.http_client.pool.max_idle_connections as usize)
+        .build()
+        .map_err(|e| error::ServerError::Http(format!("Failed to create HTTP client: {}", e)))
+}
 
 // DNS-over-HTTPS 服务器
 pub struct DoHServer {
@@ -51,8 +65,14 @@ impl DoHServer {
         // 初始化缓存
         let cache = Arc::new(DnsCache::new(self.config.dns.cache.clone()));
         
+        // 创建 HTTP 客户端（用于 DoH 和 URL 规则获取）
+        let client = create_http_client(&self.config)?;
+        
+        // 初始化 DNS 路由器
+        let router = Arc::new(DnsRouter::new(self.config.dns.routing.clone(), Some(client.clone())).await?);
+        
         // 初始化上游管理器
-        let upstream = Arc::new(UpstreamManager::new(&self.config).await?);
+        let upstream = Arc::new(UpstreamManager::new(&self.config, client.clone()).await?);
         
         // 创建指标收集器
         let metrics = Arc::new(DnsMetrics::new());
@@ -61,6 +81,7 @@ impl DoHServer {
         let state = ServerState {
             config: self.config.clone(),
             upstream,
+            router,
             cache: cache.clone(),
             metrics: metrics.clone(),
         };
@@ -72,7 +93,7 @@ impl DoHServer {
         doh_specific_routes = apply_rate_limiting(doh_specific_routes, &self.config.http.rate_limit);
         
         // 创建主应用路由，合并所有路由
-        let app = Router::new()
+        let app = AxumRouter::new()
             .merge(health_routes()) // 添加健康检查路由 
             .merge(metrics_routes()) // 添加指标收集路由
             .merge(doh_specific_routes); // 合并已应用中间件的 DoH 路由

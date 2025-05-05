@@ -1193,7 +1193,7 @@ mod tests {
               "Verifying error message contains HTTP 404 information");
         // 404 或 Not Found 信息应该出现在错误中
         assert!(stderr.contains("404") || stderr.contains("Not Found") || stderr.contains("HTTP error"),
-               "错误应包含HTTP 404信息，实际错误: {}", stderr);
+               "Error should contain HTTP 404 information, actual error: {}", stderr);
         info!("Test completed: test_cli_error_http_4xx");
     }
 
@@ -1244,7 +1244,7 @@ mod tests {
               "Verifying error message contains HTTP 500 information");
         // 500 或 Server Error 信息应该出现在错误中
         assert!(stderr.contains("500") || stderr.contains("Server Error") || stderr.contains("HTTP error"),
-               "错误应包含HTTP 500信息，实际错误: {}", stderr);
+               "Error should contain HTTP 500 information, actual error: {}", stderr);
         info!("Test completed: test_cli_error_http_5xx");
     }
 

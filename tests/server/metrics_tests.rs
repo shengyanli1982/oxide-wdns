@@ -119,9 +119,9 @@ mod tests {
         info!("DnsMetrics set up.");
 
         // 2. 调用记录缓存命中的方法
-        info!("Incrementing cache_hits counter...");
-        metrics.cache_hits.inc();
-        info!("Counter incremented.");
+        info!("Recording cache hit...");
+        metrics.record_cache_hit();
+        info!("Cache hit recorded.");
 
         // 3. 读取缓存命中计数器的值
         let value = metrics.cache_hits.get();
@@ -145,9 +145,9 @@ mod tests {
         info!("DnsMetrics set up.");
 
         // 2. 调用记录缓存未命中的方法
-        info!("Incrementing cache_misses counter...");
-        metrics.cache_misses.inc();
-        info!("Counter incremented.");
+        info!("Recording cache miss...");
+        metrics.record_cache_miss();
+        info!("Cache miss recorded.");
 
         // 3. 读取缓存未命中计数器的值
         let value = metrics.cache_misses.get();
@@ -218,7 +218,7 @@ mod tests {
         info!("Recording some metrics data...");
         METRICS.with(|m| {
             m.record_request("GET", "application/dns-message");
-            m.cache_hits.inc();
+            m.record_cache_hit();
             m.record_dns_query_type("A");
             m.record_error("parse_error");
             info!("Metrics data recorded.");
@@ -268,7 +268,7 @@ mod tests {
         let metrics1 = DnsMetrics::new();
         info!("Recording data in metrics1...");
         metrics1.total_requests.inc();
-        metrics1.cache_hits.inc();
+        metrics1.record_cache_hit();
         let val1_req = metrics1.total_requests.get();
         let val1_hit = metrics1.cache_hits.get();
         info!(total_requests = val1_req, cache_hits = val1_hit, "Initial values for metrics1.");
@@ -288,5 +288,66 @@ mod tests {
         assert_eq!(val2_hit, 0, "New instance cache_hits should have counter value 0");
         info!("Validated that new instance counters start at 0.");
         info!("Test completed: test_metrics_reset_or_recreate");
+    }
+
+    #[tokio::test]
+    async fn test_metrics_rule_source_updates() {
+        // 启用 tracing 日志
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_metrics_rule_source_updates");
+        
+        // 创建指标实例
+        let metrics = Arc::new(DnsMetrics::new());
+        
+        // 记录规则文件更新指标
+        metrics.record_rule_source_update("file", "success");
+        metrics.record_rule_source_update("file", "success");
+        metrics.record_rule_source_update("file", "failure");
+        
+        // 记录规则URL更新指标
+        metrics.record_rule_source_update("url", "success");
+        metrics.record_rule_source_update("url", "failure");
+        metrics.record_rule_source_update("url", "failure");
+        
+        // 导出指标
+        let metrics_text = metrics.export_metrics();
+        
+        // 验证文件更新指标
+        let file_success_pattern = r#"doh_rule_source_updates_total{source_type="file",status="success"} 2"#;
+        let file_failure_pattern = r#"doh_rule_source_updates_total{source_type="file",status="failure"} 1"#;
+        
+        assert!(
+            metrics_text.contains(file_success_pattern), 
+            "Metrics should include 2 successful file updates.\nExpected: {}\nActual metrics: {}", 
+            file_success_pattern,
+            metrics_text
+        );
+            
+        assert!(
+            metrics_text.contains(file_failure_pattern), 
+            "Metrics should include 1 failed file update.\nExpected: {}\nActual metrics: {}", 
+            file_failure_pattern,
+            metrics_text
+        );
+        
+        // 验证URL更新指标
+        let url_success_pattern = r#"doh_rule_source_updates_total{source_type="url",status="success"} 1"#;
+        let url_failure_pattern = r#"doh_rule_source_updates_total{source_type="url",status="failure"} 2"#;
+        
+        assert!(
+            metrics_text.contains(url_success_pattern), 
+            "Metrics should include 1 successful URL update.\nExpected: {}\nActual metrics: {}", 
+            url_success_pattern,
+            metrics_text
+        );
+            
+        assert!(
+            metrics_text.contains(url_failure_pattern), 
+            "Metrics should include 2 failed URL updates.\nExpected: {}\nActual metrics: {}", 
+            url_failure_pattern,
+            metrics_text
+        );
+        
+        info!("Test completed: test_metrics_rule_source_updates");
     }
 } 

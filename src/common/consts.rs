@@ -37,6 +37,9 @@ pub const DNS_RECORD_TYPE_A: u16 = 1;
 // 默认 DNS 类 (IN 类)
 pub const DNS_CLASS_IN: u16 = 1;
 
+// DNS 分流特殊上游组名称 - 黑洞（阻止）
+pub const BLACKHOLE_UPSTREAM_GROUP_NAME: &str = "__blackhole__";
+
 //
 // 缓存常量
 //
