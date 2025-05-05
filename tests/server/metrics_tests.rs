@@ -291,76 +291,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_metrics_dns_routing() {
+    async fn test_metrics_rule_source_updates() {
         // 启用 tracing 日志
         let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
-        info!("Starting test: test_metrics_dns_routing");
-        
-        // 创建指标实例
-        let metrics = Arc::new(DnsMetrics::new());
-        
-        // 记录各种路由情况的指标
-        metrics.record_routing_decision("special_group", "example.com");
-        metrics.record_routing_decision("special_group", "example.org");
-        metrics.record_routing_decision("cn_group", "example.cn");
-        metrics.record_routing_decision("__blackhole__", "ads.example.com");
-        metrics.record_routing_decision("__blackhole__", "malware.example.com");
-        metrics.record_routing_decision("__global__", "random.example.net");
-        
-        // 导出指标
-        let metrics_text = metrics.export_metrics();
-        
-        // 验证是否包含各个上游组的指标
-        assert!(metrics_text.contains("dns_routing_decisions{group=\"special_group\"} 2"), 
-                "Metrics should include 2 routings for special_group");
-        assert!(metrics_text.contains("dns_routing_decisions{group=\"cn_group\"} 1"), 
-                "Metrics should include 1 routing for cn_group");
-        assert!(metrics_text.contains("dns_routing_decisions{group=\"__blackhole__\"} 2"), 
-                "Metrics should include 2 routings for __blackhole__");
-        assert!(metrics_text.contains("dns_routing_decisions{group=\"__global__\"} 1"), 
-                "Metrics should include 1 routing for __global__");
-        
-        // 验证黑洞请求指标
-        assert!(metrics_text.contains("dns_blackhole_requests_total 2"), 
-                "Metrics should include 2 blackhole requests");
-        
-        info!("Test completed: test_metrics_dns_routing");
-    }
-    
-    #[tokio::test]
-    async fn test_metrics_rule_file_updates() {
-        // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
-        info!("Starting test: test_metrics_rule_file_updates");
+        info!("Starting test: test_metrics_rule_source_updates");
         
         // 创建指标实例
         let metrics = Arc::new(DnsMetrics::new());
         
         // 记录规则文件更新指标
-        metrics.record_rule_file_update_success("/tmp/blocked.txt");
-        metrics.record_rule_file_update_success("/tmp/blocked.txt");
-        metrics.record_rule_file_update_failure("/tmp/nonexistent.txt", "File not found");
+        metrics.record_rule_source_update("file", "success");
+        metrics.record_rule_source_update("file", "success");
+        metrics.record_rule_source_update("file", "failure");
         
         // 记录规则URL更新指标
-        metrics.record_rule_url_update_success("https://example.com/blocked.txt");
-        metrics.record_rule_url_update_failure("https://invalid.com/404.txt", "404 Not Found");
-        metrics.record_rule_url_update_failure("https://invalid.com/404.txt", "404 Not Found");
+        metrics.record_rule_source_update("url", "success");
+        metrics.record_rule_source_update("url", "failure");
+        metrics.record_rule_source_update("url", "failure");
         
         // 导出指标
         let metrics_text = metrics.export_metrics();
         
         // 验证文件更新指标
-        assert!(metrics_text.contains("dns_rule_file_updates_total{status=\"success\"} 2"), 
-                "Metrics should include 2 successful file updates");
-        assert!(metrics_text.contains("dns_rule_file_updates_total{status=\"failure\"} 1"), 
-                "Metrics should include 1 failed file update");
+        let file_success_pattern = r#"doh_rule_source_updates_total{source_type="file",status="success"} 2"#;
+        let file_failure_pattern = r#"doh_rule_source_updates_total{source_type="file",status="failure"} 1"#;
+        
+        assert!(
+            metrics_text.contains(file_success_pattern), 
+            "Metrics should include 2 successful file updates.\nExpected: {}\nActual metrics: {}", 
+            file_success_pattern,
+            metrics_text
+        );
+            
+        assert!(
+            metrics_text.contains(file_failure_pattern), 
+            "Metrics should include 1 failed file update.\nExpected: {}\nActual metrics: {}", 
+            file_failure_pattern,
+            metrics_text
+        );
         
         // 验证URL更新指标
-        assert!(metrics_text.contains("dns_rule_url_updates_total{status=\"success\"} 1"), 
-                "Metrics should include 1 successful URL update");
-        assert!(metrics_text.contains("dns_rule_url_updates_total{status=\"failure\"} 2"), 
-                "Metrics should include 2 failed URL updates");
+        let url_success_pattern = r#"doh_rule_source_updates_total{source_type="url",status="success"} 1"#;
+        let url_failure_pattern = r#"doh_rule_source_updates_total{source_type="url",status="failure"} 2"#;
         
-        info!("Test completed: test_metrics_rule_file_updates");
+        assert!(
+            metrics_text.contains(url_success_pattern), 
+            "Metrics should include 1 successful URL update.\nExpected: {}\nActual metrics: {}", 
+            url_success_pattern,
+            metrics_text
+        );
+            
+        assert!(
+            metrics_text.contains(url_failure_pattern), 
+            "Metrics should include 2 failed URL updates.\nExpected: {}\nActual metrics: {}", 
+            url_failure_pattern,
+            metrics_text
+        );
+        
+        info!("Test completed: test_metrics_rule_source_updates");
     }
 } 

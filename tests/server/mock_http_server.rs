@@ -141,7 +141,7 @@ pub async fn setup_mock_doh_server(response_ip: Ipv4Addr) -> (MockServer, Arc<Mu
 }
 
 // 找到一个可用的端口号
-pub fn find_free_port() -> u16 {
+pub async fn find_free_port() -> u16 {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("Failed to bind to a random port");
     let addr = listener.local_addr().expect("Failed to get local address");
     addr.port()

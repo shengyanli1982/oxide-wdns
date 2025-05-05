@@ -382,6 +382,15 @@ impl DnsMetrics {
             .with_label_values(&[source_type, source_location])
             .set(timestamp);
     }
+
+    // 导出当前指标为字符串（用于测试）
+    pub fn export_metrics(&self) -> String {
+        let encoder = prometheus::TextEncoder::new();
+        let metric_families = self.registry.gather();
+        let mut buffer = String::new();
+        encoder.encode_utf8(&metric_families, &mut buffer).unwrap();
+        buffer
+    }
 }
 
 // 提供指标导出路由

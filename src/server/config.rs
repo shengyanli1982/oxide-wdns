@@ -269,8 +269,10 @@ pub struct MatchCondition {
 // 匹配类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum MatchType {
     // 精确匹配
+    #[default]
     Exact,
     // 正则表达式匹配
     Regex,
@@ -281,6 +283,7 @@ pub enum MatchType {
     // URL匹配
     Url,
 }
+
 
 // 默认值函数 - 使用 consts 中定义的常量
 fn default_resolver_protocol() -> ResolverProtocol {
@@ -532,6 +535,21 @@ impl ServerConfig {
                                 rule_index,
                                 rule.match_.type_
                             )));
+                        }
+                        
+                        // 对于正则表达式类型，验证每个正则表达式的有效性
+                        if rule.match_.type_ == MatchType::Regex {
+                            for (j, pattern) in rule.match_.values.as_ref().unwrap().iter().enumerate() {
+                                match regex::Regex::new(pattern) {
+                                    Ok(_) => {}, // 正则表达式有效
+                                    Err(e) => {
+                                        return Err(ServerError::Config(format!(
+                                            "Rule #{} has invalid regex at index {}: '{}' - Error: {}", 
+                                            rule_index, j, pattern, e
+                                        )));
+                                    }
+                                }
+                            }
                         }
                     },
                     MatchType::File => {

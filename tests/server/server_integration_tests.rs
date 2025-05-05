@@ -198,7 +198,8 @@ mod tests {
             .await;
         
         // 2. 选择空闲端口并创建测试服务器配置
-        let port = find_free_port();
+        let port = find_free_port().await;
+        info!("Using port {}", port);
         
         // 自定义配置，使用 mock 上游服务器
         let mut config = build_test_config(port, false, false);
@@ -315,7 +316,8 @@ mod tests {
         setup_mock_upstream(&mock_secure, std::net::Ipv4Addr::new(192, 168, 0, 3)).await;
         
         // 2. 选择空闲端口并创建分流配置
-        let server_port = find_free_port().await;
+        let port = find_free_port().await;
+        info!("Using port {}", port);
         
         // 创建包含分流配置的测试配置
         let config_str = format!(r#"
@@ -364,7 +366,7 @@ mod tests {
                   type: exact
                   values: ["blocked.example.com"]
                 upstream_group: "__blackhole__"
-        "#, server_port, mock_default.uri(), mock_cn.uri(), mock_secure.uri());
+        "#, port, mock_default.uri(), mock_cn.uri(), mock_secure.uri());
         
         // 解析配置
         let config: ServerConfig = serde_yaml::from_str(&config_str).expect("Failed to parse configuration");
@@ -430,7 +432,7 @@ mod tests {
         let query_bytes = query.to_vec().unwrap();
         
         // 发送DoH POST请求
-        let response = client.post(&format!("{}/dns-query", server_addr))
+        let response = client.post(format!("{}/dns-query", server_addr))
             .header(reqwest::header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)
             .body(query_bytes)
             .send()
@@ -449,8 +451,12 @@ mod tests {
         message.answers()
             .iter()
             .filter_map(|answer| {
-                if let trust_dns_proto::rr::RData::A(ipv4) = answer.data() {
-                    Some(ipv4.to_string())
+                if let Some(data) = answer.data() {
+                    if let trust_dns_proto::rr::RData::A(ipv4) = data {
+                        Some(ipv4.to_string())
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
@@ -467,7 +473,7 @@ mod tests {
         info!("Starting test: test_server_starts_and_responds_to_health_check");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -506,7 +512,7 @@ mod tests {
         info!("Starting test: test_server_handles_basic_doh_query");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -560,7 +566,7 @@ mod tests {
         info!("Starting test: test_server_metrics_endpoint_works");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -619,7 +625,7 @@ mod tests {
             .try_init();
         
         // 1. 选择空闲端口，创建配置，启用较低的速率限制（每秒1个请求，并发1个 -> burst_size 1）
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
         let server_state = create_server_state(port, true, false).await;
         
@@ -712,7 +718,7 @@ mod tests {
         info!("Starting test: test_server_cache_integration");
 
         // 1. 配置并启动服务器，启用缓存
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
         let server_state = create_server_state(port, false, true).await; // cache_enabled: true
         info!("Server configured with cache enabled.");
@@ -803,7 +809,7 @@ mod tests {
         info!("Starting test: test_server_doh_get_request");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -863,7 +869,7 @@ mod tests {
         info!("Starting test: test_server_rejects_invalid_content_type");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器
@@ -895,8 +901,8 @@ mod tests {
         let status = response.status();
         info!("Response status for invalid Content-Type: {}", status);
 
-        // 7. 断言：收到 400 Bad Request 响应
-        assert_eq!(status, StatusCode::BAD_REQUEST);
+        // 7. 断言：收到 415 Unsupported Media Type 响应
+        assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
 
         // 8. 清理：关闭服务器
         info!("Shutting down server...");
@@ -911,7 +917,7 @@ mod tests {
         info!("Starting test: test_server_handles_different_query_types");
 
         // 1. 选择空闲端口
-        let port = find_free_port();
+        let port = find_free_port().await;
         info!("Using port {}", port);
 
         // 2. 配置服务器

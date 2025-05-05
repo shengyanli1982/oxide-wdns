@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    
     use std::path::PathBuf;
     use std::fs::File;
     use std::io::Write;
@@ -18,8 +18,8 @@ mod tests {
     use wiremock::matchers::{method, path};
     
     use oxide_wdns::server::config::ServerConfig;
-    use oxide_wdns::server::routing::{Router, RouteDecision, MatchType};
-    use oxide_wdns::common::consts::{CONTENT_TYPE_DNS_MESSAGE, BLACKHOLE_UPSTREAM_GROUP_NAME};
+    use oxide_wdns::server::routing::{Router, RouteDecision};
+    
     
     // === 辅助函数 ===
     
@@ -56,6 +56,14 @@ mod tests {
             .mount(&mock_server)
             .await;
             
+        // 添加根路径处理
+        Mock::given(method("GET"))
+            .and(path("/"))
+            .respond_with(ResponseTemplate::new(200)
+                .set_body_string(domain_list))
+            .mount(&mock_server)
+            .await;
+            
         mock_server
     }
     
@@ -67,24 +75,30 @@ mod tests {
         
         // 创建包含精确匹配规则的配置
         let config_content = r#"
-        dns_resolver:
-          routing:
-            enabled: true
-            upstream_groups:
-              - name: "special_group"
-                resolvers:
-                  - address: "9.9.9.9:53"
-                    protocol: udp
-            rules:
-              - match:
-                  type: exact
-                  values: ["example.com", "special.test"]
-                upstream_group: "special_group"
-              - match:
-                  type: exact
-                  values: ["blocked.test"]
-                upstream_group: "__blackhole__"
-        "#;
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "special_group"
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: udp
+    rules:
+      - match:
+          type: exact
+          values: ["example.com", "special.test"]
+        upstream_group: "special_group"
+      - match:
+          type: exact
+          values: ["blocked.test"]
+        upstream_group: "__blackhole__"
+"#;
         
         // 创建临时配置文件
         let (_temp_dir, config_path) = create_temp_config_file(config_content);
@@ -121,20 +135,26 @@ mod tests {
         
         // 创建包含正则匹配规则的配置
         let config_content = r#"
-        dns_resolver:
-          routing:
-            enabled: true
-            upstream_groups:
-              - name: "cn_group"
-                resolvers:
-                  - address: "114.114.114.114:53"
-                    protocol: udp
-            rules:
-              - match:
-                  type: regex
-                  values: [".*\\.cn$", ".*\\.com\\.cn$"]
-                upstream_group: "cn_group"
-        "#;
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "cn_group"
+        resolvers:
+          - address: "114.114.114.114:53"
+            protocol: udp
+    rules:
+      - match:
+          type: regex
+          values: [".*\\.cn$", ".*\\.com\\.cn$"]
+        upstream_group: "cn_group"
+"#;
         
         // 创建临时配置文件
         let (_temp_dir, config_path) = create_temp_config_file(config_content);
@@ -171,20 +191,26 @@ mod tests {
         
         // 创建包含通配符匹配规则的配置
         let config_content = r#"
-        dns_resolver:
-          routing:
-            enabled: true
-            upstream_groups:
-              - name: "eu_group"
-                resolvers:
-                  - address: "8.8.4.4:53"
-                    protocol: udp
-            rules:
-              - match:
-                  type: wildcard
-                  values: ["*.eu", "*.co.uk"]
-                upstream_group: "eu_group"
-        "#;
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "eu_group"
+        resolvers:
+          - address: "8.8.4.4:53"
+            protocol: udp
+    rules:
+      - match:
+          type: wildcard
+          values: ["*.eu", "*.co.uk"]
+        upstream_group: "eu_group"
+"#;
         
         // 创建临时配置文件
         let (_temp_dir, config_path) = create_temp_config_file(config_content);
@@ -238,15 +264,21 @@ regex:evil\d+\.example\.org
         
         // 创建包含文件匹配规则的配置
         let config_content = format!(r#"
-        dns_resolver:
-          routing:
-            enabled: true
-            rules:
-              - match:
-                  type: file
-                  path: "{}"
-                upstream_group: "__blackhole__"
-        "#, domains_file_path.to_str().unwrap().replace("\\", "\\\\"));
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    rules:
+      - match:
+          type: file
+          path: "{}"
+        upstream_group: "__blackhole__"
+"#, domains_file_path.to_str().unwrap().replace("\\", "\\\\"));
         
         // 创建临时配置文件
         let (_temp_dir2, config_path) = create_temp_config_file(&config_content);
@@ -304,20 +336,26 @@ regex:evil\d+\.example\.biz
         
         // 创建包含URL匹配规则的配置
         let config_content = format!(r#"
-        dns_resolver:
-          routing:
-            enabled: true
-            upstream_groups:
-              - name: "secure_dns"
-                resolvers:
-                  - address: "9.9.9.9:53"
-                    protocol: udp
-            rules:
-              - match:
-                  type: url
-                  url: "{}/domains.txt"
-                upstream_group: "__blackhole__"
-        "#, mock_server.uri());
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "adblock_group"
+        resolvers:
+          - address: "9.9.9.9:53"
+            protocol: udp
+    rules:
+      - match:
+          type: url
+          url: "{}"
+        upstream_group: "__blackhole__"
+"#, mock_server.uri());
         
         // 创建临时配置文件
         let (_temp_dir, config_path) = create_temp_config_file(&config_content);
@@ -362,25 +400,27 @@ regex:evil\d+\.example\.biz
         
         // 创建包含默认上游组的配置
         let config_content = r#"
-        dns_resolver:
-          routing:
-            enabled: true
-            upstream_groups:
-              - name: "default_group"
-                resolvers:
-                  - address: "1.1.1.1:53"
-                    protocol: udp
-              - name: "special_group"
-                resolvers:
-                  - address: "8.8.8.8:53"
-                    protocol: udp
-            default_upstream_group: "default_group"
-            rules:
-              - match:
-                  type: exact
-                  values: ["special.example.com"]
-                upstream_group: "special_group"
-        "#;
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "special_group"
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: udp
+    default_upstream_group: "special_group"
+    rules:
+      - match:
+          type: exact
+          values: ["special.example.com"]
+        upstream_group: "special_group"
+"#;
         
         // 创建临时配置文件
         let (_temp_dir, config_path) = create_temp_config_file(config_content);
@@ -398,8 +438,8 @@ regex:evil\d+\.example\.biz
         
         // 测试使用默认上游组的域名
         let decision = router.match_domain("unmatched.example.com").await;
-        assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "default_group"), 
-                "unmatched.example.com should use default upstream group default_group");
+        assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "special_group"), 
+                "unmatched.example.com should use default upstream group special_group");
         
         info!("Test completed: test_routing_default_upstream_group");
     }
@@ -410,22 +450,28 @@ regex:evil\d+\.example\.biz
         let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
         info!("Starting test: test_routing_disabled");
         
-        // 创建禁用路由功能的配置
+        // 创建路由功能禁用的配置
         let config_content = r#"
-        dns_resolver:
-          routing:
-            enabled: false
-            upstream_groups:
-              - name: "special_group"
-                resolvers:
-                  - address: "9.9.9.9:53"
-                    protocol: udp
-            rules:
-              - match:
-                  type: exact
-                  values: ["example.com"]
-                upstream_group: "special_group"
-        "#;
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: false
+    upstream_groups:
+      - name: "never_used_group"
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: udp
+    rules:
+      - match:
+          type: exact
+          values: ["example.com"]
+        upstream_group: "never_used_group"
+"#;
         
         // 创建临时配置文件
         let (_temp_dir, config_path) = create_temp_config_file(config_content);
@@ -450,30 +496,37 @@ regex:evil\d+\.example\.biz
         let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
         info!("Starting test: test_routing_rule_order_priority");
         
-        // 创建包含多个规则的配置，测试规则优先级
+        // 创建包含多个重叠规则的配置
         let config_content = r#"
-        dns_resolver:
-          routing:
-            enabled: true
-            upstream_groups:
-              - name: "group1"
-                resolvers:
-                  - address: "1.1.1.1:53"
-                    protocol: udp
-              - name: "group2" 
-                resolvers:
-                  - address: "8.8.8.8:53"
-                    protocol: udp
-            rules:
-              - match:
-                  type: exact
-                  values: ["test.example.com"]
-                upstream_group: "group1"
-              - match:
-                  type: wildcard
-                  values: ["*.example.com"]
-                upstream_group: "group2"
-        "#;
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  routing:
+    enabled: true
+    upstream_groups:
+      - name: "first_group"
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: udp
+      - name: "second_group"
+        resolvers:
+          - address: "9.9.9.9:53"
+            protocol: udp
+    rules:
+      # 注意：精确匹配规则放在前面，确保优先级高于通配符规则
+      - match:
+          type: exact
+          values: ["test.example.com"]
+        upstream_group: "first_group"
+      - match:
+          type: wildcard
+          values: ["*.example.com"]
+        upstream_group: "second_group"
+"#;
         
         // 创建临时配置文件
         let (_temp_dir, config_path) = create_temp_config_file(config_content);
@@ -486,13 +539,13 @@ regex:evil\d+\.example\.biz
         
         // 测试精确匹配规则优先级高于通配符规则
         let decision = router.match_domain("test.example.com").await;
-        assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "group1"), 
-                "test.example.com should match exact rule first, using group1");
+        assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "first_group"), 
+                "test.example.com should match exact rule first, using first_group");
         
         // 测试通配符规则匹配
         let decision = router.match_domain("other.example.com").await;
-        assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "group2"), 
-                "other.example.com should match wildcard rule, using group2");
+        assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "second_group"), 
+                "other.example.com should match wildcard rule, using second_group");
         
         info!("Test completed: test_routing_rule_order_priority");
     }
