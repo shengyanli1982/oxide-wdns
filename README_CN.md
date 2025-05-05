@@ -67,9 +67,16 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
     -   支持 **HTTP/1.1** 和 **HTTP/2**。
     -   可配置多个**上游 DNS 解析器**，支持 UDP, TCP, DoT (DNS-over-TLS), DoH 多种协议。
     -   灵活的上游选择策略（如轮询、随机）。
+-   🔀 **强大的 DNS 分流:** (新特性!)
+    -   可定义多个**上游 DNS 服务器组** (`upstream_groups`)，每个组可独立配置解析器、DNSSEC 和超时。
+    -   基于灵活的**规则**将 DNS 查询路由到指定分组。
+    -   支持的规则类型：**精确**域名匹配、**正则**表达式匹配、**通配符**匹配 (例如 `*.example.com`)、从本地**文件**加载规则、从远程 **URL** 获取规则。
+    -   内置特殊 `__blackhole__` 组用于**阻止/丢弃**特定的 DNS 查询 (例如广告拦截)。
+    -   可为未匹配规则的查询配置**默认上游组**，或回退到全局上游配置。
+    -   支持从远程 URL **自动周期性重载**规则。
 -   ⚡ **智能缓存:**
     -   内置高性能 **LRU 缓存** 显著降低延迟，减少上游负载。
-    -   支持**负缓存** (Negative Caching)。
+    -   支持**负缓存** (Negative Caching)，包括 `__blackhole__` 产生的响应。
     -   可配置缓存大小和 TTL。
 -   📊 **可观测性:**
     -   集成 **Prometheus 指标** (`/metrics` 端点)，轻松监控服务状态和性能。
@@ -123,65 +130,139 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
 ### 服务端 (`owdns`)
 
 1.  **配置文件 (`config.yaml`):**
-    服务端通过一个 YAML 文件进行配置。你需要创建一个 `config.yaml` 文件 (或使用 `-c` 指定其他路径)。一个基本的配置示例如下 (结构参考 `config.default.yaml`)：
+    服务端通过一个 YAML 文件进行配置。你需要创建一个 `config.yaml` 文件 (或使用 `-c` 指定其他路径)。请参考 `config.default.yaml` 查看完整的结构和默认值。以下是一个包含 DNS 分流功能的关键特性示例：
 
     ```yaml
-    # config.yaml
+    # config.yaml - 包含路由功能的示例
 
     # HTTP 服务器配置
     http_server:
-        # 服务器监听地址
-        listen_addr: "127.0.0.1:3053" # 请修改为你希望监听的地址和端口
-        # 服务器连接超时（秒）
-        timeout: 120
-        # 速率限制配置
-        rate_limit:
-            enabled: true # 是否启用速率限制
-            per_ip_rate: 100 # 每个 IP 每秒最大请求数
-            per_ip_concurrent: 10 # 单个 IP 的并发请求数限制
+      listen_addr: "127.0.0.1:3053"
+      timeout: 120
+      rate_limit:
+        enabled: true
+        per_ip_rate: 100
+        per_ip_concurrent: 10
 
     # DNS 解析器配置
     dns_resolver:
-        # 上游 DNS 服务器配置
-        upstream:
-            enable_dnssec: true # 是否对上游查询启用 DNSSEC
-            query_timeout: 30 # 上游查询超时时间（秒）
-            # 上游解析器列表 (支持 udp, dot, doh)
+
+      # HTTP 客户端配置 (用于 DoH 上游和获取 URL 规则)
+      http_client:
+        timeout: 120
+        pool:
+          idle_timeout: 30
+          max_idle_connections: 10
+        request:
+          user_agent: "Oxide-WDNS Client"
+          ip_header_names: ["X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP"]
+
+      # 缓存配置
+      cache:
+        enabled: true
+        size: 10000
+        ttl:
+          min: 60
+          max: 86400
+          negative: 300 # 负缓存 TTL (NXDOMAIN)，也包括 __blackhole__ 的响应
+
+      # --- 全局/默认上游 DNS 配置 ---
+      # 这些设置作为全局默认值，并且在没有路由规则匹配
+      # 且未指定 default_upstream_group 时的最终后备选项。
+      upstream:
+        enable_dnssec: true
+        query_timeout: 30 # 秒
+        resolvers:
+          - address: "1.1.1.1:53"
+            protocol: "udp"
+          - address: "8.8.8.8:53"
+            protocol: "udp"
+          # DoT/DoH 上游示例:
+          # - address: "cloudflare-dns.com@1.1.1.1:853"
+          #   protocol: "dot"
+          # - address: "https://cloudflare-dns.com/dns-query"
+          #   protocol: "doh"
+
+      # --- DNS 路由配置 ---
+      routing:
+        # 是否启用 DNS 分流功能
+        enabled: true
+
+        # 定义上游 DNS 服务器组
+        # 每个组可以有自己的解析器，并覆盖全局设置 (enable_dnssec, query_timeout)。
+        upstream_groups:
+          - name: "clean_dns" # 示例：一个干净的 DNS 组
+            # 继承全局的 enable_dnssec (true) 和 query_timeout (30)
             resolvers:
-                - address: "1.1.1.1:53"
-                  protocol: "udp" # Cloudflare (UDP)
-                - address: "8.8.8.8:53"
-                  protocol: "udp" # Google (UDP)
-                # - address: "cloudflare-dns.com@1.1.1.1:853"
-                #   protocol: "dot"       # Cloudflare (DoT)
-                # - address: "https://cloudflare-dns.com/dns-query"
-                #   protocol: "doh"       # Cloudflare (DoH)
+              - address: "https://dns.quad9.net/dns-query"
+                protocol: "doh"
+              - address: "9.9.9.9:53"
+                protocol: "udp"
 
-        # HTTP 客户端配置 (主要用于 DoH 上游)
-        http_client:
-            timeout: 120 # HTTP 客户端超时时间（秒）
-            pool:
-                idle_timeout: 30 # 连接池空闲超时时间（秒）
-                max_idle_connections: 10 # 连接池最大空闲连接数
-            request:
-                # 可以自定义 User-Agent
-                user_agent: "Oxide-WDNS Client"
-                # 用于识别真实客户端 IP 的 HTTP 头 (如果 owdns 部署在反代之后)
-                ip_header_names:
-                    - "X-Forwarded-For"
-                    - "X-Real-IP"
+          - name: "domestic_dns" # 示例：针对国内域名优化的 DNS 组
+            enable_dnssec: false # 覆盖此组的全局设置
+            query_timeout: 15   # 覆盖此组的全局设置
+            resolvers:
+              - address: "https://dns.alidns.com/dns-query"
+                protocol: "doh"
+              - address: "223.5.5.5:53"
+                protocol: "udp"
 
-        # 缓存配置
-        cache:
-            enabled: true # 是否启用缓存
-            size: 10000 # 缓存条目数量上限
-            ttl: # TTL 配置（秒）
-                min: 60 # 最小 TTL
-                max: 86400 # 最大 TTL (1天)
-                negative: 300 # 负缓存 TTL (5分钟)
+          - name: "adblock_dns" # 示例：已知提供广告拦截的 DNS 组
+            resolvers:
+              - address: "https://dns.adguard-dns.com/dns-query"
+                protocol: "doh"
+
+        # 定义路由规则 (按顺序处理，第一个匹配的规则生效)
+        rules:
+          # 规则 1: 使用特殊的 __blackhole__ 组阻止特定的广告域名
+          - match:
+              type: exact
+              values: ["ads.example.com", "analytics.example.org"]
+            upstream_group: "__blackhole__" # 特殊组：丢弃查询，返回 NXDOMAIN
+
+          # 规则 2: 将特定的国内域名路由到 domestic_dns 组
+          - match:
+              type: exact
+              values: ["bilibili.com", "qq.com", "taobao.com", "jd.com"]
+            upstream_group: "domestic_dns"
+
+          # 规则 3: 将匹配正则表达式的域名路由到 clean_dns 组
+          - match:
+              type: regex
+              values:
+                - "^(.*\.)?(google|youtube|gstatic)\.com$"
+                - "^(.*\.)?github\.com$"
+            upstream_group: "clean_dns"
+
+          # 规则 4: 将匹配通配符的域名路由到 clean_dns 组
+          - match:
+              type: wildcard
+              values: ["*.googleapis.com", "*.ggpht.com"]
+            upstream_group: "clean_dns"
+
+          # 规则 5: 从本地文件加载国内域名列表，路由到 domestic_dns
+          # 文件格式请参考下方的“域名列表文件格式”部分。
+          - match:
+              type: file
+              path: "/etc/oxide-wdns/china_domains.txt"
+            upstream_group: "domestic_dns"
+
+          # 规则 6: 从远程 URL 加载广告域名列表，使用 __blackhole__ 阻止它们
+          # 来自 URL 的规则会周期性获取。格式请参考下方说明。
+          - match:
+              type: url
+              url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
+            upstream_group: "__blackhole__"
+
+        # 可选：为未匹配任何规则的查询指定默认上游组。
+        # 如果设置为有效的组名 (例如 "clean_dns")，则使用该组。
+        # 如果为 null 或省略，则使用全局 `dns_resolver.upstream` 配置。
+        default_upstream_group: "clean_dns" # 对上面未匹配的查询使用 clean_dns
+
     ```
 
-    _请根据你的实际情况修改配置，特别是 `http_server.listen_addr` 和 `dns_resolver.upstream.resolvers`。如果需要启用 HTTPS，你可能需要配合反向代理（如 Nginx）来处理 TLS 终止。_
+    _请根据你的实际需求修改配置。请注意 `routing` 部分提供了强大的 DNS 解析行为控制能力。_
 
 2.  **测试配置文件:**
     在启动服务前，可以使用 `-t` 参数检查配置文件是否有效：
@@ -447,6 +528,43 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
 ### 示例客户端脚本
 
 你可以在 `examples/client/` 目录下找到使用不同语言（如 Python, Shell, Go 等）调用 DoH API 的示例脚本。
+
+## 域名列表文件格式
+
+当你在 `config.yaml` 的 `routing.rules` 部分使用 `file` 或 `url` 类型的规则时，Oxide WDNS 期望引用的文件（本地文件或从 URL 获取的文件）遵循以下特定格式：
+
+-   **编码:** 文件必须是 UTF-8 编码。
+-   **结构:** 每行一个条目。
+-   **注释:** 以 `#` 开头的行被视为注释并忽略。
+-   **空行:** 空行将被忽略。
+-   **默认匹配类型:** 默认情况下，每个非注释、非空行被视为一个需要**精确**匹配的域名。
+-   **其他匹配类型前缀:**
+    -   `regex:`: 如果一行以 `regex:` 开头，则该行剩余的部分被视为一个用于匹配域名的**正则表达式**模式。
+    -   `wildcard:`: 如果一行以 `wildcard:` 开头，则该行剩余的部分被视为一个**通配符**模式（例如 `*.example.com`，它能匹配 `www.example.com` 和 `example.com`）。
+
+**示例文件 (`/etc/oxide-wdns/example_list.txt`):**
+
+```
+# === 示例域名列表 ===
+# 这是一行注释
+
+# 精确匹配 (默认)
+google.com
+github.com
+
+# 通配符匹配
+wildcard:*.wikipedia.org
+wildcard:*.google.ac
+
+# 正则表达式匹配
+regex:^.*\.cn$
+regex:^ads?\..*\.com$
+
+# 另一行注释
+
+```
+
+这种格式允许你在单个规则源文件或 URL 中组合使用不同的匹配策略。对于 `url` 类型的规则，Oxide WDNS 将根据这种格式周期性地获取并重新解析其内容。
 
 ## 贡献
 
