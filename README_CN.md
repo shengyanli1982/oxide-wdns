@@ -67,7 +67,7 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
     -   支持 **HTTP/1.1** 和 **HTTP/2**。
     -   可配置多个**上游 DNS 解析器**，支持 UDP, TCP, DoT (DNS-over-TLS), DoH 多种协议。
     -   灵活的上游选择策略（如轮询、随机）。
--   🔀 **强大的 DNS 分流:** (新特性!)
+-   🔀 **强大的 DNS 分流:**
     -   可定义多个**上游 DNS 服务器组** (`upstream_groups`)，每个组可独立配置解析器、DNSSEC 和超时。
     -   基于灵活的**规则**将 DNS 查询路由到指定分组。
     -   支持的规则类型：**精确**域名匹配、**正则**表达式匹配、**通配符**匹配 (例如 `*.example.com`)、从本地**文件**加载规则、从远程 **URL** 获取规则。
@@ -264,14 +264,52 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
 
     _请根据你的实际需求修改配置。请注意 `routing` 部分提供了强大的 DNS 解析行为控制能力。_
 
-2.  **测试配置文件:**
+2.  **域名列表文件格式**
+
+    当你在 `config.yaml` 的 `routing.rules` 部分使用 `file` 或 `url` 类型的规则时，Oxide WDNS 期望引用的文件（本地文件或从 URL 获取的文件）遵循以下特定格式：
+
+    -   **编码:** 文件必须是 UTF-8 编码。
+    -   **结构:** 每行一个条目。
+    -   **注释:** 以 `#` 开头的行被视为注释并忽略。
+    -   **空行:** 空行将被忽略。
+    -   **默认匹配类型:** 默认情况下，每个非注释、非空行被视为一个需要**精确**匹配的域名。
+    -   **其他匹配类型前缀:**
+
+        -   `regex:`: 如果一行以 `regex:` 开头，则该行剩余的部分被视为一个用于匹配域名的**正则表达式**模式。
+        -   `wildcard:`: 如果一行以 `wildcard:` 开头，则该行剩余的部分被视为一个**通配符**模式（例如 `*.example.com`，它能匹配 `www.example.com` 和 `example.com`）。
+
+    **示例文件 (`/etc/oxide-wdns/example_list.txt`):**
+
+    ```
+    # === 示例域名列表 ===
+    # 这是一行注释
+
+    # 精确匹配 (默认)
+    google.com
+    github.com
+
+    # 通配符匹配
+    wildcard:*.wikipedia.org
+    wildcard:*.google.ac
+
+    # 正则表达式匹配
+    regex:^.*\\.cn$
+    regex:^ads?\\..*\\.com$
+
+    # 另一行注释
+
+    ```
+
+    这种格式允许你在单个规则源文件或 URL 中组合使用不同的匹配策略。对于 `url` 类型的规则，Oxide WDNS 将根据这种格式周期性地获取并重新解析其内容。
+
+3.  **测试配置文件:**
     在启动服务前，可以使用 `-t` 参数检查配置文件是否有效：
 
     ```bash
     ./owdns -t -c config.yaml
     ```
 
-3.  **启动服务:**
+4.  **启动服务:**
 
     **> 方式一：直接运行 (前台)**
 
@@ -395,7 +433,7 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
     5.  **访问服务:**
         根据你的 Service 配置 (类型和端口)，你可以通过 ClusterIP (内部), NodePort 或 LoadBalancer IP (外部) 来访问部署好的 `owdns` DoH 服务。例如，如果 Service 是 LoadBalancer 类型并暴露了 80 端口，你可以使用 `http://<LoadBalancer-IP>/dns-query` 作为 DoH 端点。
 
-4.  **获取帮助 / 命令行参数:**
+5.  **获取帮助 / 命令行参数:**
     完整的命令行参数可以通过 `-h` 或 `--help` 查看：
 
     ```bash
@@ -528,43 +566,6 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
 ### 示例客户端脚本
 
 你可以在 `examples/client/` 目录下找到使用不同语言（如 Python, Shell, Go 等）调用 DoH API 的示例脚本。
-
-## 域名列表文件格式
-
-当你在 `config.yaml` 的 `routing.rules` 部分使用 `file` 或 `url` 类型的规则时，Oxide WDNS 期望引用的文件（本地文件或从 URL 获取的文件）遵循以下特定格式：
-
--   **编码:** 文件必须是 UTF-8 编码。
--   **结构:** 每行一个条目。
--   **注释:** 以 `#` 开头的行被视为注释并忽略。
--   **空行:** 空行将被忽略。
--   **默认匹配类型:** 默认情况下，每个非注释、非空行被视为一个需要**精确**匹配的域名。
--   **其他匹配类型前缀:**
-    -   `regex:`: 如果一行以 `regex:` 开头，则该行剩余的部分被视为一个用于匹配域名的**正则表达式**模式。
-    -   `wildcard:`: 如果一行以 `wildcard:` 开头，则该行剩余的部分被视为一个**通配符**模式（例如 `*.example.com`，它能匹配 `www.example.com` 和 `example.com`）。
-
-**示例文件 (`/etc/oxide-wdns/example_list.txt`):**
-
-```
-# === 示例域名列表 ===
-# 这是一行注释
-
-# 精确匹配 (默认)
-google.com
-github.com
-
-# 通配符匹配
-wildcard:*.wikipedia.org
-wildcard:*.google.ac
-
-# 正则表达式匹配
-regex:^.*\.cn$
-regex:^ads?\..*\.com$
-
-# 另一行注释
-
-```
-
-这种格式允许你在单个规则源文件或 URL 中组合使用不同的匹配策略。对于 `url` 类型的规则，Oxide WDNS 将根据这种格式周期性地获取并重新解析其内容。
 
 ## 贡献
 

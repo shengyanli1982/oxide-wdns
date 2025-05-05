@@ -67,7 +67,7 @@ The design of `owdns` makes it particularly suitable for environments requiring 
     -   Supports **HTTP/1.1** and **HTTP/2**.
     -   Configurable multiple **upstream DNS resolvers** supporting UDP, TCP, DoT (DNS-over-TLS), and DoH protocols.
     -   Flexible upstream selection strategies (e.g., round-robin, random).
--   🔀 **Powerful DNS Routing/Splitting:** (New Feature!)
+-   🔀 **Powerful DNS Routing/Splitting:**
     -   Define multiple **upstream DNS server groups** (`upstream_groups`), each with potentially different resolvers, DNSSEC settings, and timeouts.
     -   Route DNS queries to specific groups based on flexible **rules**.
     -   Supported rule types: **Exact** domain match, **Regex** pattern match, **Wildcard** match (e.g., `*.example.com`), rules loaded from local **File**, and rules fetched from remote **URL**.
@@ -264,14 +264,52 @@ You can install Oxide WDNS in the following ways:
 
     _Please modify the configuration according to your needs. Note that the `routing` section provides powerful control over DNS resolution behavior._
 
-2.  **Test Configuration File:**
+2.  **Domain List File Format**
+
+    When using `file` or `url` type rules in the `routing.rules` section of your `config.yaml`, Oxide WDNS expects the referenced file (local or fetched from URL) to follow a specific format:
+
+    -   **Encoding:** The file must be UTF-8 encoded.
+    -   **Structure:** One entry per line.
+    -   **Comments:** Lines starting with `#` are treated as comments and ignored.
+    -   **Empty Lines:** Empty lines are ignored.
+    -   **Default Match Type:** By default, each non-comment, non-empty line is treated as an **exact** domain name to match.
+    -   **Prefixes for Other Match Types:**
+
+        -   `regex:`: If a line starts with `regex:`, the remaining part of the line is treated as a **regular expression** pattern to match against the domain name.
+        -   `wildcard:`: If a line starts with `wildcard:`, the remaining part of the line is treated as a **wildcard** pattern (e.g., `*.example.com`, which matches `www.example.com` and `example.com`).
+
+    **Example File (`/etc/oxide-wdns/example_list.txt`):**
+
+    ```
+    # === Example Domain List ===
+    # This is a comment
+
+    # Exact matches (default)
+    google.com
+    github.com
+
+    # Wildcard matches
+    wildcard:*.wikipedia.org
+    wildcard:*.google.ac
+
+    # Regex matches
+    regex:^.*\\.cn$
+    regex:^ads?\\..*\\.com$
+
+    # Another comment
+
+    ```
+
+    This format allows you to combine different matching strategies within a single rule source file or URL. For `url` type rules, Oxide WDNS will periodically fetch and re-parse the content according to this format.
+
+3.  **Test Configuration File:**
     Before starting the service, you can use the `-t` flag to check if the configuration file is valid:
 
     ```bash
     ./owdns -t -c config.yaml
     ```
 
-3.  **Start the Service:**
+4.  **Start the Service:**
 
     **> Method 1: Direct Execution (Foreground)**
 
@@ -395,7 +433,7 @@ You can install Oxide WDNS in the following ways:
     5.  **Access the Service:**
         Depending on your Service configuration (type and port), you can access the deployed `owdns` DoH service via ClusterIP (internal), NodePort, or LoadBalancer IP (external). For example, if the Service is of type LoadBalancer and exposes port 80, you can use `http://<LoadBalancer-IP>/dns-query` as the DoH endpoint.
 
-4.  **Get Help / Command-Line Arguments:**
+5.  **Get Help / Command-Line Arguments:**
     View the complete list of command-line arguments using `-h` or `--help`:
 
     ```bash
@@ -528,43 +566,6 @@ The client is used to send queries to a DoH server.
 ### Example Client Scripts
 
 You can find example scripts for calling the DoH API using different languages (like Python, Shell, Go, etc.) in the `examples/client/` directory.
-
-## Domain List File Format
-
-When using `file` or `url` type rules in the `routing.rules` section of your `config.yaml`, Oxide WDNS expects the referenced file (local or fetched from URL) to follow a specific format:
-
--   **Encoding:** The file must be UTF-8 encoded.
--   **Structure:** One entry per line.
--   **Comments:** Lines starting with `#` are treated as comments and ignored.
--   **Empty Lines:** Empty lines are ignored.
--   **Default Match Type:** By default, each non-comment, non-empty line is treated as an **exact** domain name to match.
--   **Prefixes for Other Match Types:**
-    -   `regex:`: If a line starts with `regex:`, the remaining part of the line is treated as a **regular expression** pattern to match against the domain name.
-    -   `wildcard:`: If a line starts with `wildcard:`, the remaining part of the line is treated as a **wildcard** pattern (e.g., `*.example.com`, which matches `www.example.com` and `example.com`).
-
-**Example File (`/etc/oxide-wdns/example_list.txt`):**
-
-```
-# === Example Domain List ===
-# This is a comment
-
-# Exact matches (default)
-google.com
-github.com
-
-# Wildcard matches
-wildcard:*.wikipedia.org
-wildcard:*.google.ac
-
-# Regex matches
-regex:^.*\.cn$
-regex:^ads?\..*\.com$
-
-# Another comment
-
-```
-
-This format allows you to combine different matching strategies within a single rule source file or URL. For `url` type rules, Oxide WDNS will periodically fetch and re-parse the content according to this format.
 
 ## Contributing
 
