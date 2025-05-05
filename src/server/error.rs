@@ -41,6 +41,26 @@ pub enum ServerError {
     #[error("Cache error: {0}")]
     Cache(String),
     
+    // 规则加载错误
+    #[error("Rule load error: {0}")]
+    RuleLoad(String),
+    
+    // 规则获取错误
+    #[error("Rule fetch error: {0}")]
+    RuleFetch(String),
+    
+    // 无效规则格式
+    #[error("Invalid rule format: {0}")]
+    InvalidRuleFormat(String),
+    
+    // 正则表达式编译错误
+    #[error("Regex compilation error: {0}")]
+    RegexCompilation(String),
+    
+    // 上游组未找到
+    #[error("Upstream group not found: {0}")]
+    UpstreamGroupNotFound(String),
+    
     // 其他错误
     #[error("Other error: {0}")]
     Other(String),
