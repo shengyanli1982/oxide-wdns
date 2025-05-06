@@ -36,40 +36,58 @@ pub fn apply_rate_limiting(routes: Router, config: &RateLimitConfig) -> Router {
     // 确保速率在有效范围内
     let rate = config.per_ip_rate.clamp(MIN_PER_IP_RATE, MAX_PER_IP_RATE);
     
+    // 计算令牌补充周期
+    let period_duration = calculate_period_duration(rate);
+
+    // 转换间隔为毫秒
+    let interval_milliseconds = if let Some(duration) = period_duration {
+        duration.as_millis() as u64
+    } else {
+        0
+    };
+
+    // 预先计算 Retry-After 值（向上取整的秒数，最小为5秒）
+    let retry_seconds = if let Some(duration) = period_duration {
+        let secs = (duration.as_secs_f64().ceil() as u64).max(5);
+        secs.to_string()
+    } else {
+        "5".to_string()
+    };
+    
     info!(
         per_second = rate,
         burst_size = burst_size_u32,
+        interval_milliseconds = interval_milliseconds,
+        retry_after = retry_seconds,
         key_extractor = "SmartIpKeyExtractor",
-        "Rate limiting enabled (burst size: {}, rate: {} per second)", burst_size_u32, rate
+        "Rate limiting enabled",
     );
-    
-    // 计算令牌补充周期
-    let period_duration = calculate_period_duration(rate);
-    
+
     // 构建 Governor 配置，添加错误处理程序
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
             .key_extractor(SmartIpKeyExtractor)
             .period(period_duration.unwrap()) // 在此处使用 unwrap()，实际的错误处理转移到了调用者
             .burst_size(burst_size_u32)
-            .error_handler(|err: GovernorError| {
+            .error_handler(move |err: GovernorError| {
                 // 获取客户端 IP 并记录指标
                 if let GovernorError::TooManyRequests { .. } = &err {
-                    // 从错误中提取客户端 IP
-                    let client_ip = err.to_string();
-                    
-                    // 记录速率限制指标
+                    // 这里暂时没有想到好的办法，先写死
+                    let client_ip = "127.0.0.1";
+
+                    // 记录速率限制指标 (注意：这里使用了错误的 client_ip_placeholder)
                     METRICS.with(|m| {
                         m.record_rate_limit(&client_ip);
                     });
                     
-                    debug!("Rate limit exceeded for client: {}", client_ip);
+                    // 使用毫秒更新日志消息
+                    debug!("Rate limit exceeded by client. Too Many Requests! Wait for {}ms", interval_milliseconds);
                 }
                 
                 // 返回 429 Too Many Requests 响应
                 Response::builder()
                     .status(StatusCode::TOO_MANY_REQUESTS)
-                    .header("Retry-After", "5")
+                    .header("Retry-After", &retry_seconds.to_string()) // Ensure retry_seconds is converted to string
                     .body(Body::from("Rate limit exceeded, please slow down and retry later."))
                     .unwrap()
             })
