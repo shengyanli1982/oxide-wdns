@@ -66,8 +66,20 @@ pub const DEFAULT_NEGATIVE_TTL: u32 = 300; // 5 分钟
 // 默认每个 IP 每秒最大请求数
 pub const DEFAULT_PER_IP_RATE: u32 = 100;
 
+// 每个 IP 每秒最大请求数的最小值
+pub const MIN_PER_IP_RATE: u32 = 1;
+
+// 每个 IP 每秒最大请求数的最大值
+pub const MAX_PER_IP_RATE: u32 = 1000000; // 100万
+
 // 默认单个 IP 的并发请求数限制
 pub const DEFAULT_PER_IP_CONCURRENT: u32 = 10;
+
+// 单个 IP 的并发请求数限制的最小值
+pub const MIN_PER_IP_CONCURRENT: u32 = 1;
+
+// 单个 IP 的并发请求数限制的最大值
+pub const MAX_PER_IP_CONCURRENT: u32 = 65535; 
 
 //
 // 上游服务器常量

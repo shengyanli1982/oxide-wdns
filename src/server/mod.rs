@@ -22,15 +22,16 @@ use tokio::sync::oneshot;
 use tokio::time;
 use tracing::{error, info};
 
-use crate::server::error::Result;
+use crate::server::error::{Result, ServerError};
 use crate::server::cache::DnsCache;
 use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};
 use crate::server::health::health_routes;
 use crate::server::metrics::{metrics_routes, DnsMetrics};
 use crate::server::routing::Router as DnsRouter;
-use crate::server::security::apply_rate_limiting;
+use crate::server::security::{apply_rate_limiting, calculate_period_duration};
 use crate::server::upstream::UpstreamManager;
+use crate::common::consts::{MIN_PER_IP_RATE, MAX_PER_IP_RATE, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT};
 
 // 创建 HTTP 客户端的公共函数
 pub fn create_http_client(config: &ServerConfig) -> Result<Client> {
@@ -89,8 +90,40 @@ impl DoHServer {
         // 创建 DoH 路由
         let mut doh_specific_routes = doh_routes(state);
 
-        // 应用速率限制
-        doh_specific_routes = apply_rate_limiting(doh_specific_routes, &self.config.http.rate_limit);
+        // 验证速率限制配置
+        let rate_limit_config = &self.config.http.rate_limit;
+        if rate_limit_config.enabled {
+            // 验证速率配置
+            let rate = rate_limit_config.per_ip_rate;
+            if !(MIN_PER_IP_RATE..=MAX_PER_IP_RATE).contains(&rate) {
+                return Err(ServerError::Config(
+                    format!("Invalid per_ip_rate: {} (must be between {} and {})", 
+                            rate, MIN_PER_IP_RATE, MAX_PER_IP_RATE)
+                ));
+            }
+            
+            // 验证突发大小配置
+            let burst = rate_limit_config.per_ip_concurrent;
+            if !(MIN_PER_IP_CONCURRENT..=MAX_PER_IP_CONCURRENT).contains(&burst) {
+                return Err(ServerError::Config(
+                    format!("Invalid per_ip_concurrent: {} (must be between {} and {})", 
+                            burst, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT)
+                ));
+            }
+            
+            // 验证速率是否可以正确计算周期
+            if calculate_period_duration(rate).is_none() {
+                return Err(ServerError::Config(
+                    format!("Failed to calculate rate limit period for per_ip_rate: {}", rate)
+                ));
+            }
+            
+            // 应用速率限制
+            doh_specific_routes = apply_rate_limiting(doh_specific_routes, rate_limit_config);
+            info!("Rate limiting applied with per_ip_rate: {} and per_ip_concurrent: {}", rate, burst);
+        } else {
+            info!("Rate limiting is disabled");
+        }
         
         // 创建主应用路由，合并所有路由
         let app = AxumRouter::new()
