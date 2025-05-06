@@ -21,6 +21,11 @@ use crate::common::consts::{
     DEFAULT_HTTP_CLIENT_POOL_MAX_IDLE_CONNECTIONS, DEFAULT_HTTP_CLIENT_AGENT,
     // 分流相关常量
     BLACKHOLE_UPSTREAM_GROUP_NAME,
+    // 添加新常量
+    MIN_PER_IP_RATE,
+    MAX_PER_IP_RATE,
+    MIN_PER_IP_CONCURRENT,
+    MAX_PER_IP_CONCURRENT,
 };
 
 // 服务器配置
@@ -418,6 +423,25 @@ impl ServerConfig {
     }
     
     pub fn test(&self) -> Result<()> {
+        // 验证速率限制配置
+        if self.http.rate_limit.enabled {
+            // 验证每个 IP 每秒最大请求数
+            if self.http.rate_limit.per_ip_rate < MIN_PER_IP_RATE || self.http.rate_limit.per_ip_rate > MAX_PER_IP_RATE {
+                return Err(ServerError::Config(format!(
+                    "Invalid per_ip_rate: {} (must be between {} and {})",
+                    self.http.rate_limit.per_ip_rate, MIN_PER_IP_RATE, MAX_PER_IP_RATE
+                )));
+            }
+            
+            // 验证单个 IP 的并发请求数限制
+            if self.http.rate_limit.per_ip_concurrent < MIN_PER_IP_CONCURRENT || self.http.rate_limit.per_ip_concurrent > MAX_PER_IP_CONCURRENT {
+                return Err(ServerError::Config(format!(
+                    "Invalid per_ip_concurrent: {} (must be between {} and {})",
+                    self.http.rate_limit.per_ip_concurrent, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT
+                )));
+            }
+        }
+        
         // 验证解析器地址
         for resolver in &self.dns.upstream.resolvers {
             match resolver.protocol {
