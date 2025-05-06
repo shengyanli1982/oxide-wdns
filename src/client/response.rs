@@ -365,7 +365,7 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
     if !message.queries().is_empty() {
         println!("\n{}", ";; QUESTION SECTION:".bold());
         for query in message.queries() {
-            println!("{}. \t {} \t {}", 
+            println!("{} \t {} \t {}", 
                      query.name(), 
                      query.query_class(),
                      query.query_type());
@@ -376,15 +376,19 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
     if !message.answers().is_empty() {
         println!("\n{}", ";; ANSWER SECTION:".bold());
         for record in message.answers() {
-            println!("{}. \t {} \t {} \t {}", 
+            if let Some(data) = record.data() {
+                println!("{}\t{}\t{}\t{}\t{}", 
                      record.name(), 
                      record.ttl(),
-                     record.dns_class(),  // 使用 dns_class 代替 record_class
+                     record.dns_class(),
+                     record.record_type(),
+                     data);
+            } else {
+                println!("{}\t{}\t{}\t{}", 
+                     record.name(), 
+                     record.ttl(),
+                     record.dns_class(),
                      record.record_type());
-            
-            // 打印记录数据
-            if let Some(data) = record.data() {
-                println!("\t\t{:?}", data);  // 使用 data 代替 rdata，用 {:?} 格式化
             }
         }
     }
@@ -393,15 +397,19 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
     if !message.name_servers().is_empty() {
         println!("\n{}", ";; AUTHORITY SECTION:".bold());
         for record in message.name_servers() {
-            println!("{}. \t {} \t {} \t {}", 
+            if let Some(data) = record.data() {
+                println!("{}\t{}\t{}\t{}\t{}", 
                      record.name(), 
                      record.ttl(),
-                     record.dns_class(),  // 使用 dns_class 代替 record_class
+                     record.dns_class(),
+                     record.record_type(),
+                     data);
+            } else {
+                println!("{}\t{}\t{}\t{}", 
+                     record.name(), 
+                     record.ttl(),
+                     record.dns_class(),
                      record.record_type());
-            
-            // 打印记录数据
-            if let Some(data) = record.data() {
-                println!("\t\t{:?}", data);  // 使用 data 代替 rdata，用 {:?} 格式化
             }
         }
     }
@@ -410,15 +418,19 @@ pub fn display_response(response: &DohResponse, verbose_level: u8) {
     if !message.additionals().is_empty() {
         println!("\n{}", ";; ADDITIONAL SECTION:".bold());
         for record in message.additionals() {
-            println!("{}. \t {} \t {} \t {}", 
+            if let Some(data) = record.data() {
+                println!("{}\t{}\t{}\t{}\t{}", 
                      record.name(), 
                      record.ttl(),
-                     record.dns_class(),  // 使用 dns_class 代替 record_class
+                     record.dns_class(),
+                     record.record_type(),
+                     data);
+            } else {
+                println!("{}\t{}\t{}\t{}", 
+                     record.name(), 
+                     record.ttl(),
+                     record.dns_class(),
                      record.record_type());
-            
-            // 打印记录数据
-            if let Some(data) = record.data() {
-                println!("\t\t{:?}", data);  // 使用 data 代替 rdata，用 {:?} 格式化
             }
         }
     }
