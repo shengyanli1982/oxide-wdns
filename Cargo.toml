@@ -64,6 +64,7 @@ hex = "0.4"
 regex = { version = "1.10", features = ["unicode"] } # 用于域名匹配规则
 url = "2.5"
 lazy_static = "1.4" # 用于正则表达式编译缓存
+tokio-graceful-shutdown = "0.15"
 
 [dev-dependencies]
 tempfile = "3.19"
@@ -73,3 +74,5 @@ assert_cmd = "2.0" # 用于测试命令行程序
 wiremock = "0.6"   # 用于模拟 HTTP 服务器
 predicates = "3.0" # 用于 assert_cmd 的断言
 uuid = { version = "1.4", features = ["v4"] } # 用于生成唯一ID
+windows-sys = { version = "0.52", features = ["Win32_System_Console"] } # 用于 Windows 特定测试
+nix = "0.30"
