@@ -108,6 +108,13 @@ The design of `owdns` makes it particularly suitable for environments requiring 
     -   Detailed output modes (`-v, -vv, -vvv`) for debugging.
     -   Supports skipping TLS certificate verification (`-k`) for testing local or self-signed certificate servers.
 
+## Cache Persistence Performance Considerations
+
+The `DnsCache` persistence mechanism leverages `spawn_blocking` (for saving) and `block_in_place` (for loading) to achieve asynchronous core I/O operations, preventing direct blockage of the main asynchronous runtime. However, in scenarios with large caches and high concurrency, the following points should be noted:
+
+-   **Save Operations:** Data preparation steps, such as cache iteration and sorting, execute synchronously within the asynchronous context of the save task. This can become a CPU bottleneck and lead to transient memory spikes under heavy load.
+-   **Load Operations:** Deserializing a large volume of cached data can prolong service startup time. Under high-load conditions, these factors may indirectly affect overall performance and responsiveness.
+
 ## Installation
 
 You can install Oxide WDNS in the following ways:
