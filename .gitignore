@@ -24,4 +24,4 @@ design/
 .vscode/
 .idea/
 .DS_Store
-.dat
+*.dat

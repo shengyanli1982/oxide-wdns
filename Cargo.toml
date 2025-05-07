@@ -72,3 +72,4 @@ bytes = "1.5"
 assert_cmd = "2.0" # 用于测试命令行程序
 wiremock = "0.6"   # 用于模拟 HTTP 服务器
 predicates = "3.0" # 用于 assert_cmd 的断言
+uuid = { version = "1.4", features = ["v4"] } # 用于生成唯一ID

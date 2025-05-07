@@ -77,7 +77,7 @@ pub fn apply_rate_limiting(routes: Router, config: &RateLimitConfig) -> Router {
 
                     // 记录速率限制指标 (注意：这里使用了错误的 client_ip_placeholder)
                     METRICS.with(|m| {
-                        m.record_rate_limit(&client_ip);
+                        m.record_rate_limit(client_ip);
                     });
                     
                     // 使用毫秒更新日志消息

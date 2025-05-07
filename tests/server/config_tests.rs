@@ -129,7 +129,7 @@ cache:
         
         // 打印错误信息，有助于调试
         if let Err(ref e) = config_result {
-            println!("配置加载失败: {:?}", e);
+            println!("Config loading failed: {:?}", e);
         }
         
         // 验证配置加载成功
@@ -618,7 +618,7 @@ dns_resolver:
 
 #[cfg(test)]
 mod persistence_cache_config_tests {
-    use crate::server::config::{CacheConfig, PersistenceCacheConfig, PeriodicSaveConfig};
+    use oxide_wdns::server::config::{CacheConfig, PersistenceCacheConfig, PeriodicSaveConfig};
     use std::time::Duration;
 
     #[test]
@@ -679,7 +679,7 @@ mod persistence_cache_config_tests {
     #[test]
     fn test_parse_persistence_cache_config_from_yaml() {
         use serde_yaml;
-        use crate::server::config::{ServerConfig, CacheConfig, PersistenceCacheConfig};
+        use oxide_wdns::server::config::{ServerConfig, CacheConfig, PersistenceCacheConfig};
         
         let yaml_str = r#"
 http_server:

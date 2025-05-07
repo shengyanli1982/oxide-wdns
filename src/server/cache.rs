@@ -402,8 +402,8 @@ impl DnsCache {
         let mut all_items = Vec::new();
         
         // 使用快照方式获取所有缓存条目
-        let mut iter = cache.iter();
-        while let Some((key, entry)) = iter.next() {
+        let iter = cache.iter();
+        for (key, entry) in iter {
             if entry.expires_at > now {  // 只保存未过期的条目
                 all_items.push((key, entry));
             }
@@ -475,7 +475,7 @@ impl DnsCache {
             
             // 打开临时文件用于写入
             let file = File::create(&temp_path_clone)
-                .map_err(|e| ServerError::Io(e))?;
+                .map_err(ServerError::Io)?;
             let mut writer = BufWriter::new(file);
             
             // 写入文件头
@@ -495,12 +495,12 @@ impl DnsCache {
                 .map_err(|e| ServerError::Other(format!("Failed to serialize cache data: {}", e)))?;
             
             // 确保所有数据都已写入磁盘
-            writer.flush().map_err(|e| ServerError::Io(e))?;
+            writer.flush().map_err(ServerError::Io)?;
             drop(writer); // 明确 drop writer 以关闭文件，虽然在作用域结束时也会发生
 
             // 原子地重命名临时文件
             std::fs::rename(&temp_path_clone, &cache_path)
-                .map_err(|e| ServerError::Io(e))?;
+                .map_err(ServerError::Io)?;
             
             Ok(entry_count)
         }).await.map_err(|e| ServerError::Other(format!("Failed to save cache: {}", e)))??;

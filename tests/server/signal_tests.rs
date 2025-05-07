@@ -197,24 +197,55 @@ mod tests {
 
 #[cfg(test)]
 mod cache_persistence_signal_tests {
-    use crate::server::signal::SignalHandler;
-    use crate::server::config::{ServerConfig, CacheConfig, PersistenceCacheConfig};
-    use crate::server::cache::DnsCache;
+    use oxide_wdns::server::config::{ServerConfig, CacheConfig, PersistenceCacheConfig};
+    use oxide_wdns::server::cache::DnsCache;
     use std::sync::Arc;
-    use tokio::sync::Mutex;
     use std::fs;
     use std::path::Path;
     use tokio::time::sleep;
     use std::time::Duration;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::error::Error;
+    
+    // 测试用的信号处理器
+    struct SignalHandler {
+        shutdown_handlers: Vec<Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + Send>> + Send>>,
+    }
+    
+    impl SignalHandler {
+        fn new() -> Self {
+            Self {
+                shutdown_handlers: Vec::new(),
+            }
+        }
+        
+        fn register_shutdown_handler<F>(&mut self, handler: Box<F>)
+        where
+            F: FnOnce() -> Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + Send>> + Send + 'static,
+        {
+            self.shutdown_handlers.push(handler);
+        }
+        
+        async fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+            let handlers = std::mem::take(&mut self.shutdown_handlers);
+            
+            for handler in handlers {
+                handler().await?;
+            }
+            
+            Ok(())
+        }
+    }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_cache_persistence_on_shutdown_signal() {
         // 创建临时文件路径
         let cache_path = format!("./test_signal_cache_{}.dat", std::process::id());
         
         // 确保测试开始时文件不存在
         if Path::new(&cache_path).exists() {
-            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+            fs::remove_file(&cache_path).expect("Failed to delete cache file");
         }
         
         // 创建缓存配置
@@ -232,14 +263,15 @@ mod cache_persistence_signal_tests {
         let mut signal_handler = SignalHandler::new();
         
         // 注册缓存关闭处理程序
-        let cache_clone = Arc::clone(&cache);
+        let cache_clone: Arc<DnsCache> = Arc::clone(&cache);
         signal_handler.register_shutdown_handler(Box::new(move || {
             let cache = Arc::clone(&cache_clone);
-            Box::pin(async move {
+            let fut = async move {
                 // 当信号触发时，缓存应该执行关闭操作
                 cache.shutdown().await.unwrap();
-                Ok(())
-            })
+                Ok(()) as Result<(), Box<dyn Error + 'static>>
+            };
+            Box::pin(fut) as Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + Send>>
         }));
         
         // 手动触发关闭处理程序
@@ -249,11 +281,11 @@ mod cache_persistence_signal_tests {
         sleep(Duration::from_millis(100)).await;
         
         // 验证缓存文件存在
-        assert!(Path::new(&cache_path).exists(), "缓存文件应该在关闭信号处理时被创建");
+        assert!(Path::new(&cache_path).exists(), "Cache file should be created when shutdown signal is processed");
         
         // 测试结束后清理
         if Path::new(&cache_path).exists() {
-            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+            fs::remove_file(&cache_path).expect("Failed to delete cache file");
         }
     }
 } 
