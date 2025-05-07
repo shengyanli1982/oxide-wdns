@@ -5,7 +5,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::fs::{File, create_dir_all};
 use std::path::Path;
-use std::io::{self, BufWriter, BufReader};
+use std::io::{BufReader, BufWriter};
+use std::io::Write;
 use moka::future::Cache;
 use trust_dns_proto::op::{Message, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
@@ -113,13 +114,14 @@ impl DnsCache {
         
         let mut dns_cache = DnsCache { 
             cache, 
-            config, 
+            config: config.clone(), 
             periodic_save_cancel: None,
         };
         
         // 如果启用了持久化缓存且配置了启动时加载
         if dns_cache.config.persistence.enabled && dns_cache.config.persistence.load_on_startup {
             let config_clone = dns_cache.config.clone();
+            let cache_clone = dns_cache.cache.clone();
             // 使用阻塞任务加载缓存文件（这是在启动时一次性操作）
             match task::block_in_place(move || {
                 Self::load_cache_from_file(&config_clone.persistence)
@@ -128,7 +130,7 @@ impl DnsCache {
                     // 将加载的条目导入到缓存
                     let load_fut = async move {
                         for (i, (key, entry)) in keys.into_iter().zip(entries.into_iter()).enumerate() {
-                            dns_cache.cache.insert(key, entry).await;
+                            cache_clone.insert(key, entry).await;
                             if i > 0 && i % 1000 == 0 {
                                 debug!("Loaded {} cache entries so far", i);
                             }
@@ -381,15 +383,14 @@ impl DnsCache {
         if let Some(parent) = Path::new(&config.path).parent() {
             if !parent.exists() {
                 if let Err(e) = create_dir_all(parent) {
-                    return Err(ServerError::Io(format!(
-                        "Failed to create directory for cache file: {}", e
-                    )));
+                    return Err(ServerError::Io(e));
                 }
             }
         }
         
         // 使用临时文件路径
         let temp_path = format!("{}.tmp", config.path);
+        let cache_path = config.path.clone();
         
         // 获取当前时间戳
         let now = SystemTime::now()
@@ -435,6 +436,9 @@ impl DnsCache {
             entries.push(entry.clone());
         }
         
+        // 复制临时路径
+        let temp_path_clone = temp_path.clone();
+        
         // 在后台线程中执行IO操作
         let saved_count = task::spawn_blocking(move || -> Result<usize> {
             // 准备序列化数据
@@ -443,14 +447,16 @@ impl DnsCache {
             
             for (key, entry) in keys.into_iter().zip(entries.into_iter()) {
                 // 将消息序列化为字节
-                let mut message_bytes = Vec::new();
-                if let Err(e) = entry.message.to_vec(&mut message_bytes) {
-                    warn!("Failed to serialize message: {}", e);
-                    continue;
-                }
+                let message_bytes = match entry.message.to_vec() {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        warn!("Failed to serialize message: {}", e);
+                        continue;
+                    }
+                };
                 
                 let persistable_key = PersistableCacheKey {
-                    name: key.name,
+                    name: key.name.clone(),
                     record_type: key.record_type,
                     record_class: key.record_class,
                 };
@@ -467,11 +473,10 @@ impl DnsCache {
                 persistable_entries.push(persistable_entry);
             }
             
-            // 写入临时文件
-            let file = File::create(&temp_path)
-                .map_err(|e| ServerError::Io(format!("Failed to create temp cache file: {}", e)))?;
-            
-            let writer = BufWriter::new(file);
+            // 打开临时文件用于写入
+            let file = File::create(&temp_path_clone)
+                .map_err(|e| ServerError::Io(e))?;
+            let mut writer = BufWriter::new(file);
             
             // 写入文件头
             let header = CacheFileHeader {
@@ -481,18 +486,23 @@ impl DnsCache {
                 entry_count: persistable_keys.len(),
             };
             
-            // 序列化并写入
-            bincode::serialize_into(writer, &header)
+            bincode::serialize_into(&mut writer, &header)
                 .map_err(|e| ServerError::Other(format!("Failed to serialize cache header: {}", e)))?;
             
-            bincode::serialize_into(&temp_path, &(persistable_keys, persistable_entries))
+            let entry_count = persistable_entries.len();
+            
+            bincode::serialize_into(&mut writer, &(persistable_keys, persistable_entries))
                 .map_err(|e| ServerError::Other(format!("Failed to serialize cache data: {}", e)))?;
             
+            // 确保所有数据都已写入磁盘
+            writer.flush().map_err(|e| ServerError::Io(e))?;
+            drop(writer); // 明确 drop writer 以关闭文件，虽然在作用域结束时也会发生
+
             // 原子地重命名临时文件
-            std::fs::rename(&temp_path, &config.path)
-                .map_err(|e| ServerError::Io(format!("Failed to rename temp cache file: {}", e)))?;
+            std::fs::rename(&temp_path_clone, &cache_path)
+                .map_err(|e| ServerError::Io(e))?;
             
-            Ok(persistable_entries.len())
+            Ok(entry_count)
         }).await.map_err(|e| ServerError::Other(format!("Failed to save cache: {}", e)))??;
         
         debug!("Cache saved to file: {}, {} entries", config.path, saved_count);
@@ -513,14 +523,14 @@ impl DnsCache {
         let file = match File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                return Err(ServerError::Io(format!("Failed to open cache file: {}", e)));
+                return Err(ServerError::Io(e));
             }
         };
         
-        let reader = BufReader::new(file);
+        let mut reader = BufReader::new(file);
         
         // 读取并验证文件头
-        let header: CacheFileHeader = match bincode::deserialize_from(reader) {
+        let header: CacheFileHeader = match bincode::deserialize_from(&mut reader) {
             Ok(h) => h,
             Err(e) => {
                 return Err(ServerError::Other(format!("Failed to deserialize cache header: {}", e)));
@@ -549,7 +559,7 @@ impl DnsCache {
         let (persistable_keys, persistable_entries): (
             Vec<PersistableCacheKey>, 
             Vec<PersistableCacheEntry>
-        ) = match bincode::deserialize_from(reader) {
+        ) = match bincode::deserialize_from(&mut reader) {
             Ok(data) => data,
             Err(e) => {
                 return Err(ServerError::Other(format!("Failed to deserialize cache data: {}", e)));

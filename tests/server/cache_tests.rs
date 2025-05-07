@@ -511,4 +511,432 @@ mod tests {
         
         info!("Test completed: test_negative_caching");
     }
+
+    // 持久化缓存测试
+    #[tokio::test]
+    async fn test_persistent_cache_save_and_load() {
+        // 创建测试缓存目录
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_file_path = temp_dir.path().join("test_cache.dat");
+        let cache_file_str = cache_file_path.to_str().unwrap().to_string();
+        
+        // 创建支持持久化的缓存配置
+        let mut config = CacheConfig::default();
+        config.enabled = true;
+        config.size = 100;
+        config.persistence.enabled = true;
+        config.persistence.path = cache_file_str.clone();
+        config.persistence.load_on_startup = true;
+        
+        // 初始化缓存
+        let cache = DnsCache::new(config.clone());
+        
+        // 创建测试数据
+        let domain_name = Name::from_ascii("example.com.").unwrap();
+        let query_type = RecordType::A;
+        let query_class = DNSClass::IN;
+        let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
+        
+        // 创建测试响应
+        let mut message = Message::new();
+        message.set_id(1234);
+        message.set_response_code(ResponseCode::NoError);
+        
+        let mut query = Query::new();
+        query.set_name(domain_name.clone());
+        query.set_query_type(query_type);
+        query.set_query_class(query_class);
+        message.add_query(query);
+        
+        let mut record = Record::new();
+        record.set_name(domain_name);
+        record.set_record_type(query_type);
+        record.set_ttl(3600);
+        record.set_dns_class(query_class);
+        record.set_data(Some(RData::A(A::new(127, 0, 0, 1))));
+        message.add_answer(record);
+        
+        // 添加记录到缓存
+        cache.put(&cache_key, &message, 3600).await.expect("缓存添加失败");
+        
+        // 验证缓存项存在
+        assert_eq!(cache.len().await, 1);
+        
+        // 保存缓存到文件
+        let saved_count = cache.save_to_file().await.expect("缓存保存失败");
+        assert_eq!(saved_count, 1, "应该保存了一条缓存记录");
+        
+        // 检查文件是否存在
+        assert!(cache_file_path.exists(), "缓存文件应该存在");
+        
+        // 创建新的缓存实例，从磁盘加载
+        let new_cache = DnsCache::new(config);
+        
+        // 等待缓存加载完成
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        // 验证新缓存实例中是否包含之前保存的条目
+        assert_eq!(new_cache.len().await, 1, "应该从文件加载了一条记录");
+        
+        // 验证可以获取到正确的缓存数据
+        let loaded_message = new_cache.get(&cache_key).await;
+        assert!(loaded_message.is_some(), "应该能获取到缓存的数据");
+        
+        // 比较响应码
+        let loaded_message = loaded_message.unwrap();
+        assert_eq!(loaded_message.response_code(), ResponseCode::NoError);
+        assert_eq!(loaded_message.id(), 1234);
+        
+        // 检查答案部分
+        assert_eq!(loaded_message.answer_count(), 1);
+        
+        // 清理
+        temp_dir.close().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_persistent_cache_skip_expired() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_file_path = temp_dir.path().join("test_cache_expired.dat");
+        let cache_file_str = cache_file_path.to_str().unwrap().to_string();
+        
+        // 创建支持持久化的缓存配置，启用跳过过期条目
+        let mut config = CacheConfig::default();
+        config.enabled = true;
+        config.size = 100;
+        config.persistence.enabled = true;
+        config.persistence.path = cache_file_str.clone();
+        config.persistence.load_on_startup = true;
+        config.persistence.skip_expired_on_load = true;
+        
+        // 初始化缓存
+        let cache = DnsCache::new(config.clone());
+        
+        // 创建测试数据
+        let fresh_domain = Name::from_ascii("fresh.example.com.").unwrap();
+        let expired_domain = Name::from_ascii("expired.example.com.").unwrap();
+        let query_type = RecordType::A;
+        let query_class = DNSClass::IN;
+        let fresh_key = CacheKey::new(fresh_domain.clone(), query_type, query_class);
+        let expired_key = CacheKey::new(expired_domain.clone(), query_type, query_class);
+        
+        // 创建长TTL响应
+        let mut fresh_message = Message::new();
+        fresh_message.set_id(1000);
+        fresh_message.set_response_code(ResponseCode::NoError);
+        
+        let mut query = Query::new();
+        query.set_name(fresh_domain.clone());
+        query.set_query_type(query_type);
+        query.set_query_class(query_class);
+        fresh_message.add_query(query);
+        
+        let mut record = Record::new();
+        record.set_name(fresh_domain);
+        record.set_record_type(query_type);
+        record.set_ttl(3600);
+        record.set_dns_class(query_class);
+        record.set_data(Some(RData::A(A::new(127, 0, 0, 1))));
+        fresh_message.add_answer(record);
+        
+        // 创建短TTL响应（将很快过期）
+        let mut expired_message = Message::new();
+        expired_message.set_id(2000);
+        expired_message.set_response_code(ResponseCode::NoError);
+        
+        let mut query = Query::new();
+        query.set_name(expired_domain.clone());
+        query.set_query_type(query_type);
+        query.set_query_class(query_class);
+        expired_message.add_query(query);
+        
+        let mut record = Record::new();
+        record.set_name(expired_domain);
+        record.set_record_type(query_type);
+        record.set_ttl(1); // 1秒后过期
+        record.set_dns_class(query_class);
+        record.set_data(Some(RData::A(A::new(127, 0, 0, 2))));
+        expired_message.add_answer(record);
+        
+        // 添加记录到缓存
+        cache.put(&fresh_key, &fresh_message, 3600).await.expect("缓存添加失败");
+        cache.put(&expired_key, &expired_message, 1).await.expect("缓存添加失败");
+        
+        // 验证缓存项存在
+        assert_eq!(cache.len().await, 2);
+        
+        // 等待短TTL记录过期
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        
+        // 保存缓存到文件
+        let saved_count = cache.save_to_file().await.expect("缓存保存失败");
+        assert_eq!(saved_count, 1, "应该只保存未过期的记录");
+        
+        // 创建新的缓存实例，从磁盘加载
+        let new_cache = DnsCache::new(config.clone());
+        
+        // 等待缓存加载完成
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        // 验证新缓存实例中是否只包含未过期的条目
+        assert_eq!(new_cache.len().await, 1, "应该只加载了未过期的记录");
+        
+        // 验证可以获取到正确的缓存数据
+        let loaded_fresh = new_cache.get(&fresh_key).await;
+        assert!(loaded_fresh.is_some(), "应该能获取到未过期的数据");
+        
+        let loaded_expired = new_cache.get(&expired_key).await;
+        assert!(loaded_expired.is_none(), "不应该获取到已过期的数据");
+        
+        // 清理
+        temp_dir.close().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_persistent_cache_limit_items_to_save() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_file_path = temp_dir.path().join("test_cache_limit.dat");
+        let cache_file_str = cache_file_path.to_str().unwrap().to_string();
+        
+        // 创建支持持久化的缓存配置，限制保存条目数
+        let mut config = CacheConfig::default();
+        config.enabled = true;
+        config.size = 100;
+        config.persistence.enabled = true;
+        config.persistence.path = cache_file_str.clone();
+        config.persistence.load_on_startup = true;
+        config.persistence.max_items_to_save = 2; // 只保存两条记录
+        
+        // 初始化缓存
+        let cache = DnsCache::new(config.clone());
+        
+        // 创建多个测试数据
+        for i in 1..=5 {
+            let domain_name = Name::from_ascii(&format!("test{}.example.com.", i)).unwrap();
+            let query_type = RecordType::A;
+            let query_class = DNSClass::IN;
+            let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
+            
+            // 创建测试响应
+            let mut message = Message::new();
+            message.set_id(i as u16);
+            message.set_response_code(ResponseCode::NoError);
+            
+            let mut query = Query::new();
+            query.set_name(domain_name.clone());
+            query.set_query_type(query_type);
+            query.set_query_class(query_class);
+            message.add_query(query);
+            
+            let mut record = Record::new();
+            record.set_name(domain_name);
+            record.set_record_type(query_type);
+            record.set_ttl(3600);
+            record.set_dns_class(query_class);
+            record.set_data(Some(RData::A(A::new(127, 0, 0, i as u8))));
+            message.add_answer(record);
+            
+            // 频繁访问某些记录，使其成为热门记录
+            // 设计为test1和test2被访问更多次
+            let times = if i <= 2 { 5 } else { 1 };
+            
+            // 添加记录到缓存并模拟访问
+            cache.put(&cache_key, &message, 3600).await.expect("缓存添加失败");
+            
+            for _ in 0..times {
+                // 注意：put会计数为1次访问，此处再多次get来增加访问次数
+                cache.get(&cache_key).await;
+            }
+        }
+        
+        // 验证缓存项存在
+        assert_eq!(cache.len().await, 5);
+        
+        // 保存缓存到文件
+        let saved_count = cache.save_to_file().await.expect("缓存保存失败");
+        assert_eq!(saved_count, 2, "应该只保存指定数量的记录");
+        
+        // 创建新的缓存实例，从磁盘加载
+        let new_cache = DnsCache::new(config);
+        
+        // 等待缓存加载完成
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        // 验证新缓存实例中是否只包含指定数量的条目
+        assert_eq!(new_cache.len().await, 2, "应该只加载指定数量的记录");
+        
+        // 验证加载的是访问次数最多的记录
+        let test1_key = CacheKey::new(
+            Name::from_ascii("test1.example.com.").unwrap(),
+            RecordType::A,
+            DNSClass::IN
+        );
+        let test5_key = CacheKey::new(
+            Name::from_ascii("test5.example.com.").unwrap(),
+            RecordType::A,
+            DNSClass::IN
+        );
+        
+        assert!(new_cache.get(&test1_key).await.is_some(), "应该加载访问频繁的记录");
+        assert!(new_cache.get(&test5_key).await.is_none(), "不应该加载访问较少的记录");
+        
+        // 清理
+        temp_dir.close().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_persistent_cache_periodic_save() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_file_path = temp_dir.path().join("test_cache_periodic.dat");
+        let cache_file_str = cache_file_path.to_str().unwrap().to_string();
+        
+        // 创建支持周期性保存的缓存配置
+        let mut config = CacheConfig::default();
+        config.enabled = true;
+        config.size = 100;
+        config.persistence.enabled = true;
+        config.persistence.path = cache_file_str.clone();
+        config.persistence.periodic.enabled = true;
+        config.persistence.periodic.interval_secs = 1; // 设定为1秒，便于测试
+        
+        // 初始化缓存（会启动周期性保存任务）
+        let cache = DnsCache::new(config);
+        
+        // 创建测试数据
+        let domain_name = Name::from_ascii("periodic.example.com.").unwrap();
+        let query_type = RecordType::A;
+        let query_class = DNSClass::IN;
+        let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
+        
+        // 创建测试响应
+        let mut message = Message::new();
+        message.set_id(9999);
+        message.set_response_code(ResponseCode::NoError);
+        
+        let mut query = Query::new();
+        query.set_name(domain_name.clone());
+        query.set_query_type(query_type);
+        query.set_query_class(query_class);
+        message.add_query(query);
+        
+        let mut record = Record::new();
+        record.set_name(domain_name);
+        record.set_record_type(query_type);
+        record.set_ttl(3600);
+        record.set_dns_class(query_class);
+        record.set_data(Some(RData::A(A::new(127, 0, 0, 9))));
+        message.add_answer(record);
+        
+        // 添加记录到缓存
+        cache.put(&cache_key, &message, 3600).await.expect("缓存添加失败");
+        
+        // 等待周期性保存触发（超过配置的间隔）
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        
+        // 检查文件是否被创建
+        assert!(cache_file_path.exists(), "缓存文件应该被周期性任务创建");
+        
+        // 在文件创建后，修改缓存内容
+        let mut new_message = message.clone();
+        new_message.set_id(8888);
+        cache.put(&cache_key, &new_message, 3600).await.expect("缓存添加失败");
+        
+        // 等待下一次周期性保存
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        
+        // 关闭缓存，这应该会取消周期性任务
+        cache.shutdown().await.expect("缓存关闭失败");
+        
+        // 检查最终文件内容
+        let mut config2 = CacheConfig::default();
+        config2.enabled = true;
+        config2.size = 100;
+        config2.persistence.enabled = true;
+        config2.persistence.path = cache_file_str;
+        config2.persistence.load_on_startup = true;
+        
+        let new_cache = DnsCache::new(config2);
+        
+        // 等待缓存加载完成
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        // 验证最新的数据被保存了
+        let loaded_message = new_cache.get(&cache_key).await;
+        assert!(loaded_message.is_some(), "应该能从文件加载缓存数据");
+        assert_eq!(loaded_message.unwrap().id(), 8888, "应该加载最新修改的数据");
+        
+        // 清理
+        temp_dir.close().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_persistent_cache_shutdown_save() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let cache_file_path = temp_dir.path().join("test_cache_shutdown.dat");
+        let cache_file_str = cache_file_path.to_str().unwrap().to_string();
+        
+        // 创建支持持久化的缓存配置，不启用周期性保存
+        let mut config = CacheConfig::default();
+        config.enabled = true;
+        config.size = 100;
+        config.persistence.enabled = true;
+        config.persistence.path = cache_file_str.clone();
+        config.persistence.load_on_startup = true;
+        config.persistence.shutdown_save_timeout_secs = 5;
+        config.persistence.periodic.enabled = false;
+        
+        // 初始化缓存
+        let cache = DnsCache::new(config.clone());
+        
+        // 创建测试数据
+        let domain_name = Name::from_ascii("shutdown.example.com.").unwrap();
+        let query_type = RecordType::A;
+        let query_class = DNSClass::IN;
+        let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
+        
+        // 创建测试响应
+        let mut message = Message::new();
+        message.set_id(5555);
+        message.set_response_code(ResponseCode::NoError);
+        
+        let mut query = Query::new();
+        query.set_name(domain_name.clone());
+        query.set_query_type(query_type);
+        query.set_query_class(query_class);
+        message.add_query(query);
+        
+        let mut record = Record::new();
+        record.set_name(domain_name);
+        record.set_record_type(query_type);
+        record.set_ttl(3600);
+        record.set_dns_class(query_class);
+        record.set_data(Some(RData::A(A::new(127, 0, 0, 5))));
+        message.add_answer(record);
+        
+        // 添加记录到缓存
+        cache.put(&cache_key, &message, 3600).await.expect("缓存添加失败");
+        
+        // 检查文件不存在，因为还没有触发保存
+        assert!(!cache_file_path.exists(), "在关闭前文件不应该存在");
+        
+        // 触发关闭，应该会保存缓存
+        cache.shutdown().await.expect("缓存关闭失败");
+        
+        // 检查文件是否被创建
+        assert!(cache_file_path.exists(), "缓存文件应该在关闭时创建");
+        
+        // 加载并验证
+        let new_cache = DnsCache::new(config);
+        
+        // 等待缓存加载完成
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        // 验证数据被正确保存和加载
+        let loaded_message = new_cache.get(&cache_key).await;
+        assert!(loaded_message.is_some(), "应该能从关闭时保存的文件加载数据");
+        assert_eq!(loaded_message.unwrap().id(), 5555, "加载的数据ID应该匹配");
+        
+        // 清理
+        temp_dir.close().unwrap();
+    }
 } 
