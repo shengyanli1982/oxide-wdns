@@ -197,7 +197,7 @@ mod tests {
 
 #[cfg(test)]
 mod cache_persistence_signal_tests {
-    use oxide_wdns::server::config::{ServerConfig, CacheConfig, PersistenceCacheConfig};
+    use oxide_wdns::server::config::{CacheConfig, PersistenceCacheConfig};
     use oxide_wdns::server::cache::DnsCache;
     use std::sync::Arc;
     use std::fs;

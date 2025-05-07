@@ -619,20 +619,20 @@ dns_resolver:
 #[cfg(test)]
 mod persistence_cache_config_tests {
     use oxide_wdns::server::config::{CacheConfig, PersistenceCacheConfig, PeriodicSaveConfig};
-    use std::time::Duration;
+    
 
     #[test]
     fn test_persistence_cache_default_config() {
         // 测试默认配置值
         let config = PersistenceCacheConfig::default();
         
-        assert_eq!(config.enabled, false);
+        assert!(!config.enabled);
         assert_eq!(config.path, "./cache.dat");
-        assert_eq!(config.load_on_startup, true);
+        assert!(config.load_on_startup);
         assert_eq!(config.max_items_to_save, 0);
-        assert_eq!(config.skip_expired_on_load, true);
+        assert!(config.skip_expired_on_load);
         assert_eq!(config.shutdown_save_timeout_secs, 30);
-        assert_eq!(config.periodic.enabled, false);
+        assert!(!config.periodic.enabled);
         assert_eq!(config.periodic.interval_secs, 3600);
     }
 
@@ -652,13 +652,13 @@ mod persistence_cache_config_tests {
         periodic.interval_secs = 1800;
         config.periodic = periodic;
         
-        assert_eq!(config.enabled, true);
+        assert!(config.enabled);
         assert_eq!(config.path, "/tmp/custom_cache.dat");
-        assert_eq!(config.load_on_startup, false);
+        assert!(!config.load_on_startup);
         assert_eq!(config.max_items_to_save, 1000);
-        assert_eq!(config.skip_expired_on_load, false);
+        assert!(!config.skip_expired_on_load);
         assert_eq!(config.shutdown_save_timeout_secs, 60);
-        assert_eq!(config.periodic.enabled, true);
+        assert!(config.periodic.enabled);
         assert_eq!(config.periodic.interval_secs, 1800);
     }
 
@@ -672,14 +672,14 @@ mod persistence_cache_config_tests {
         
         cache_config.persistence = persistence_config;
         
-        assert_eq!(cache_config.persistence.enabled, true);
+        assert!(cache_config.persistence.enabled);
         assert_eq!(cache_config.persistence.path, "/var/cache/wdns/dns_cache.dat");
     }
 
     #[test]
     fn test_parse_persistence_cache_config_from_yaml() {
         use serde_yaml;
-        use oxide_wdns::server::config::{ServerConfig, CacheConfig, PersistenceCacheConfig};
+        use oxide_wdns::server::config::ServerConfig;
         
         let yaml_str = r#"
 http_server:
@@ -712,13 +712,13 @@ dns_resolver:
         
         // 验证持久化缓存配置
         let persistence = &config.dns.cache.persistence;
-        assert_eq!(persistence.enabled, true);
+        assert!(persistence.enabled);
         assert_eq!(persistence.path, "/var/cache/dns_cache.dat");
-        assert_eq!(persistence.load_on_startup, true);
+        assert!(persistence.load_on_startup);
         assert_eq!(persistence.max_items_to_save, 1000);
-        assert_eq!(persistence.skip_expired_on_load, true);
+        assert!(persistence.skip_expired_on_load);
         assert_eq!(persistence.shutdown_save_timeout_secs, 45);
-        assert_eq!(persistence.periodic.enabled, true);
+        assert!(persistence.periodic.enabled);
         assert_eq!(persistence.periodic.interval_secs, 1800);
     }
 } 

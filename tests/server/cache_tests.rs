@@ -11,10 +11,10 @@ mod tests {
     use trust_dns_proto::op::Query;
     use trust_dns_proto::rr::rdata::A;
     use tracing::info;
-    use uuid;
+    
     use std::fs;
     use std::path::Path;
-    use uuid::Uuid;
+    
     use std::str::FromStr;
 
     // === 辅助函数 ===
@@ -721,7 +721,7 @@ mod tests {
         
         // 创建多个测试数据
         for i in 1..=5 {
-            let domain_name = Name::from_ascii(&format!("test{}.example.com.", i)).unwrap();
+            let domain_name = Name::from_ascii(format!("test{}.example.com.", i)).unwrap();
             let query_type = RecordType::A;
             let query_class = DNSClass::IN;
             let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
