@@ -78,6 +78,12 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
     -   内置高性能 **LRU 缓存** 显著降低延迟，减少上游负载。
     -   支持**负缓存** (Negative Caching)，包括 `__blackhole__` 产生的响应。
     -   可配置缓存大小和 TTL。
+    -   **持久化缓存 (Persistent Cache):**
+        -   允许服务在关闭时将内存中的 DNS 缓存保存到磁盘，并在下次启动时重新加载。
+        -   显著缩短服务重启后的"冷启动"时间，快速恢复缓存命中率。
+        -   减轻上游 DNS 服务器在服务重启初期的压力。
+        -   支持配置持久化路径、是否在启动时加载、保存的最大条目数以及是否跳过已过期的条目。
+        -   支持周期性自动保存缓存到磁盘。
 -   📊 **可观测性:**
     -   集成 **Prometheus 指标** (`/metrics` 端点)，轻松监控服务状态和性能。
     -   提供 **Kubernetes 健康检查**端点 (`/health`)。
@@ -165,6 +171,26 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
           min: 60
           max: 86400
           negative: 300 # 负缓存 TTL (NXDOMAIN)，也包括 __blackhole__ 的响应
+        # --- 持久化缓存配置 ---
+        persistence:
+          # 是否启用缓存持久化功能。
+          enabled: false
+          # 缓存文件的存储路径。
+          path: "./cache.dat"
+          # 服务启动时是否自动从磁盘加载缓存。
+          load_on_startup: true
+          # (可选) 保存到磁盘的最大缓存条目数。
+          max_items_to_save: 0
+          # 从磁盘加载时，如果缓存条目已过期，是否跳过。
+          skip_expired_on_load: true
+          # 关机时保存缓存的超时时间（秒）
+          shutdown_save_timeout_secs: 30
+          # --- 周期性保存配置 ---
+          periodic:
+            # 是否启用周期性保存缓存的功能。
+            enabled: false
+            # 周期性保存的时间间隔（秒）。
+            interval_secs: 3600
 
       # --- 全局/默认上游 DNS 配置 ---
       # 这些设置作为全局默认值，并且在没有路由规则匹配
@@ -242,7 +268,7 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
             upstream_group: "clean_dns"
 
           # 规则 5: 从本地文件加载国内域名列表，路由到 domestic_dns
-          # 文件格式请参考下方的“域名列表文件格式”部分。
+          # 文件格式请参考下方的"域名列表文件格式"部分。
           - match:
               type: file
               path: "/etc/oxide-wdns/china_domains.txt"
