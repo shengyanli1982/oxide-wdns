@@ -193,4 +193,67 @@ mod tests {
         }
         info!("Test completed: test_shutdown_completes_within_timeout");
     }
+}
+
+#[cfg(test)]
+mod cache_persistence_signal_tests {
+    use crate::server::signal::SignalHandler;
+    use crate::server::config::{ServerConfig, CacheConfig, PersistenceCacheConfig};
+    use crate::server::cache::DnsCache;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    use std::fs;
+    use std::path::Path;
+    use tokio::time::sleep;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_cache_persistence_on_shutdown_signal() {
+        // 创建临时文件路径
+        let cache_path = format!("./test_signal_cache_{}.dat", std::process::id());
+        
+        // 确保测试开始时文件不存在
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+        
+        // 创建缓存配置
+        let mut cache_config = CacheConfig::default();
+        let mut persistence_config = PersistenceCacheConfig::default();
+        persistence_config.enabled = true;
+        persistence_config.path = cache_path.clone();
+        persistence_config.shutdown_save_timeout_secs = 1;
+        cache_config.persistence = persistence_config;
+        
+        // 创建缓存实例
+        let cache = Arc::new(DnsCache::new(cache_config));
+        
+        // 创建信号处理器
+        let mut signal_handler = SignalHandler::new();
+        
+        // 注册缓存关闭处理程序
+        let cache_clone = Arc::clone(&cache);
+        signal_handler.register_shutdown_handler(Box::new(move || {
+            let cache = Arc::clone(&cache_clone);
+            Box::pin(async move {
+                // 当信号触发时，缓存应该执行关闭操作
+                cache.shutdown().await.unwrap();
+                Ok(())
+            })
+        }));
+        
+        // 手动触发关闭处理程序
+        signal_handler.shutdown().await.unwrap();
+        
+        // 等待一段时间确保关闭处理程序执行完毕
+        sleep(Duration::from_millis(100)).await;
+        
+        // 验证缓存文件存在
+        assert!(Path::new(&cache_path).exists(), "缓存文件应该在关闭信号处理时被创建");
+        
+        // 测试结束后清理
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+    }
 } 

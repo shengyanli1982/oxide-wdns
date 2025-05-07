@@ -939,4 +939,410 @@ mod tests {
         // 清理
         temp_dir.close().unwrap();
     }
+}
+
+#[cfg(test)]
+mod persistence_cache_tests {
+    use crate::server::cache::{DnsCache, CacheKey};
+    use crate::server::config::{CacheConfig, PersistenceCacheConfig, TtlConfig, PeriodicSaveConfig};
+    use trust_dns_proto::op::{Message, ResponseCode, MessageType};
+    use trust_dns_proto::rr::{DNSClass, Name, Record, RecordSet, RecordType, RData};
+    use std::str::FromStr;
+    use std::fs;
+    use std::path::Path;
+    use tokio::time::sleep;
+    use std::time::Duration;
+
+    // 创建测试用的DNS响应消息
+    fn create_test_message(name: &str, record_type: RecordType, ttl: u32) -> Message {
+        let mut message = Message::new();
+        message.set_message_type(MessageType::Response);
+        message.set_response_code(ResponseCode::NoError);
+        
+        let name = Name::from_str(name).unwrap();
+        let mut record_set = RecordSet::new(&name, record_type, 0);
+        
+        // 根据记录类型添加不同的测试数据
+        match record_type {
+            RecordType::A => {
+                let rdata = RData::A("192.168.1.1".parse().unwrap());
+                record_set.add_rdata(rdata);
+            },
+            RecordType::AAAA => {
+                let rdata = RData::AAAA("2001:db8::1".parse().unwrap());
+                record_set.add_rdata(rdata);
+            },
+            RecordType::TXT => {
+                let rdata = RData::TXT(vec![b"test text".to_vec()]);
+                record_set.add_rdata(rdata);
+            },
+            _ => {
+                // 默认情况下添加A记录
+                let rdata = RData::A("192.168.1.2".parse().unwrap());
+                record_set.add_rdata(rdata);
+            }
+        }
+        
+        // 设置TTL
+        for record in record_set.records(false) {
+            let mut record = record.clone();
+            record.set_ttl(ttl);
+            message.add_answer(record);
+        }
+        
+        message
+    }
+
+    // 创建缓存配置(带持久化)
+    fn create_persistence_cache_config(cache_path: &str) -> CacheConfig {
+        let mut cache_config = CacheConfig {
+            enabled: true,
+            size: 100,
+            ttl: TtlConfig {
+                min: 60,
+                max: 3600,
+                negative: 60,
+            },
+            persistence: PersistenceCacheConfig::default(),
+        };
+        
+        let mut persistence_config = PersistenceCacheConfig::default();
+        persistence_config.enabled = true;
+        persistence_config.path = cache_path.to_string();
+        persistence_config.load_on_startup = true;
+        persistence_config.skip_expired_on_load = true;
+        
+        cache_config.persistence = persistence_config;
+        cache_config
+    }
+
+    #[tokio::test]
+    async fn test_save_cache_to_file() {
+        // 创建临时文件路径
+        let cache_path = format!("./test_cache_{}.dat", std::process::id());
+        
+        // 确保测试开始时文件不存在
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+        
+        let config = create_persistence_cache_config(&cache_path);
+        let cache = DnsCache::new(config);
+        
+        // 添加几个测试条目到缓存
+        let test_domains = vec![
+            ("example.com.", RecordType::A, 300),
+            ("example.org.", RecordType::AAAA, 600),
+            ("example.net.", RecordType::TXT, 900),
+        ];
+        
+        for (domain, record_type, ttl) in test_domains {
+            let message = create_test_message(domain, record_type, ttl);
+            let key = CacheKey::new(
+                Name::from_str(domain).unwrap(),
+                record_type,
+                DNSClass::IN,
+            );
+            cache.put(&key, &message, ttl).await.unwrap();
+        }
+        
+        // 保存缓存到文件
+        let saved_count = cache.save_to_file().await.unwrap();
+        assert_eq!(saved_count, 3, "应该保存3个缓存条目");
+        
+        // 验证文件存在
+        assert!(Path::new(&cache_path).exists(), "缓存文件应该被创建");
+        
+        // 创建新的缓存实例并从文件加载
+        let new_cache = DnsCache::new(create_persistence_cache_config(&cache_path));
+        
+        // 等待一段时间确保异步加载完成
+        sleep(Duration::from_millis(100)).await;
+        
+        // 验证缓存条目数
+        let len = new_cache.len().await;
+        assert_eq!(len, 3, "应该从文件加载3个缓存条目");
+        
+        // 验证能够检索各个条目
+        for (domain, record_type, _) in test_domains {
+            let key = CacheKey::new(
+                Name::from_str(domain).unwrap(),
+                record_type,
+                DNSClass::IN,
+            );
+            let result = new_cache.get(&key).await;
+            assert!(result.is_some(), "应该能够检索缓存条目: {}", domain);
+        }
+        
+        // 测试结束后清理
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_skip_expired_entries_on_load() {
+        // 创建临时文件路径
+        let cache_path = format!("./test_cache_expired_{}.dat", std::process::id());
+        
+        // 确保测试开始时文件不存在
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+        
+        // 创建配置，设置极短的TTL以便测试过期条目
+        let mut config = create_persistence_cache_config(&cache_path);
+        config.ttl.min = 1; // 最小TTL设为1秒
+        config.ttl.max = 2; // 最大TTL设为2秒
+        
+        let cache = DnsCache::new(config.clone());
+        
+        // 添加测试条目到缓存
+        let message = create_test_message("example.com.", RecordType::A, 1);
+        let key = CacheKey::new(
+            Name::from_str("example.com.").unwrap(),
+            RecordType::A,
+            DNSClass::IN,
+        );
+        cache.put(&key, &message, 1).await.unwrap();
+        
+        // 保存缓存到文件
+        let saved_count = cache.save_to_file().await.unwrap();
+        assert_eq!(saved_count, 1, "应该保存1个缓存条目");
+        
+        // 等待TTL过期
+        sleep(Duration::from_secs(2)).await;
+        
+        // 创建新的缓存实例并从文件加载
+        // 注意：skip_expired_on_load设为true，所以不应加载过期条目
+        let new_cache = DnsCache::new(config);
+        
+        // 等待一段时间确保异步加载完成
+        sleep(Duration::from_millis(100)).await;
+        
+        // 验证缓存条目数应为0，因为条目已过期且配置为跳过过期条目
+        let len = new_cache.len().await;
+        assert_eq!(len, 0, "过期的缓存条目不应该被加载");
+        
+        // 测试结束后清理
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_max_items_to_save_limit() {
+        // 创建临时文件路径
+        let cache_path = format!("./test_cache_limit_{}.dat", std::process::id());
+        
+        // 确保测试开始时文件不存在
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+        
+        // 创建配置，设置最大保存条目数为2
+        let mut config = create_persistence_cache_config(&cache_path);
+        config.persistence.max_items_to_save = 2;
+        
+        let cache = DnsCache::new(config);
+        
+        // 添加3个测试条目到缓存
+        let test_domains = vec![
+            ("example1.com.", RecordType::A, 300),
+            ("example2.org.", RecordType::AAAA, 600),
+            ("example3.net.", RecordType::TXT, 900),
+        ];
+        
+        for (domain, record_type, ttl) in test_domains {
+            let message = create_test_message(domain, record_type, ttl);
+            let key = CacheKey::new(
+                Name::from_str(domain).unwrap(),
+                record_type,
+                DNSClass::IN,
+            );
+            cache.put(&key, &message, ttl).await.unwrap();
+        }
+        
+        // 保存缓存到文件，应该只保存2个条目
+        let saved_count = cache.save_to_file().await.unwrap();
+        assert_eq!(saved_count, 2, "应该只保存2个缓存条目");
+        
+        // 测试结束后清理
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_periodic_save() {
+        // 创建临时文件路径
+        let cache_path = format!("./test_cache_periodic_{}.dat", std::process::id());
+        
+        // 确保测试开始时文件不存在
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+        
+        // 创建配置，设置启用周期性保存，间隔为1秒
+        let mut config = create_persistence_cache_config(&cache_path);
+        let mut periodic = PeriodicSaveConfig::default();
+        periodic.enabled = true;
+        periodic.interval_secs = 1; // 1秒间隔
+        config.persistence.periodic = periodic;
+        
+        let cache = DnsCache::new(config);
+        
+        // 添加测试条目到缓存
+        let message = create_test_message("example.com.", RecordType::A, 300);
+        let key = CacheKey::new(
+            Name::from_str("example.com.").unwrap(),
+            RecordType::A,
+            DNSClass::IN,
+        );
+        cache.put(&key, &message, 300).await.unwrap();
+        
+        // 等待周期性保存触发（至少一次）
+        sleep(Duration::from_secs(2)).await;
+        
+        // 验证文件存在
+        assert!(Path::new(&cache_path).exists(), "缓存文件应该被周期性保存机制创建");
+        
+        // 关闭缓存并清理
+        cache.shutdown().await.unwrap();
+        
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_save() {
+        // 创建临时文件路径
+        let cache_path = format!("./test_cache_shutdown_{}.dat", std::process::id());
+        
+        // 确保测试开始时文件不存在
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+        
+        // 创建配置，设置关闭时保存超时为1秒
+        let mut config = create_persistence_cache_config(&cache_path);
+        config.persistence.shutdown_save_timeout_secs = 1;
+        
+        let cache = DnsCache::new(config);
+        
+        // 添加测试条目到缓存
+        let message = create_test_message("shutdown-test.com.", RecordType::A, 300);
+        let key = CacheKey::new(
+            Name::from_str("shutdown-test.com.").unwrap(),
+            RecordType::A,
+            DNSClass::IN,
+        );
+        cache.put(&key, &message, 300).await.unwrap();
+        
+        // 执行关闭操作，这应该触发保存功能
+        cache.shutdown().await.unwrap();
+        
+        // 验证文件存在
+        assert!(Path::new(&cache_path).exists(), "缓存文件应该在关闭时被创建");
+        
+        // 创建新的缓存实例并从文件加载
+        let new_cache = DnsCache::new(create_persistence_cache_config(&cache_path));
+        
+        // 等待一段时间确保异步加载完成
+        sleep(Duration::from_millis(100)).await;
+        
+        // 验证能够检索到保存的条目
+        let key = CacheKey::new(
+            Name::from_str("shutdown-test.com.").unwrap(),
+            RecordType::A,
+            DNSClass::IN,
+        );
+        let result = new_cache.get(&key).await;
+        assert!(result.is_some(), "应该能够检索到关闭时保存的缓存条目");
+        
+        // 测试结束后清理
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_file_format_compatibility() {
+        // 创建临时文件路径
+        let cache_path = format!("./test_cache_compat_{}.dat", std::process::id());
+        
+        // 确保测试开始时文件不存在
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+        
+        let config = create_persistence_cache_config(&cache_path);
+        let cache = DnsCache::new(config);
+        
+        // 添加测试条目到缓存
+        let message = create_test_message("compatibility-test.com.", RecordType::A, 300);
+        let key = CacheKey::new(
+            Name::from_str("compatibility-test.com.").unwrap(),
+            RecordType::A,
+            DNSClass::IN,
+        );
+        cache.put(&key, &message, 300).await.unwrap();
+        
+        // 保存缓存到文件
+        cache.save_to_file().await.unwrap();
+        
+        // 验证文件存在
+        assert!(Path::new(&cache_path).exists(), "缓存文件应该被创建");
+        
+        // 获取文件元数据（大小、修改时间等）用于后续对比
+        let metadata_before = fs::metadata(&cache_path).unwrap();
+        
+        // 再次保存相同的缓存
+        cache.save_to_file().await.unwrap();
+        
+        // 获取再次保存后的文件元数据
+        let metadata_after = fs::metadata(&cache_path).unwrap();
+        
+        // 验证文件格式兼容性（通过检查文件大小是否相近）
+        // 注：严格来说，大小可能略有不同（如时间戳），但不应相差太多
+        let size_ratio = (metadata_after.len() as f64) / (metadata_before.len() as f64);
+        assert!(size_ratio > 0.9 && size_ratio < 1.1, 
+                "文件格式应该稳定，大小不应有显著变化");
+        
+        // 测试结束后清理
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+    }
+    
+    #[tokio::test]
+    async fn test_corrupted_cache_file_handling() {
+        // 创建临时文件路径
+        let cache_path = format!("./test_cache_corrupted_{}.dat", std::process::id());
+        
+        // 确保测试开始时文件不存在
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+        
+        // 创建一个损坏的缓存文件（写入随机内容）
+        fs::write(&cache_path, b"This is not a valid cache file format").unwrap();
+        
+        // 创建缓存实例并尝试从损坏的文件加载
+        let config = create_persistence_cache_config(&cache_path);
+        let cache = DnsCache::new(config);
+        
+        // 等待一段时间
+        sleep(Duration::from_millis(100)).await;
+        
+        // 验证缓存为空（加载应该失败但不应崩溃）
+        let len = cache.len().await;
+        assert_eq!(len, 0, "损坏的缓存文件不应导致任何条目被加载");
+        
+        // 测试结束后清理
+        if Path::new(&cache_path).exists() {
+            fs::remove_file(&cache_path).expect("无法删除缓存文件");
+        }
+    }
 } 

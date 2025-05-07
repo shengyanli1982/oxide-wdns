@@ -614,4 +614,111 @@ dns_resolver:
             }
         }
     }
+}
+
+#[cfg(test)]
+mod persistence_cache_config_tests {
+    use crate::server::config::{CacheConfig, PersistenceCacheConfig, PeriodicSaveConfig};
+    use std::time::Duration;
+
+    #[test]
+    fn test_persistence_cache_default_config() {
+        // 测试默认配置值
+        let config = PersistenceCacheConfig::default();
+        
+        assert_eq!(config.enabled, false);
+        assert_eq!(config.path, "./cache.dat");
+        assert_eq!(config.load_on_startup, true);
+        assert_eq!(config.max_items_to_save, 0);
+        assert_eq!(config.skip_expired_on_load, true);
+        assert_eq!(config.shutdown_save_timeout_secs, 30);
+        assert_eq!(config.periodic.enabled, false);
+        assert_eq!(config.periodic.interval_secs, 3600);
+    }
+
+    #[test]
+    fn test_persistence_cache_custom_config() {
+        // 测试自定义配置
+        let mut config = PersistenceCacheConfig::default();
+        config.enabled = true;
+        config.path = "/tmp/custom_cache.dat".to_string();
+        config.load_on_startup = false;
+        config.max_items_to_save = 1000;
+        config.skip_expired_on_load = false;
+        config.shutdown_save_timeout_secs = 60;
+        
+        let mut periodic = PeriodicSaveConfig::default();
+        periodic.enabled = true;
+        periodic.interval_secs = 1800;
+        config.periodic = periodic;
+        
+        assert_eq!(config.enabled, true);
+        assert_eq!(config.path, "/tmp/custom_cache.dat");
+        assert_eq!(config.load_on_startup, false);
+        assert_eq!(config.max_items_to_save, 1000);
+        assert_eq!(config.skip_expired_on_load, false);
+        assert_eq!(config.shutdown_save_timeout_secs, 60);
+        assert_eq!(config.periodic.enabled, true);
+        assert_eq!(config.periodic.interval_secs, 1800);
+    }
+
+    #[test]
+    fn test_cache_config_with_persistence() {
+        // 测试带持久化的缓存配置
+        let mut cache_config = CacheConfig::default();
+        let mut persistence_config = PersistenceCacheConfig::default();
+        persistence_config.enabled = true;
+        persistence_config.path = "/var/cache/wdns/dns_cache.dat".to_string();
+        
+        cache_config.persistence = persistence_config;
+        
+        assert_eq!(cache_config.persistence.enabled, true);
+        assert_eq!(cache_config.persistence.path, "/var/cache/wdns/dns_cache.dat");
+    }
+
+    #[test]
+    fn test_parse_persistence_cache_config_from_yaml() {
+        use serde_yaml;
+        use crate::server::config::{ServerConfig, CacheConfig, PersistenceCacheConfig};
+        
+        let yaml_str = r#"
+http_server:
+  listen_addr: "127.0.0.1:8053"
+dns_resolver:
+  upstream:
+    resolvers:
+      - address: "8.8.8.8:53"
+        protocol: udp
+  cache:
+    enabled: true
+    size: 5000
+    ttl:
+      min: 60
+      max: 86400
+      negative: 300
+    persistence:
+      enabled: true
+      path: "/var/cache/dns_cache.dat"
+      load_on_startup: true
+      max_items_to_save: 1000
+      skip_expired_on_load: true
+      shutdown_save_timeout_secs: 45
+      periodic:
+        enabled: true
+        interval_secs: 1800
+"#;
+
+        let config: ServerConfig = serde_yaml::from_str(yaml_str).unwrap();
+        
+        // 验证持久化缓存配置
+        let persistence = &config.dns.cache.persistence;
+        assert_eq!(persistence.enabled, true);
+        assert_eq!(persistence.path, "/var/cache/dns_cache.dat");
+        assert_eq!(persistence.load_on_startup, true);
+        assert_eq!(persistence.max_items_to_save, 1000);
+        assert_eq!(persistence.skip_expired_on_load, true);
+        assert_eq!(persistence.shutdown_save_timeout_secs, 45);
+        assert_eq!(persistence.periodic.enabled, true);
+        assert_eq!(persistence.periodic.interval_secs, 1800);
+    }
 } 
