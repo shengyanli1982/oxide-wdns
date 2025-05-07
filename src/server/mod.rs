@@ -8,7 +8,6 @@ pub mod health;
 pub mod metrics;
 pub mod routing;
 pub mod security;
-pub mod signal;
 pub mod upstream;
 pub mod args;
 
@@ -16,11 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use axum::Router as AxumRouter;
 use reqwest::Client;
-use tokio::net::TcpListener;
-use tokio::signal::ctrl_c;
-use tokio::sync::oneshot;
 use tokio::time;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::server::error::{Result, ServerError};
 use crate::server::cache::DnsCache;
@@ -48,188 +44,89 @@ pub fn create_http_client(config: &ServerConfig) -> Result<Client> {
 pub struct DoHServer {
     // 配置
     config: ServerConfig,
-    // 关闭信号发送器
-    shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
 impl DoHServer {
     // 创建新的 DoH 服务器
     pub fn new(config: ServerConfig) -> Self {
-        Self {
-            config,
-            shutdown_tx: None,
-        }
+        Self { config }
     }
-    
-    // 启动服务器
-    pub async fn start(&mut self) -> Result<()> {
-        // 初始化缓存
+
+    // 此方法构建 Axum 应用和相关资源，但不启动服务器。
+    // 返回 Axum Router, DNS Cache, 和 cache metrics task handle.
+    pub async fn build_application_components(
+        &self,
+    ) -> Result<(
+        AxumRouter,
+        Arc<DnsCache>,
+        Arc<DnsMetrics>, // 返回 DnsMetrics 以便在外部使用或传递
+        tokio::task::JoinHandle<()>, // cache_metrics_handle
+    )> {
         let cache = Arc::new(DnsCache::new(self.config.dns.cache.clone()));
-        
-        // 创建 HTTP 客户端（用于 DoH 和 URL 规则获取）
         let client = create_http_client(&self.config)?;
-        
-        // 初始化 DNS 路由器
-        let router = Arc::new(DnsRouter::new(self.config.dns.routing.clone(), Some(client.clone())).await?);
-        
-        // 初始化上游管理器
-        let upstream = Arc::new(UpstreamManager::new(&self.config, client.clone()).await?);
-        
-        // 创建指标收集器
+        let router_manager = Arc::new(DnsRouter::new(self.config.dns.routing.clone(), Some(client.clone())).await?);
+        let upstream_manager = Arc::new(UpstreamManager::new(&self.config, client.clone()).await?);
         let metrics = Arc::new(DnsMetrics::new());
-        
-        // 创建服务器状态
+
         let state = ServerState {
             config: self.config.clone(),
-            upstream,
-            router,
+            upstream: upstream_manager,
+            router: router_manager,
             cache: cache.clone(),
             metrics: metrics.clone(),
         };
-        
-        // 创建 DoH 路由
-        let mut doh_specific_routes = doh_routes(state);
 
-        // 验证速率限制配置
+        let mut doh_specific_routes = doh_routes(state);
         let rate_limit_config = &self.config.http.rate_limit;
+
         if rate_limit_config.enabled {
-            // 验证速率配置
             let rate = rate_limit_config.per_ip_rate;
             if !(MIN_PER_IP_RATE..=MAX_PER_IP_RATE).contains(&rate) {
-                return Err(ServerError::Config(
-                    format!("Invalid per_ip_rate: {} (must be between {} and {})", 
-                            rate, MIN_PER_IP_RATE, MAX_PER_IP_RATE)
-                ));
+                return Err(ServerError::Config(format!(
+                    "Invalid per_ip_rate: {} (must be between {} and {})",
+                    rate, MIN_PER_IP_RATE, MAX_PER_IP_RATE
+                )));
             }
-            
-            // 验证突发大小配置
             let burst = rate_limit_config.per_ip_concurrent;
             if !(MIN_PER_IP_CONCURRENT..=MAX_PER_IP_CONCURRENT).contains(&burst) {
-                return Err(ServerError::Config(
-                    format!("Invalid per_ip_concurrent: {} (must be between {} and {})", 
-                            burst, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT)
-                ));
+                return Err(ServerError::Config(format!(
+                    "Invalid per_ip_concurrent: {} (must be between {} and {})",
+                    burst, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT
+                )));
             }
-            
-            // 验证速率是否可以正确计算周期
             if calculate_period_duration(rate).is_none() {
-                return Err(ServerError::Config(
-                    format!("Failed to calculate rate limit period for per_ip_rate: {}", rate)
-                ));
+                return Err(ServerError::Config(format!(
+                    "Failed to calculate rate limit period for per_ip_rate: {}",
+                    rate
+                )));
             }
-            
-            // 应用速率限制
             doh_specific_routes = apply_rate_limiting(doh_specific_routes, rate_limit_config);
             info!("Rate limiting applied with per_ip_rate: {} and per_ip_concurrent: {}", rate, burst);
         } else {
             info!("Rate limiting is disabled");
         }
-        
-        // 创建主应用路由，合并所有路由
-        let app = AxumRouter::new()
-            .merge(health_routes()) // 添加健康检查路由 
-            .merge(metrics_routes()) // 添加指标收集路由
-            .merge(doh_specific_routes); // 合并已应用中间件的 DoH 路由
-            
-        // 创建 TCP 监听器
-        let addr = self.config.http.listen_addr;
-        let listener = TcpListener::bind(addr).await?;
-        info!("DoH server is now active on: {}", addr);
-        
-        // 创建关闭信号
-        let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-        self.shutdown_tx = Some(shutdown_tx);
-        
-        // 启动缓存统计数据更新任务
-        let cache_metrics_handle = tokio::spawn(Self::update_cache_metrics(cache.clone(), metrics));
-        
-        // 开始接收连接并处理请求
-        info!("Starting to accept connections");
-        let server = axum::serve(
-            listener,
-            // Ensure connect_info is provided for SmartIpKeyExtractor fallback
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>()
-        )
-        .with_graceful_shutdown(Self::shutdown_signal(shutdown_rx));
-        
-        // 运行服务器
-        if let Err(e) = server.await {
-            error!("HTTP server error: {}", e);
-            // 确保取消缓存指标任务
-            cache_metrics_handle.abort();
-            return Err(e.into());
-        }
-        
-        // 通知缓存指标任务停止
-        cache_metrics_handle.abort();
 
-        // 关闭 DNS 缓存
-        info!("Shutting down DNS cache...");
-        if let Err(e) = cache.shutdown().await {
-            error!("Failed to shutdown DNS cache: {}", e);
-        } else {
-            info!("DNS cache shutdown successfully.");
-        }
-        
-        info!("HTTP server has been successfully shutdown");
-        Ok(())
+        let app = AxumRouter::new()
+            .merge(health_routes())
+            .merge(metrics_routes()) // metrics_routes 现在直接使用 state 中的 metrics
+            .merge(doh_specific_routes);
+
+        let cache_metrics_handle =
+            tokio::spawn(Self::update_cache_metrics(cache.clone(), metrics.clone()));
+
+        Ok((app, cache, metrics, cache_metrics_handle))
     }
-    
-    // 监听关闭信号
-    async fn shutdown_signal(shutdown_rx: oneshot::Receiver<()>) {
-        // 等待手动关闭信号或系统信号
-        tokio::select! {
-            // 手动关闭信号
-            res = shutdown_rx => {
-                match res {
-                    Ok(_) => info!("Manual shutdown signal received"),
-                    Err(e) => info!("Manual shutdown channel closed: {}", e),
-                }
-            }
-            // Ctrl+C 信号
-            _ = ctrl_c() => {
-                info!("Received Ctrl+C signal");
-            }
-        }
-        
-        info!("Initiating graceful shutdown sequence...");
-        // 给正在处理的请求留出一些时间完成
-        // 使用 sleep_until 提高精确性
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
-        time::sleep_until(deadline).await;
-    }
-    
-    // 更新缓存指标的任务
-    async fn update_cache_metrics(
-        cache: Arc<DnsCache>,
-        metrics: Arc<DnsMetrics>,
-    ) {
-        // 使用 interval_at 确保固定间隔执行
+
+    // 更新缓存指标的任务 (保持不变)
+    async fn update_cache_metrics(cache: Arc<DnsCache>, metrics: Arc<DnsMetrics>) {
         let start = tokio::time::Instant::now();
         let period = Duration::from_secs(15);
         let mut interval = time::interval_at(start, period);
-        
+
         loop {
             interval.tick().await;
-            
-            // 获取并更新缓存大小 - 使用无需等待的 len 方法优化性能
-            let cache_size = cache.len().await;
+            let cache_size = cache.len().await; // 假设 len 是 async
             metrics.record_cache_size(cache_size);
         }
     }
-    
-    // 关闭服务器
-    pub fn shutdown(&mut self) {
-        if let Some(tx) = self.shutdown_tx.take() {
-            let _ = tx.send(());
-            info!("Shutdown signal sent to HTTP server");
-        }
-    }
-    
-    // 运行服务器
-    pub async fn run(config: ServerConfig) -> Result<()> {
-        let mut server = Self::new(config);
-        server.start().await?;
-        Ok(())
-    }
-} 
+}

@@ -2,307 +2,286 @@
 
 #[cfg(test)]
 mod tests {
-    use oxide_wdns::server::signal;
-    use tokio::sync::broadcast;
-    use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use tracing::info;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::error::Error;
-
-    // 创建类型别名，简化复杂类型
-    type ShutdownFuture = Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + Send>>;
-    type ShutdownHandler = Box<dyn FnOnce() -> ShutdownFuture + Send>;
-
-    // 用于测试的辅助函数，模拟一个需要关闭的服务
-    async fn mock_service_task(mut rx: broadcast::Receiver<()>, delay: Option<Duration>) -> bool {
-        tokio::select! {
-            _ = rx.recv() => {
-                // 如果指定了延迟，则模拟服务关闭需要时间
-                if let Some(delay_time) = delay {
-                    tokio::time::sleep(delay_time).await;
-                }
-                true // 服务正常关闭
-            }
-            _ = tokio::time::sleep(Duration::from_secs(5)) => {
-                false // 超时（无信号收到）
-            }
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_graceful_shutdown_on_sigint() {
-        // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
-        info!("Starting test: test_graceful_shutdown_on_sigint");
-
-        // 测试：接收到 SIGINT 信号时，是否触发了优雅关闭流程。
-        info!("Creating shutdown broadcast channel...");
-        let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
-        
-        // 启动模拟服务
-        info!("Spawning mock service task...");
-        let service_handle = tokio::spawn(mock_service_task(shutdown_rx, None));
-        
-        // 启动信号处理器
-        // 注意：在测试中，setup_signal_handlers 可能不会真正监听系统信号，
-        // 但它会返回一个句柄，并且可以通过 tx 发送关闭信号来模拟。
-        info!("Setting up signal handlers (mocked)...");
-        let signal_handle = signal::setup_signal_handlers(shutdown_tx.clone()).await;
-        info!("Signal handlers set up.");
-        
-        // 模拟发送信号 - 通过直接调用 shutdown_tx.send() 而不是真的发送系统信号
-        // 这样可以绕过真实信号的限制，同时测试相同的关闭流程逻辑
-        info!("Simulating shutdown signal by sending to broadcast channel...");
-        let send_result = shutdown_tx.send(());
-        info!(send_successful = send_result.is_ok(), "Shutdown signal sent.");
-        
-        // 等待服务关闭
-        info!("Waiting for mock service task to complete...");
-        let service_shutdown_result = service_handle.await.expect("Service task panicked");
-        info!(service_result = service_shutdown_result, "Mock service task completed.");
-        
-        // 断言服务正常关闭
-        assert!(service_shutdown_result, "Service did not respond to shutdown signal correctly");
-        info!("Validated service shutdown result.");
-        
-        // 终止信号处理任务
-        info!("Aborting signal handler task...");
-        signal_handle.abort();
-        info!("Test finished: test_graceful_shutdown_on_sigint");
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn test_graceful_shutdown_on_sigterm() {
-        // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
-        info!("Starting test: test_graceful_shutdown_on_sigterm");
-
-        // 测试：接收到 SIGTERM 信号时，是否触发了优雅关闭流程。
-        info!("Creating shutdown broadcast channel...");
-        let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
-        
-        // 启动模拟服务
-        info!("Spawning mock service task...");
-        let service_handle = tokio::spawn(mock_service_task(shutdown_rx, None));
-        
-        // 启动信号处理器
-        info!("Setting up signal handlers (mocked)...");
-        let signal_handle = signal::setup_signal_handlers(shutdown_tx.clone()).await;
-        info!("Signal handlers set up.");
-        
-        // 模拟发送信号 - 直接发送到广播通道
-        info!("Simulating shutdown signal by sending to broadcast channel...");
-        let send_result = shutdown_tx.send(());
-        info!(send_successful = send_result.is_ok(), "Shutdown signal sent.");
-        
-        // 等待服务关闭
-        info!("Waiting for mock service task to complete...");
-        let service_shutdown_result = service_handle.await.expect("Service task panicked");
-        info!(service_result = service_shutdown_result, "Mock service task completed.");
-        
-        // 断言服务正常关闭
-        assert!(service_shutdown_result, "Service did not respond to shutdown signal correctly");
-        info!("Validated service shutdown result.");
-        
-        // 终止信号处理任务
-        info!("Aborting signal handler task...");
-        signal_handle.abort();
-        info!("Test finished: test_graceful_shutdown_on_sigterm");
-    }
-
-    #[tokio::test]
-    async fn test_shutdown_completes_within_timeout() {
-        // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
-        info!("Starting test: test_shutdown_completes_within_timeout");
-
-        // 测试：优雅关闭过程是否能在指定的超时时间内完成（或强制退出）。
-        info!("Creating shutdown broadcast channel...");
-        let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
-        
-        // 设置关闭超时和服务延迟
-        let shutdown_timeout = Duration::from_millis(100); // 非常短的超时时间
-        let service_delay = Duration::from_secs(1); // 服务故意延迟较长时间
-        info!(?shutdown_timeout, ?service_delay, "Configured shutdown timeout and service delay.");
-        
-        // 使用 Arc<Mutex<Option<JoinHandle>>> 共享服务句柄
-        // 这样可以在不同分支中安全地访问和操作它
-        info!("Spawning mock service task with delay...");
-        let service_handle = tokio::spawn(mock_service_task(shutdown_rx, Some(service_delay)));
-        let service_handle_arc = Arc::new(Mutex::new(Some(service_handle)));
-        info!("Mock service task spawned.");
-        
-        // 记录开始时间
-        let start_time = std::time::Instant::now();
-        info!("Test timer started.");
-        
-        // 发送关闭信号
-        info!("Simulating shutdown signal by sending to broadcast channel...");
-        let send_result = shutdown_tx.send(());
-        info!(send_successful = send_result.is_ok(), "Shutdown signal sent.");
-        
-        // 为超时分支克隆服务句柄
-        let timeout_handle_arc = service_handle_arc.clone();
-        
-        // 使用超时机制等待服务关闭或强制终止
-        info!("Waiting for service completion or timeout ({:?})...", shutdown_timeout);
-        tokio::select! {
-            _ = async {
-                // 等待服务完成的分支
-                info!("Waiting for service handle completion...");
-                // 创建一个作用域来限制锁的持有时间
-                let handle = {
-                    let mut lock = service_handle_arc.lock().unwrap();
-                    lock.take()
-                };
-                
-                if let Some(handle) = handle {
-                    let result = handle.await;
-                    let elapsed = start_time.elapsed();
-                    info!(?elapsed, ?result, "Service task completed normally.");
-                    assert!(result.is_ok(), "Service task panicked");
-                    // 由于select!竞态条件，即使服务正常完成，也可能落在超时分支
-                    // 因此，如果服务正常完成，主要检查它是否运行了预期的时间
-                    assert!(elapsed >= service_delay, "Service shutdown duration ({:?}) was less than expected delay ({:?})", elapsed, service_delay);
-                } else {
-                    info!("Service handle was already taken (likely by timeout branch).");
-                }
-            } => { info!("Service completed branch finished.") }
-            
-            _ = tokio::time::sleep(shutdown_timeout) => {
-                // 超时分支
-                let elapsed = start_time.elapsed();
-                info!(?elapsed, ?shutdown_timeout, "Timeout branch executed.");
-                // 尝试终止服务任务
-                info!("Attempting to abort service task due to timeout...");
-                
-                // 创建作用域来限制锁的持有时间
-                let handle = {
-                    let mut lock = timeout_handle_arc.lock().unwrap();
-                    lock.take()
-                };
-                
-                if let Some(handle) = handle {
-                    handle.abort();
-                    info!("Service task aborted.");
-                } else {
-                    info!("Service handle was already taken (likely completed normally).");
-                }
-                
-                // 断言：我们确实在 service_delay 之前超时了
-                assert!(elapsed < service_delay, "Forced shutdown did not execute before service delay finished ({:?} < {:?})", elapsed, service_delay);
-                // 断言：超时确实发生在 shutdown_timeout 之后（允许一点误差）
-                assert!(elapsed >= shutdown_timeout, "Forced shutdown duration ({:?}) was less than timeout ({:?})", elapsed, shutdown_timeout);
-                info!("Validated timeout behavior.");
-            }
-        }
-        info!("Test finished: test_shutdown_completes_within_timeout");
-    }
-}
-
-#[cfg(test)]
-mod cache_persistence_signal_tests {
-    use tracing::info;
-    use oxide_wdns::server::config::{CacheConfig, PersistenceCacheConfig};
-    use oxide_wdns::server::cache::DnsCache;
     use std::sync::Arc;
-    use std::fs;
     use std::path::Path;
-    use tokio::time::sleep;
-    use std::time::Duration;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::error::Error;
-    
-    // 创建类型别名，简化复杂类型
-    type ShutdownFuture = Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + Send>>;
-    type ShutdownHandler = Box<dyn FnOnce() -> ShutdownFuture + Send>;
-    
-    // 测试用的信号处理器
-    struct SignalHandler {
-        shutdown_handlers: Vec<ShutdownHandler>,
-    }
-    
-    impl SignalHandler {
-        fn new() -> Self {
-            Self {
-                shutdown_handlers: Vec::new(),
-            }
-        }
-        
-        fn register_shutdown_handler<F>(&mut self, handler: Box<F>)
-        where
-            F: FnOnce() -> ShutdownFuture + Send + 'static,
-        {
-            self.shutdown_handlers.push(handler);
-        }
-        
-        async fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
-            let handlers = std::mem::take(&mut self.shutdown_handlers);
-            
-            for handler in handlers {
-                handler().await?;
-            }
-            
-            Ok(())
-        }
+    use tokio::sync::oneshot;
+    use tokio_graceful_shutdown::{Toplevel, SubsystemHandle};
+    use tracing::{debug, info};
+    use oxide_wdns::server::config::{
+        ServerConfig, DnsResolverConfig, HttpServerConfig, CacheConfig,
+        UpstreamConfig, ResolverConfig, ResolverProtocol, PersistenceCacheConfig
+    };
+    use oxide_wdns::server::DoHServer;
+    use oxide_wdns::server::cache::{DnsCache, CacheKey};
+    use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
+    use trust_dns_proto::rr::{Name, Record, RecordType, RData, DNSClass};
+    use anyhow::Result;
+    use tempfile::tempdir;
+
+    // 初始化日志系统，用于测试
+    fn init_test_logging() {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter("debug")
+            .try_init();
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_cache_persistence_on_shutdown_signal() {
-        // 创建临时文件路径
-        let cache_path = format!("./test_signal_cache_{}.dat", std::process::id());
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
-        info!("Starting test: test_cache_persistence_on_shutdown_signal");
+    // 创建测试配置
+    fn create_test_config() -> ServerConfig {
+        // 创建一个用于测试的最小配置
+        let http = HttpServerConfig::default();
         
-        // 确保测试开始时文件不存在
-        if Path::new(&cache_path).exists() {
-            fs::remove_file(&cache_path).expect("Failed to delete cache file");
-        }
-        
-        // 创建缓存配置
-        let mut cache_config = CacheConfig::default();
-        let persistence_config = PersistenceCacheConfig {
-            enabled: true,
-            path: cache_path.clone(),
-            shutdown_save_timeout_secs: 1,
-            ..PersistenceCacheConfig::default()
+        // 创建一个简单的上游配置，使用一个公共 DNS 解析器
+        let resolver = ResolverConfig {
+            address: "8.8.8.8:53".to_string(),
+            protocol: ResolverProtocol::Udp,
         };
-        cache_config.persistence = persistence_config;
         
-        // 创建缓存实例
-        let cache = Arc::new(DnsCache::new(cache_config));
+        let upstream = UpstreamConfig {
+            resolvers: vec![resolver],
+            enable_dnssec: false,
+            query_timeout: 5,
+        };
         
-        // 创建信号处理器
-        let mut signal_handler = SignalHandler::new();
+        let cache = CacheConfig::default();
         
-        // 注册缓存关闭处理程序
-        let cache_clone: Arc<DnsCache> = Arc::clone(&cache);
-        signal_handler.register_shutdown_handler(Box::new(move || {
-            let cache = Arc::clone(&cache_clone);
-            let fut = async move {
-                // 当信号触发时，缓存应该执行关闭操作
-                cache.shutdown().await.unwrap();
-                Ok(()) as Result<(), Box<dyn Error + 'static>>
-            };
-            Box::pin(fut) as Pin<Box<dyn Future<Output = Result<(), Box<dyn Error>>> + Send>>
-        }));
+        let dns = DnsResolverConfig {
+            upstream,
+            http_client: Default::default(),
+            cache,
+            routing: Default::default(),
+        };
         
-        // 手动触发关闭处理程序
-        signal_handler.shutdown().await.unwrap();
-        
-        // 等待一段时间确保关闭处理程序执行完毕
-        sleep(Duration::from_millis(100)).await;
-        
-        // 验证缓存文件存在
-        assert!(Path::new(&cache_path).exists(), "Cache file should be created when shutdown signal is processed");
-        
-        // 测试结束后清理
-        if Path::new(&cache_path).exists() {
-            fs::remove_file(&cache_path).expect("Failed to delete cache file");
+        ServerConfig { http, dns }
+    }
+
+    // 模拟 owdns_server_subsystem 函数
+    async fn mock_owdns_subsystem(
+        subsys: SubsystemHandle,
+        _config: ServerConfig,
+        doh_server: Arc<DoHServer>,
+        shutdown_signal: oneshot::Sender<()>,
+    ) -> Result<()> {
+        info!("Mock OWDNS server started");
+
+        // 构建应用组件但不实际绑定端口
+        let (_app_router, dns_cache, _dns_metrics, cache_metrics_handle) =
+            doh_server.build_application_components().await?;
+
+        // 等待关闭信号
+        tokio::select! {
+            _ = subsys.on_shutdown_requested() => {
+                info!("Shutdown requested, stopping mock OWDNS server...");
+                // 发送信号表示子系统收到关闭请求
+                let _ = shutdown_signal.send(());
+            }
+        };
+
+        // 停止缓存指标任务
+        cache_metrics_handle.abort();
+        debug!("Cache metrics task aborted.");
+
+        // 关闭 DNS 缓存
+        if let Err(e) = dns_cache.shutdown().await {
+            info!("Failed to shutdown DNS cache: {}", e);
+        } else {
+            info!("DNS cache shutdown successfully.");
         }
-        info!("Test finished: test_cache_persistence_on_shutdown_signal");
+
+        info!("Mock OWDNS server shutdown completed");
+        Ok(())
+    }
+
+    // 测试关闭信号处理
+    #[tokio::test]
+    async fn test_graceful_shutdown_signal_handling() {
+        init_test_logging();
+        info!("Starting test: test_graceful_shutdown_signal_handling");
+
+        // 创建测试配置和服务器实例
+        let config = create_test_config();
+        let doh_server = Arc::new(DoHServer::new(config.clone()));
+
+        // 创建一个通道，用于验证关闭信号是否被处理
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
+        
+        // 创建一个通道用于模拟发送CTRL+C信号
+        let (signal_tx, signal_rx) = oneshot::channel::<()>();
+        
+        // 使用tokio::spawn启动一个任务，在收到信号后模拟CTRL+C
+        tokio::spawn(async move {
+            if let Ok(_) = signal_rx.await {
+                // 模拟CTRL+C信号 - 发送一个信号到当前进程
+                info!("模拟发送CTRL+C信号");
+                
+                #[cfg(target_family = "unix")]
+                {
+                    use nix::sys::signal::{kill, Signal};
+                    use nix::unistd::Pid;
+                    let _ = kill(Pid::this(), Signal::SIGINT);
+                }
+                
+                #[cfg(target_family = "windows")]
+                {
+                    // Windows系统下使用windows-sys发送CTRL+C信号
+                    use windows_sys::Win32::System::Console;
+                    
+                    unsafe {
+                        let result = Console::GenerateConsoleCtrlEvent(
+                            Console::CTRL_C_EVENT,
+                            0
+                        );
+                        if result == 0 {
+                            info!("Failed to send CTRL+C event");
+                        }
+                    }
+                }
+            }
+        });
+        
+        // 创建顶级控制器，管理服务器子系统
+        let toplevel_handle = tokio::spawn(async move {
+            Toplevel::new(move |s| {
+                let tx = shutdown_tx;
+                let server_clone = doh_server.clone();
+                let config_clone = config.clone();
+                async move {
+                    if let Err(e) = mock_owdns_subsystem(s, config_clone, server_clone, tx).await {
+                        info!("Mock OWDNS server subsystem error: {:#}", e);
+                    }
+                }
+            })
+            .catch_signals()
+            .handle_shutdown_requests(Duration::from_secs(1))
+            .await
+        });
+        
+        // 等待服务启动
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        
+        // 发送信号以触发CTRL+C
+        let _ = signal_tx.send(());
+        
+        // 等待顶级控制器完成
+        let toplevel_result = match tokio::time::timeout(Duration::from_secs(5), toplevel_handle).await {
+            Ok(result) => result.expect("Toplevel task panicked"),
+            Err(_) => {
+                panic!("Toplevel controller timed out");
+            }
+        };
+        
+        // 验证顶级控制器是否正常退出
+        assert!(toplevel_result.is_ok(), "Toplevel controller should exit successfully");
+        
+        // 验证关闭信号是否被接收
+        match shutdown_rx.try_recv() {
+            Ok(_) => info!("Shutdown signal was properly received"),
+            Err(_) => panic!("Shutdown signal was not received"),
+        }
+        
+        info!("Test finished: test_graceful_shutdown_signal_handling");
+    }
+
+    // 创建测试 DNS 响应消息
+    fn create_test_dns_message(domain: &str, ip: &str) -> Message {
+        let mut message = Message::new();
+        message.set_message_type(MessageType::Response);
+        message.set_op_code(OpCode::Query);
+        message.set_response_code(ResponseCode::NoError);
+        
+        // 创建查询部分
+        let name = Name::from_ascii(domain).unwrap();
+        let mut query = trust_dns_proto::op::Query::new();
+        query.set_name(name.clone());
+        query.set_query_type(RecordType::A);
+        query.set_query_class(DNSClass::IN);
+        message.add_query(query);
+        
+        // 创建 A 记录
+        let mut record = Record::new();
+        record.set_name(name);
+        record.set_ttl(300); // 5分钟 TTL
+        record.set_record_type(RecordType::A);
+        record.set_dns_class(DNSClass::IN);
+        record.set_data(Some(RData::A(ip.parse().unwrap())));
+        
+        // 添加到 answers 部分
+        message.add_answer(record);
+        message
+    }
+
+    // 测试缓存在关闭时是否保存到磁盘
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_cache_save_on_shutdown() {
+        init_test_logging();
+        info!("Starting test: test_cache_save_on_shutdown");
+
+        // 创建临时目录用于缓存文件
+        let temp_dir = tempdir().expect("Failed to create temp directory");
+        let cache_path = temp_dir.path().join("test_cache.bin");
+        let cache_path_str = cache_path.to_str().unwrap().to_string();
+        
+        // 创建带有持久化配置的测试配置
+        let mut config = create_test_config();
+        
+        // 启用缓存和持久化
+        config.dns.cache.enabled = true;
+        
+        // 设置持久化配置
+        config.dns.cache.persistence = PersistenceCacheConfig {
+            enabled: true,
+            path: cache_path_str.clone(),
+            load_on_startup: true,
+            max_items_to_save: 1000,
+            skip_expired_on_load: true,
+            shutdown_save_timeout_secs: 5,
+            periodic: Default::default(),
+        };
+
+        // 创建自定义 DnsCache 并填充一些测试数据
+        let dns_cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
+        
+        // 添加一些测试数据到缓存
+        let test_domains = vec![
+            ("example.com", "93.184.216.34"),
+            ("test.example.org", "192.0.2.1"),
+            ("api.example.net", "198.51.100.1"),
+        ];
+        
+        for (domain, ip) in &test_domains {
+            let message = create_test_dns_message(domain, ip);
+            let key = CacheKey::from(&message);
+            dns_cache.put_with_auto_ttl(&key, &message).await.expect("Failed to put item in cache");
+        }
+        
+        // 验证缓存中的项目数
+        let cache_size = dns_cache.len().await;
+        assert_eq!(cache_size, test_domains.len() as u64, "Cache should contain {} items", test_domains.len());
+        
+        // 触发关闭并保存缓存
+        dns_cache.shutdown().await.expect("Failed to shutdown cache");
+        
+        // 验证缓存文件是否存在
+        assert!(Path::new(&cache_path_str).exists(), "Cache file should exist after shutdown");
+        
+        // 创建新的缓存实例，加载缓存文件
+        let new_cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
+        
+        // 增加等待时间，确保缓存完全加载完成
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        
+        // 验证新缓存中的项目数量
+        let new_cache_size = new_cache.len().await;
+        assert_eq!(new_cache_size, test_domains.len() as u64, "Loaded cache should contain {} items", test_domains.len());
+        
+        // 验证可以从新缓存中检索数据
+        for (domain, _) in &test_domains {
+            let name = Name::from_ascii(domain).unwrap();
+            let key = CacheKey::new(name, RecordType::A, DNSClass::IN);
+            let result = new_cache.get(&key).await;
+            assert!(result.is_some(), "Should be able to retrieve '{}' from loaded cache", domain);
+        }
+        
+        info!("Test finished: test_cache_save_on_shutdown");
     }
 } 

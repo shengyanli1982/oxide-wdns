@@ -80,36 +80,30 @@ dns_resolver:
       # 是否启用缓存持久化功能。
       # 启用后，服务关闭时会自动保存当前缓存状态到磁盘，并在下次启动时尝试加载。
       # 缓存将以高效的二进制格式存储。
-      enabled: false
-
+      enabled: true
       # 缓存文件的存储路径。
       # 如果是相对路径，则相对于 oxide-wdns 的工作目录。
       # 推荐使用绝对路径或确保工作目录的稳定性。
       path: "./cache.dat"
-
       # 服务启动时是否自动从磁盘加载缓存。
       # 仅在 enabled: true 时生效。
       load_on_startup: true
-
       # (可选) 保存到磁盘的最大缓存条目数。
       # 用于控制持久化文件的大小，尤其是在内存缓存非常大时。
       # 如果未设置或设置为 0，则尝试保存所有符合条件的缓存条目 (受 cache.size 限制)。
       max_items_to_save: 0
-
       # 从磁盘加载时，如果缓存条目已过期（根据其原始TTL和保存时间判断），是否跳过加载这些条目。
       skip_expired_on_load: true
-
       # 关机时保存缓存的超时时间（秒）
       # 如果保存操作超过此时间，将被中断以确保服务能够及时关闭
       # 默认值: 30
       shutdown_save_timeout_secs: 30
-
       # --- 周期性保存配置 ---
       # 除了在关闭时保存，还可以配置周期性地将内存缓存保存到磁盘。
       periodic:
         # 是否启用周期性保存缓存的功能。
         # 仅在 persistence.enabled: true 时生效。
-        enabled: false
+        enabled: true
 
         # 周期性保存的时间间隔（秒）。
         # 例如: 3600 (1小时)。
@@ -195,19 +189,19 @@ dns_resolver:
         # 特殊目标组：丢弃请求
         upstream_group: "__blackhole__"
 
-      # 规则 5: 从本地文件加载国内域名列表，路由到 domestic_dns
-      # 文件格式请参考下方的“域名列表文件格式”部分。
-      - match:
-          type: file
-          path: "/etc/oxide-wdns/china_domains.txt"
-        upstream_group: "domestic_dns"
+      # # 规则 5: 从本地文件加载国内域名列表，路由到 alidns_doh
+      # # 文件格式请参考下方的“域名列表文件格式”部分。
+      # - match:
+      #     type: file
+      #     path: "/etc/oxide-wdns/china_domains.txt"
+      #   upstream_group: "alidns_doh"
 
-      # 规则 6: 从远程 URL 加载广告域名列表，使用 __blackhole__ 阻止它们
-      # 来自 URL 的规则会周期性获取。格式请参考下方说明。
-      - match:
-          type: url
-          url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
-        upstream_group: "__blackhole__"
+      # # 规则 6: 从远程 URL 加载广告域名列表，使用 __blackhole__ 阻止它们
+      # # 来自 URL 的规则会周期性获取。格式请参考下方说明。
+      # - match:
+      #     type: url
+      #     url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
+      #   upstream_group: "__blackhole__"
 
     # --- 默认上游组配置 ---
     # 可选: 指定默认的上游组名称。
