@@ -44,9 +44,6 @@ pub const BLACKHOLE_UPSTREAM_GROUP_NAME: &str = "__blackhole__";
 // 缓存常量
 //
 
-// 默认是否启用缓存
-pub const DEFAULT_CACHE_ENABLED: bool = true;
-
 // 默认缓存大小（条目数）
 pub const DEFAULT_CACHE_SIZE: usize = 10000;
 
@@ -58,6 +55,12 @@ pub const DEFAULT_MAX_TTL: u32 = 86400; // 1 天
 
 // 默认负缓存 TTL（秒）
 pub const DEFAULT_NEGATIVE_TTL: u32 = 300; // 5 分钟
+
+// 缓存文件魔数，用于识别缓存文件
+pub const CACHE_FILE_MAGIC: &str = "OXIDEWDNS_CACHE";
+
+// 缓存文件版本号
+pub const CACHE_FILE_VERSION: u64 = 1;
 
 //
 // 速率限制常量

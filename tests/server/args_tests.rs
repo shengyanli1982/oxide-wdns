@@ -61,6 +61,7 @@ dns_resolver:
         let mut cmd = Command::cargo_bin("owdns").expect("Failed to find binary");
         
         cmd.arg("--version")
+            .timeout(std::time::Duration::from_secs(1))
             .assert()
             .success();
     }

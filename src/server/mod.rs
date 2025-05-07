@@ -141,7 +141,7 @@ impl DoHServer {
         self.shutdown_tx = Some(shutdown_tx);
         
         // 启动缓存统计数据更新任务
-        let cache_metrics_handle = tokio::spawn(Self::update_cache_metrics(cache, metrics));
+        let cache_metrics_handle = tokio::spawn(Self::update_cache_metrics(cache.clone(), metrics));
         
         // 开始接收连接并处理请求
         info!("Starting to accept connections");
@@ -162,6 +162,14 @@ impl DoHServer {
         
         // 通知缓存指标任务停止
         cache_metrics_handle.abort();
+
+        // 关闭 DNS 缓存
+        info!("Shutting down DNS cache...");
+        if let Err(e) = cache.shutdown().await {
+            error!("Failed to shutdown DNS cache: {}", e);
+        } else {
+            info!("DNS cache shutdown successfully.");
+        }
         
         info!("HTTP server has been successfully shutdown");
         Ok(())

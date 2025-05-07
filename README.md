@@ -78,6 +78,12 @@ The design of `owdns` makes it particularly suitable for environments requiring 
     -   Built-in high-performance **LRU cache** significantly reduces latency and upstream load.
     -   Supports **Negative Caching** (including for `__blackhole__` responses).
     -   Configurable cache size and TTL.
+    -   **Persistent Cache:**
+        -   Allows the service to save the in-memory DNS cache to disk upon shutdown and reload it on the next startup.
+        -   Significantly reduces "cold start" time after service restart and quickly restores cache hit rates.
+        -   Reduces pressure on upstream DNS servers during initial startup phases after a restart.
+        -   Supports configuration for persistence path, whether to load on startup, maximum number of items to save, and whether to skip expired entries.
+        -   Supports periodic automatic saving of the cache to disk.
 -   📊 **Observability:**
     -   Integrated **Prometheus metrics** (`/metrics` endpoint) for easy monitoring of service status and performance.
     -   Provides **Kubernetes health check** endpoint (`/health`).
@@ -165,6 +171,26 @@ You can install Oxide WDNS in the following ways:
           min: 60
           max: 86400
           negative: 300 # TTL for negative responses (NXDOMAIN), including __blackhole__
+        # --- Persistent Cache Configuration ---
+        persistence:
+          # Enable cache persistence.
+          enabled: true
+          # Path to the cache file.
+          path: "./cache.dat"
+          # Automatically load cache from disk on startup.
+          load_on_startup: true
+          # (Optional) Max cache items to save to disk.
+          max_items_to_save: 0
+          # Skip loading expired items from disk.
+          skip_expired_on_load: true
+          # Timeout in seconds for saving cache during shutdown.
+          shutdown_save_timeout_secs: 30
+          # --- Periodic Save Configuration ---
+          periodic:
+            # Enable periodic saving of the cache.
+            enabled: true
+            # Interval in seconds for periodic saving.
+            interval_secs: 3600
 
       # --- Global/Default Upstream DNS Configuration ---
       # These settings act as global defaults and the final fallback if no routing rules match

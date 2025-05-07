@@ -12,7 +12,7 @@ use crate::common::consts::{
     // 上游服务器相关常量
     DEFAULT_QUERY_TIMEOUT,
     // 缓存相关常量
-    DEFAULT_CACHE_ENABLED, DEFAULT_CACHE_SIZE, DEFAULT_MIN_TTL, 
+    DEFAULT_CACHE_SIZE, DEFAULT_MIN_TTL, 
     DEFAULT_MAX_TTL, DEFAULT_NEGATIVE_TTL,
     // 速率限制相关常量
     DEFAULT_PER_IP_RATE, DEFAULT_PER_IP_CONCURRENT,
@@ -119,7 +119,7 @@ pub enum ResolverProtocol {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
     // 是否启用缓存
-    #[serde(default = "default_cache_enabled")]
+    #[serde(default = "default_disable")]
     pub enabled: bool,
     
     // 缓存大小（条目数）
@@ -129,6 +129,10 @@ pub struct CacheConfig {
     // TTL 配置
     #[serde(default)]
     pub ttl: TtlConfig,
+
+    // 持久化缓存配置
+    #[serde(default)]
+    pub persistence: PersistenceCacheConfig,
 }
 
 // TTL 配置
@@ -151,7 +155,7 @@ pub struct TtlConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
     // 是否启用速率限制
-    #[serde(default)]
+    #[serde(default = "default_disable")]
     pub enabled: bool,
     
     // 每个 IP 每秒最大请求数
@@ -208,7 +212,7 @@ pub struct RequestConfig {
 #[derive(Default)]
 pub struct RoutingConfig {
     // 是否启用DNS分流
-    #[serde(default)]
+    #[serde(default = "default_disable")]
     pub enabled: bool,
     
     // 上游DNS服务器组
@@ -289,6 +293,49 @@ pub enum MatchType {
     Url,
 }
 
+// 持久化缓存配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistenceCacheConfig {
+    // 是否启用缓存持久化功能
+    #[serde(default = "default_disable")]
+    pub enabled: bool,
+    
+    // 缓存文件的存储路径
+    #[serde(default = "default_cache_persistence_path")]
+    pub path: String,
+    
+    // 服务启动时是否自动加载缓存
+    #[serde(default = "default_cache_load_on_startup")]
+    pub load_on_startup: bool,
+    
+    // 保存到磁盘的最大缓存条目数
+    #[serde(default)]
+    pub max_items_to_save: usize,
+    
+    // 加载时是否跳过已过期条目
+    #[serde(default = "default_cache_skip_expired_on_load")]
+    pub skip_expired_on_load: bool,
+    
+    // 关机时保存缓存的超时时间（秒）
+    #[serde(default = "default_cache_shutdown_save_timeout")]
+    pub shutdown_save_timeout_secs: u64,
+    
+    // 周期性保存配置
+    #[serde(default)]
+    pub periodic: PeriodicSaveConfig,
+}
+
+// 周期性保存配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeriodicSaveConfig {
+    // 是否启用周期性保存
+    #[serde(default = "default_disable")]
+    pub enabled: bool,
+    
+    // 保存间隔（秒）
+    #[serde(default = "default_cache_periodic_interval_secs")]
+    pub interval_secs: u64,
+}
 
 // 默认值函数 - 使用 consts 中定义的常量
 fn default_resolver_protocol() -> ResolverProtocol {
@@ -299,8 +346,8 @@ fn default_query_timeout() -> u64 {
     DEFAULT_QUERY_TIMEOUT
 }
 
-fn default_cache_enabled() -> bool {
-    DEFAULT_CACHE_ENABLED
+fn default_disable() -> bool {
+    false
 }
 
 fn default_cache_size() -> usize {
@@ -349,6 +396,31 @@ fn default_http_client_agent() -> String {
 
 fn default_ip_header_names() -> Vec<String> {
     crate::common::consts::IP_HEADER_NAMES.iter().map(|&s| s.to_string()).collect()
+}
+
+// 默认缓存持久化路径
+fn default_cache_persistence_path() -> String {
+    "./cache.dat".to_string()
+}
+
+// 默认启动时加载缓存
+fn default_cache_load_on_startup() -> bool {
+    true
+}
+
+// 默认加载时跳过已过期条目
+fn default_cache_skip_expired_on_load() -> bool {
+    true
+}
+
+// 默认周期性保存间隔
+fn default_cache_periodic_interval_secs() -> u64 {
+    3600  // 1小时
+}
+
+// 默认关机保存超时
+fn default_cache_shutdown_save_timeout() -> u64 {
+    30  // 30秒
 }
 
 impl ServerConfig {
@@ -635,9 +707,10 @@ impl Default for TtlConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            enabled: DEFAULT_CACHE_ENABLED,
+            enabled: false,
             size: DEFAULT_CACHE_SIZE,
             ttl: TtlConfig::default(),
+            persistence: PersistenceCacheConfig::default(),
         }
     }
 }
@@ -645,7 +718,7 @@ impl Default for CacheConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             per_ip_rate: DEFAULT_PER_IP_RATE,
             per_ip_concurrent: DEFAULT_PER_IP_CONCURRENT,
         }
@@ -701,6 +774,29 @@ impl Default for DnsResolverConfig {
             http_client: HttpClientConfig::default(),
             cache: CacheConfig::default(),
             routing: RoutingConfig::default(),
+        }
+    }
+}
+
+impl Default for PersistenceCacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            path: default_cache_persistence_path(),
+            load_on_startup: default_cache_load_on_startup(),
+            max_items_to_save: 0,
+            skip_expired_on_load: default_cache_skip_expired_on_load(),
+            shutdown_save_timeout_secs: default_cache_shutdown_save_timeout(),
+            periodic: PeriodicSaveConfig::default(),
+        }
+    }
+}
+
+impl Default for PeriodicSaveConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_secs: default_cache_periodic_interval_secs(),
         }
     }
 }
