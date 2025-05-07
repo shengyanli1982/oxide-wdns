@@ -13,7 +13,7 @@ mod tests {
     use tracing_subscriber::util::SubscriberInitExt;
 
     // 添加 setup_test_tracing 辅助函数
-    fn setup_test_tracing() -> tracing::subscriber::DefaultGuard {
+    pub(crate) fn setup_test_tracing() -> tracing::subscriber::DefaultGuard {
         tracing_subscriber::fmt()
             .with_env_filter("debug")
             .with_test_writer()
@@ -44,7 +44,7 @@ mod tests {
     #[test]
     fn test_config_load_valid_minimal() {
         // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        let _guard = setup_test_tracing();
         info!("Starting test: test_config_load_valid_minimal");
 
         // 测试：加载一个只包含必需字段的有效配置文件。
@@ -82,7 +82,7 @@ dns_resolver:
         assert_eq!(config.dns.upstream.resolvers[0].address, "8.8.8.8:53");
         assert_eq!(config.dns.upstream.resolvers[0].protocol, ResolverProtocol::Udp);
         info!("Config values validated successfully.");
-        info!("Test completed: test_config_load_valid_minimal");
+        info!("Test finished: test_config_load_valid_minimal");
     }
 
     #[test]
@@ -106,18 +106,18 @@ dns_resolver:
     query_timeout: 5
   routing:
     enabled: false
+  cache:
+    enabled: true
+    size: 10000
+    ttl:
+      min: 60
+      max: 86400
+      negative: 300
 http_client:
   timeout: 10
   request:
     user_agent: "CustomUserAgent/1.0"
   proxy_url: "http://proxy.example.com:8080"
-cache:
-  enabled: true
-  size: 10000
-  ttl:
-    min: 60
-    max: 86400
-    negative: 300
 "#;
 
         // 创建临时配置文件
@@ -157,12 +157,13 @@ cache:
         assert_eq!(config.dns.cache.ttl.min, 60);
         assert_eq!(config.dns.cache.ttl.max, 86400);
         assert_eq!(config.dns.cache.ttl.negative, 300);
+        info!("Test finished: test_config_load_valid_full");
     }
 
     #[test]
     fn test_config_load_missing_file() {
         // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        let _guard = setup_test_tracing();
         info!("Starting test: test_config_load_missing_file");
 
         // 测试：尝试加载一个不存在的配置文件。
@@ -183,13 +184,13 @@ cache:
         assert!(error_string.contains("Failed to read config file") || error_string.contains("No such file or directory"),
                 "Error message should indicate failure to read file: '{}'", error_string);
         info!("Validated error message.");
-        info!("Test completed: test_config_load_missing_file");
+        info!("Test finished: test_config_load_missing_file");
     }
 
     #[test]
     fn test_config_load_invalid_format_yaml() {
         // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        let _guard = setup_test_tracing();
         info!("Starting test: test_config_load_invalid_format_yaml");
 
         // 测试：加载一个格式无效的 YAML 文件。
@@ -227,13 +228,13 @@ dns_resolver:
         assert!(error_string.contains("Invalid config file format") || error_string.contains("Failed to parse"), 
                "Error message should indicate invalid config format or parse failure: '{}'", error_string);
         info!("Validated error message.");
-        info!("Test completed: test_config_load_invalid_format_yaml");
+        info!("Test finished: test_config_load_invalid_format_yaml");
     }
 
     #[test]
     fn test_config_load_invalid_value_type() {
         // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        let _guard = setup_test_tracing();
         info!("Starting test: test_config_load_invalid_value_type");
 
         // 测试：加载一个字段值类型错误的配置文件（例如端口号是字符串）。
@@ -269,13 +270,13 @@ dns_resolver:
         assert!(error_string.contains("Invalid config file format") || error_string.contains("Failed to parse"),
                "Error message should indicate invalid config format or parse failure: '{}'", error_string);
         info!("Validated error message.");
-        info!("Test completed: test_config_load_invalid_value_type");
+        info!("Test finished: test_config_load_invalid_value_type");
     }
 
     #[test]
     fn test_config_missing_required_field() {
         // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        let _guard = setup_test_tracing();
         info!("Starting test: test_config_missing_required_field");
 
         // 测试：加载缺少必需字段的配置文件。
@@ -311,13 +312,13 @@ dns_resolver:
         assert!(error_string.contains("missing field `resolvers`") || error_string.contains("Invalid config file format"),
                "Error message should indicate missing field 'resolvers' or invalid format: '{}'", error_string);
         info!("Validated error message.");
-        info!("Test completed: test_config_missing_required_field");
+        info!("Test finished: test_config_missing_required_field");
     }
 
     #[test]
     fn test_config_default_values() {
         // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        let _guard = setup_test_tracing();
         info!("Starting test: test_config_default_values");
 
         // 测试：对于可选字段，如果不提供，是否正确应用了默认值。
@@ -365,8 +366,8 @@ dns_resolver:
         info!(config.dns.upstream.query_timeout, "Validated upstream.query_timeout default value.");
 
         // 缓存默认值
-        // 假设默认启用缓存
-        assert!(config.dns.cache.enabled, "Cache should be enabled by default");
+        // 默认禁用缓存
+        assert!(!config.dns.cache.enabled, "Cache should be disabled by default");
         info!(config.dns.cache.enabled, "Validated cache.enabled default value.");
         assert_eq!(config.dns.cache.size, DEFAULT_CACHE_SIZE, "Cache size should use the default value");
         info!(config.dns.cache.size, expected = DEFAULT_CACHE_SIZE, "Validated cache.size default value.");
@@ -389,13 +390,13 @@ dns_resolver:
         assert!(!config.dns.http_client.request.ip_header_names.is_empty(), "IP header names list should have a default value");
         info!(?config.dns.http_client.request.ip_header_names, "Validated http_client.request.ip_header_names default value.");
         info!("Default values validated successfully.");
-        info!("Test completed: test_config_default_values");
+        info!("Test finished: test_config_default_values");
     }
 
     #[test]
     fn test_config_validate_upstream_format() {
         // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        let _guard = setup_test_tracing();
         info!("Starting test: test_config_validate_upstream_format");
 
         // 测试：加载一个包含正确格式的上游地址配置文件，但地址实际无效，测试格式验证但不测试连接。
@@ -436,7 +437,7 @@ dns_resolver:
         assert_eq!(config.dns.upstream.resolvers[1].protocol, ResolverProtocol::Doh);
         
         info!("Validated loaded config values.");
-        info!("Test completed: test_config_validate_upstream_format");
+        info!("Test finished: test_config_validate_upstream_format");
     }
 
     #[test]
@@ -511,12 +512,13 @@ dns_resolver:
         assert_eq!(file_rule.match_.type_, MatchType::File);
         assert_eq!(file_rule.match_.path.as_deref(), Some(blocked_path_str.as_str()));
         assert_eq!(file_rule.upstream_group, "secure_group");
+        info!("Test finished: test_config_load_valid_with_routing");
     }
     
     #[test]
     fn test_config_validate_routing_references() {
         // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        let _guard = setup_test_tracing();
         info!("Starting test: test_config_validate_routing_references");
         
         // 测试验证引用不存在的上游组
@@ -554,7 +556,7 @@ dns_resolver:
         assert!(err.to_string().contains("non_existent_group"), 
                 "Error message should mention the non-existent upstream group name");
         
-        info!("Test completed: test_config_validate_routing_references");
+        info!("Test finished: test_config_validate_routing_references");
     }
     
     #[test]
@@ -610,20 +612,24 @@ dns_resolver:
                                           err_str.contains("missing )");
                 
                 assert!(contains_regex_error, "Error message should mention regex compilation issue: {}", err_str);
-                println!("Test passed with expected regex validation error: {}", err_str);
+                info!("Test passed with expected regex validation error: {}", err_str);
             }
         }
+        info!("Test finished: test_config_validate_regex_compile");
     }
 }
 
 #[cfg(test)]
 mod persistence_cache_config_tests {
+    use tracing::info; // 导入 info! 宏
+    use crate::server::config_tests::tests::setup_test_tracing; // 使用绝对路径导入
     use oxide_wdns::server::config::{CacheConfig, PersistenceCacheConfig, PeriodicSaveConfig};
-    
 
     #[test]
     fn test_persistence_cache_default_config() {
         // 测试默认配置值
+        let _guard = setup_test_tracing();
+        info!("Starting test: test_persistence_cache_default_config");
         let config = PersistenceCacheConfig::default();
         
         assert!(!config.enabled);
@@ -634,22 +640,28 @@ mod persistence_cache_config_tests {
         assert_eq!(config.shutdown_save_timeout_secs, 30);
         assert!(!config.periodic.enabled);
         assert_eq!(config.periodic.interval_secs, 3600);
+        info!("Test finished: test_persistence_cache_default_config");
     }
 
     #[test]
     fn test_persistence_cache_custom_config() {
         // 测试自定义配置
-        let mut config = PersistenceCacheConfig::default();
-        config.enabled = true;
-        config.path = "/tmp/custom_cache.dat".to_string();
-        config.load_on_startup = false;
-        config.max_items_to_save = 1000;
-        config.skip_expired_on_load = false;
-        config.shutdown_save_timeout_secs = 60;
+        let _guard = setup_test_tracing();
+        info!("Starting test: test_persistence_cache_custom_config");
+        let mut config = PersistenceCacheConfig {
+            enabled: true,
+            path: "/tmp/custom_cache.dat".to_string(),
+            load_on_startup: false,
+            max_items_to_save: 1000,
+            skip_expired_on_load: false,
+            shutdown_save_timeout_secs: 60,
+            ..PersistenceCacheConfig::default()
+        };
         
-        let mut periodic = PeriodicSaveConfig::default();
-        periodic.enabled = true;
-        periodic.interval_secs = 1800;
+        let periodic = PeriodicSaveConfig {
+            enabled: true,
+            interval_secs: 1800
+        };
         config.periodic = periodic;
         
         assert!(config.enabled);
@@ -660,24 +672,32 @@ mod persistence_cache_config_tests {
         assert_eq!(config.shutdown_save_timeout_secs, 60);
         assert!(config.periodic.enabled);
         assert_eq!(config.periodic.interval_secs, 1800);
+        info!("Test finished: test_persistence_cache_custom_config");
     }
 
     #[test]
     fn test_cache_config_with_persistence() {
         // 测试带持久化的缓存配置
+        let _guard = setup_test_tracing();
+        info!("Starting test: test_cache_config_with_persistence");
         let mut cache_config = CacheConfig::default();
-        let mut persistence_config = PersistenceCacheConfig::default();
-        persistence_config.enabled = true;
-        persistence_config.path = "/var/cache/wdns/dns_cache.dat".to_string();
+        let persistence_config = PersistenceCacheConfig {
+            enabled: true,
+            path: "/var/cache/wdns/dns_cache.dat".to_string(),
+            ..PersistenceCacheConfig::default()
+        };
         
         cache_config.persistence = persistence_config;
         
         assert!(cache_config.persistence.enabled);
         assert_eq!(cache_config.persistence.path, "/var/cache/wdns/dns_cache.dat");
+        info!("Test finished: test_cache_config_with_persistence");
     }
 
     #[test]
     fn test_parse_persistence_cache_config_from_yaml() {
+        let _guard = setup_test_tracing();
+        info!("Starting test: test_parse_persistence_cache_config_from_yaml");
         use serde_yaml;
         use oxide_wdns::server::config::ServerConfig;
         
@@ -720,5 +740,6 @@ dns_resolver:
         assert_eq!(persistence.shutdown_save_timeout_secs, 45);
         assert!(persistence.periodic.enabled);
         assert_eq!(persistence.periodic.interval_secs, 1800);
+        info!("Test finished: test_parse_persistence_cache_config_from_yaml");
     }
 } 

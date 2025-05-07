@@ -104,9 +104,9 @@ dns_resolver:
         cmd.arg("--config")
             .arg(config_path)
             .arg("--test")
-            .timeout(std::time::Duration::from_secs(1))
             .assert()
-            .success();
+            .success()
+            .stdout(predicatesStr::contains("Configuration test successful"));
     }
     
     #[test]

@@ -44,9 +44,6 @@ pub const BLACKHOLE_UPSTREAM_GROUP_NAME: &str = "__blackhole__";
 // 缓存常量
 //
 
-// 默认是否启用缓存
-pub const DEFAULT_CACHE_ENABLED: bool = true;
-
 // 默认缓存大小（条目数）
 pub const DEFAULT_CACHE_SIZE: usize = 10000;
 

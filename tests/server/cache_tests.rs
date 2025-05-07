@@ -129,7 +129,7 @@ mod tests {
         } else {
             panic!("Original message has no answers");
         }
-        info!("Test completed: test_cache_store_and_retrieve");
+        info!("Test finished: test_cache_store_and_retrieve");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -153,7 +153,7 @@ mod tests {
         // 3. 断言：返回 None 或表示未命中的结果。
         assert!(result.is_none(), "Non-existent record should return None");
         info!("Validated that non-existent key returns None as expected.");
-        info!("Test completed: test_cache_miss");
+        info!("Test finished: test_cache_miss");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -196,7 +196,7 @@ mod tests {
         // 5. 断言：记录不再有效或返回None
         assert!(result.is_none(), "Expired record should return None");
         info!("Validated that expired key returns None as expected.");
-        info!("Test completed: test_cache_ttl_expiration");
+        info!("Test finished: test_cache_ttl_expiration");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -275,7 +275,7 @@ mod tests {
         // 注意: 由于使用的是moka缓存，淘汰策略可能根据具体实现而有所不同
         // 这里我们不再严格断言特定项必须被淘汰
         info!("Cache eviction behavior verified.");
-        info!("Test completed: test_cache_capacity_limit_lru");
+        info!("Test finished: test_cache_capacity_limit_lru");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -319,7 +319,7 @@ mod tests {
         } else {
             panic!("Should return A record data");
         }
-        info!("Test completed: test_cache_update_entry");
+        info!("Test finished: test_cache_update_entry");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -368,7 +368,7 @@ mod tests {
         info!(final_len, "Checking cache size after clear...");
         assert_eq!(final_len, 0, "Cache size should be 0 after clearing");
         info!("Validated cache size is 0 after clear.");
-        info!("Test completed: test_cache_clear");
+        info!("Test finished: test_cache_clear");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -423,7 +423,7 @@ mod tests {
             info!("The record has expired as expected.");
         }
         
-        info!("Test completed: test_cache_entry_ttl_respects_record_ttl");
+        info!("Test finished: test_cache_entry_ttl_respects_record_ttl");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -464,7 +464,7 @@ mod tests {
         info!(retrieved_is_some = result.is_some(), "Get operation completed.");
         assert!(result.is_none(), "Should always return None when cache is disabled");
         info!("Validated that get returns None for disabled cache.");
-        info!("Test completed: test_cache_disabled");
+        info!("Test finished: test_cache_disabled");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -518,21 +518,25 @@ mod tests {
             info!("Negative cache entry has expired as expected.");
         }
         
-        info!("Test completed: test_negative_caching");
+        info!("Test finished: test_negative_caching");
     }
 
     // 持久化缓存测试
     #[tokio::test(flavor = "multi_thread")]
     async fn test_persistent_cache_save_and_load() {
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_persistent_cache_save_and_load");
         // 创建测试缓存目录
         let temp_dir = tempfile::tempdir().unwrap();
         let cache_file_path = temp_dir.path().join("test_cache.dat");
         let cache_file_str = cache_file_path.to_str().unwrap().to_string();
         
         // 创建支持持久化的缓存配置
-        let mut config = CacheConfig::default();
-        config.enabled = true;
-        config.size = 100;
+        let mut config = CacheConfig {
+            enabled: true,
+            size: 100,
+            ..CacheConfig::default()
+        };
         config.persistence.enabled = true;
         config.persistence.path = cache_file_str.clone();
         config.persistence.load_on_startup = true;
@@ -601,18 +605,23 @@ mod tests {
         
         // 清理
         temp_dir.close().unwrap();
+        info!("Test finished: test_persistent_cache_save_and_load");
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_persistent_cache_skip_expired() {
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_persistent_cache_skip_expired");
         let temp_dir = tempfile::tempdir().unwrap();
         let cache_file_path = temp_dir.path().join("test_cache_expired.dat");
         let cache_file_str = cache_file_path.to_str().unwrap().to_string();
         
         // 创建支持持久化的缓存配置，启用跳过过期条目
-        let mut config = CacheConfig::default();
-        config.enabled = true;
-        config.size = 100;
+        let mut config = CacheConfig {
+            enabled: true,
+            size: 100,
+            ..CacheConfig::default()
+        };
         config.persistence.enabled = true;
         config.persistence.path = cache_file_str.clone();
         config.persistence.load_on_startup = true;
@@ -699,18 +708,23 @@ mod tests {
         
         // 清理
         temp_dir.close().unwrap();
+        info!("Test finished: test_persistent_cache_skip_expired");
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_persistent_cache_limit_items_to_save() {
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_persistent_cache_limit_items_to_save");
         let temp_dir = tempfile::tempdir().unwrap();
         let cache_file_path = temp_dir.path().join("test_cache_limit.dat");
         let cache_file_str = cache_file_path.to_str().unwrap().to_string();
         
         // 创建支持持久化的缓存配置，限制保存条目数
-        let mut config = CacheConfig::default();
-        config.enabled = true;
-        config.size = 100;
+        let mut config = CacheConfig {
+            enabled: true,
+            size: 100,
+            ..CacheConfig::default()
+        };
         config.persistence.enabled = true;
         config.persistence.path = cache_file_str.clone();
         config.persistence.load_on_startup = true;
@@ -791,18 +805,23 @@ mod tests {
         
         // 清理
         temp_dir.close().unwrap();
+        info!("Test finished: test_persistent_cache_limit_items_to_save");
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_persistent_cache_periodic_save() {
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_persistent_cache_periodic_save");
         let temp_dir = tempfile::tempdir().unwrap();
         let cache_file_path = temp_dir.path().join("test_cache_periodic.dat");
         let cache_file_str = cache_file_path.to_str().unwrap().to_string();
         
         // 创建支持周期性保存的缓存配置
-        let mut config = CacheConfig::default();
-        config.enabled = true;
-        config.size = 100;
+        let mut config = CacheConfig {
+            enabled: true,
+            size: 100,
+            ..CacheConfig::default()
+        };
         config.persistence.enabled = true;
         config.persistence.path = cache_file_str.clone();
         config.persistence.periodic.enabled = true;
@@ -857,9 +876,11 @@ mod tests {
         cache.shutdown().await.expect("Failed to shutdown cache");
         
         // 检查最终文件内容
-        let mut config2 = CacheConfig::default();
-        config2.enabled = true;
-        config2.size = 100;
+        let mut config2 = CacheConfig {
+            enabled: true,
+            size: 100,
+            ..CacheConfig::default()
+        };
         config2.persistence.enabled = true;
         config2.persistence.path = cache_file_str;
         config2.persistence.load_on_startup = true;
@@ -876,18 +897,23 @@ mod tests {
         
         // 清理
         temp_dir.close().unwrap();
+        info!("Test finished: test_persistent_cache_periodic_save");
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_persistent_cache_shutdown_save() {
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_persistent_cache_shutdown_save");
         let temp_dir = tempfile::tempdir().unwrap();
         let cache_file_path = temp_dir.path().join("test_cache_shutdown.dat");
         let cache_file_str = cache_file_path.to_str().unwrap().to_string();
         
         // 创建支持持久化的缓存配置，不启用周期性保存
-        let mut config = CacheConfig::default();
-        config.enabled = true;
-        config.size = 100;
+        let mut config = CacheConfig {
+            enabled: true,
+            size: 100,
+            ..CacheConfig::default()
+        };
         config.persistence.enabled = true;
         config.persistence.path = cache_file_str.clone();
         config.persistence.load_on_startup = true;
@@ -947,10 +973,13 @@ mod tests {
         
         // 清理
         temp_dir.close().unwrap();
+        info!("Test finished: test_persistent_cache_shutdown_save");
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_file_format_compatibility() {
+        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
+        info!("Starting test: test_file_format_compatibility");
         // 创建临时文件路径
         let cache_path = format!("./test_cache_compat_{}.dat", std::process::id());
         
@@ -1013,6 +1042,7 @@ mod tests {
         if Path::new(&cache_path).exists() {
             fs::remove_file(&cache_path).expect("Failed to delete cache file");
         }
+        info!("Test finished: test_file_format_compatibility");
     }
 
 }

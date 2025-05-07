@@ -12,7 +12,7 @@ use crate::common::consts::{
     // 上游服务器相关常量
     DEFAULT_QUERY_TIMEOUT,
     // 缓存相关常量
-    DEFAULT_CACHE_ENABLED, DEFAULT_CACHE_SIZE, DEFAULT_MIN_TTL, 
+    DEFAULT_CACHE_SIZE, DEFAULT_MIN_TTL, 
     DEFAULT_MAX_TTL, DEFAULT_NEGATIVE_TTL,
     // 速率限制相关常量
     DEFAULT_PER_IP_RATE, DEFAULT_PER_IP_CONCURRENT,
@@ -119,7 +119,7 @@ pub enum ResolverProtocol {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheConfig {
     // 是否启用缓存
-    #[serde(default = "default_cache_enabled")]
+    #[serde(default = "default_disable")]
     pub enabled: bool,
     
     // 缓存大小（条目数）
@@ -155,7 +155,7 @@ pub struct TtlConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RateLimitConfig {
     // 是否启用速率限制
-    #[serde(default)]
+    #[serde(default = "default_disable")]
     pub enabled: bool,
     
     // 每个 IP 每秒最大请求数
@@ -212,7 +212,7 @@ pub struct RequestConfig {
 #[derive(Default)]
 pub struct RoutingConfig {
     // 是否启用DNS分流
-    #[serde(default)]
+    #[serde(default = "default_disable")]
     pub enabled: bool,
     
     // 上游DNS服务器组
@@ -297,7 +297,7 @@ pub enum MatchType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistenceCacheConfig {
     // 是否启用缓存持久化功能
-    #[serde(default)]
+    #[serde(default = "default_disable")]
     pub enabled: bool,
     
     // 缓存文件的存储路径
@@ -329,7 +329,7 @@ pub struct PersistenceCacheConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PeriodicSaveConfig {
     // 是否启用周期性保存
-    #[serde(default)]
+    #[serde(default = "default_disable")]
     pub enabled: bool,
     
     // 保存间隔（秒）
@@ -346,8 +346,8 @@ fn default_query_timeout() -> u64 {
     DEFAULT_QUERY_TIMEOUT
 }
 
-fn default_cache_enabled() -> bool {
-    DEFAULT_CACHE_ENABLED
+fn default_disable() -> bool {
+    false
 }
 
 fn default_cache_size() -> usize {
@@ -707,7 +707,7 @@ impl Default for TtlConfig {
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            enabled: DEFAULT_CACHE_ENABLED,
+            enabled: false,
             size: DEFAULT_CACHE_SIZE,
             ttl: TtlConfig::default(),
             persistence: PersistenceCacheConfig::default(),
@@ -718,7 +718,7 @@ impl Default for CacheConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             per_ip_rate: DEFAULT_PER_IP_RATE,
             per_ip_concurrent: DEFAULT_PER_IP_CONCURRENT,
         }

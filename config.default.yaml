@@ -195,6 +195,20 @@ dns_resolver:
         # 特殊目标组：丢弃请求
         upstream_group: "__blackhole__"
 
+      # 规则 5: 从本地文件加载国内域名列表，路由到 domestic_dns
+      # 文件格式请参考下方的“域名列表文件格式”部分。
+      - match:
+          type: file
+          path: "/etc/oxide-wdns/china_domains.txt"
+        upstream_group: "domestic_dns"
+
+      # 规则 6: 从远程 URL 加载广告域名列表，使用 __blackhole__ 阻止它们
+      # 来自 URL 的规则会周期性获取。格式请参考下方说明。
+      - match:
+          type: url
+          url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
+        upstream_group: "__blackhole__"
+
     # --- 默认上游组配置 ---
     # 可选: 指定默认的上游组名称。
     # 如果一个 DNS 请求没有匹配 'rules' 中的任何规则：
