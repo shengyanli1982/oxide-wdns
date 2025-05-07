@@ -174,7 +174,7 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
         # --- 持久化缓存配置 ---
         persistence:
           # 是否启用缓存持久化功能。
-          enabled: false
+          enabled: true
           # 缓存文件的存储路径。
           path: "./cache.dat"
           # 服务启动时是否自动从磁盘加载缓存。
@@ -188,7 +188,7 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
           # --- 周期性保存配置 ---
           periodic:
             # 是否启用周期性保存缓存的功能。
-            enabled: false
+            enabled: true
             # 周期性保存的时间间隔（秒）。
             interval_secs: 3600
 

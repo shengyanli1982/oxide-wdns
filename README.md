@@ -174,7 +174,7 @@ You can install Oxide WDNS in the following ways:
         # --- Persistent Cache Configuration ---
         persistence:
           # Enable cache persistence.
-          enabled: false
+          enabled: true
           # Path to the cache file.
           path: "./cache.dat"
           # Automatically load cache from disk on startup.
@@ -188,7 +188,7 @@ You can install Oxide WDNS in the following ways:
           # --- Periodic Save Configuration ---
           periodic:
             # Enable periodic saving of the cache.
-            enabled: false
+            enabled: true
             # Interval in seconds for periodic saving.
             interval_secs: 3600
 
