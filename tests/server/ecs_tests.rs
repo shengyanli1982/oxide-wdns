@@ -159,7 +159,7 @@ fn test_ipv6_anonymization() {
     // 检查 IPv6 地址是否正确匿名化到 /48 前缀
     let ipv6_str = format!("{}", anonymized.address);
     assert!(ipv6_str.starts_with("2001:db8:85a3:"), 
-           "IPv6 地址前缀应该是 '2001:db8:85a3:', 但实际是 '{}'", ipv6_str);
+           "IPv6 address prefix should be '2001:db8:85a3:', but got '{}'", ipv6_str);
     
     // 匿名化为 /56
     let anonymized = ecs.anonymize(24, 56).unwrap();
@@ -170,7 +170,7 @@ fn test_ipv6_anonymization() {
     // 检查 IPv6 地址是否正确匿名化
     let ipv6_str = format!("{}", anonymized.address);
     assert!(ipv6_str.starts_with("2001:db8:85a3"), 
-           "IPv6 地址应该以 '2001:db8:85a3' 开头, 但实际是 '{}'", ipv6_str);
+           "IPv6 address should start with '2001:db8:85a3', but got '{}'", ipv6_str);
 }
 
 #[test]
@@ -452,7 +452,7 @@ async fn test_upstream_manager_initialization() {
     let upstream_manager = UpstreamManager::new(config_arc, http_client).await;
     
     // 验证初始化成功
-    assert!(upstream_manager.is_ok(), "UpstreamManager初始化应该成功");
+    assert!(upstream_manager.is_ok(), "UpstreamManager initialization should succeed");
 }
 
 // 测试 UpstreamManager::resolve 方法的不同参数组合
@@ -466,7 +466,7 @@ async fn test_upstream_resolve_variations() {
     let upstream_manager = match UpstreamManager::new(config, http_client).await {
         Ok(manager) => manager,
         Err(e) => {
-            panic!("无法初始化UpstreamManager: {}", e);
+            panic!("Failed to initialize UpstreamManager: {}", e);
         }
     };
     
@@ -505,8 +505,8 @@ async fn test_upstream_resolve_variations() {
     
     // 由于这是测试环境，预期可能会失败
     match result1 {
-        Ok(_) => println!("无ECS查询成功"),
-        Err(e) => println!("无ECS查询失败（预期结果）: {}", e),
+        Ok(_) => println!("Query without ECS succeeded"),
+        Err(e) => println!("Query without ECS failed (expected): {}", e),
     }
     
     // 2. 只有客户端IP
@@ -518,8 +518,8 @@ async fn test_upstream_resolve_variations() {
     ).await;
     
     match result2 {
-        Ok(_) => println!("带IP查询成功"),
-        Err(e) => println!("带IP查询失败（预期结果）: {}", e),
+        Ok(_) => println!("Query with IP succeeded"),
+        Err(e) => println!("Query with IP failed (expected): {}", e),
     }
     
     // 3. 只有ECS数据
@@ -531,8 +531,8 @@ async fn test_upstream_resolve_variations() {
     ).await;
     
     match result3 {
-        Ok(_) => println!("带ECS查询成功"),
-        Err(e) => println!("带ECS查询失败（预期结果）: {}", e),
+        Ok(_) => println!("Query with ECS succeeded"),
+        Err(e) => println!("Query with ECS failed (expected): {}", e),
     }
     
     // 4. 同时有客户端IP和ECS数据
@@ -544,8 +544,8 @@ async fn test_upstream_resolve_variations() {
     ).await;
     
     match result4 {
-        Ok(_) => println!("带IP和ECS查询成功"),
-        Err(e) => println!("带IP和ECS查询失败（预期结果）: {}", e),
+        Ok(_) => println!("Query with IP and ECS succeeded"),
+        Err(e) => println!("Query with IP and ECS failed (expected): {}", e),
     }
 }
 
