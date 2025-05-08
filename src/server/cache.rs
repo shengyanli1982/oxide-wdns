@@ -387,7 +387,12 @@ impl DnsCache {
                 );
                 let mut interval_timer = interval(interval_duration);
                 
+                // 首次调用 tick() 会立即返回，我们在这里消耗掉它
+                // 这样可以确保第一次实际的保存操作会在一个完整的时间间隔之后发生
+                interval_timer.tick().await;
+
                 loop {
+                    // 等待下一个时间间隔
                     interval_timer.tick().await;
                     
                     // 检查是否应该取消任务
