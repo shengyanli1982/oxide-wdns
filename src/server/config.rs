@@ -352,6 +352,10 @@ pub struct PeriodicSaveConfig {
 // EDNS 客户端子网策略配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EcsPolicyConfig {
+    // 是否启用 ECS 处理策略
+    #[serde(default = "default_disable")]
+    pub enabled: bool,
+    
     // 全局 ECS 处理策略
     #[serde(default = "default_ecs_strategy")]
     pub strategy: String,
@@ -782,6 +786,11 @@ impl ServerConfig {
     
     // 验证单个 ECS 策略配置
     fn validate_single_ecs_policy(&self, policy: &EcsPolicyConfig) -> Result<()> {
+        // 如果 ECS 策略未启用，则不需要验证其他参数
+        if !policy.enabled {
+            return Ok(());
+        }
+        
         // 验证策略类型
         match policy.strategy.as_str() {
             ECS_POLICY_STRIP | ECS_POLICY_FORWARD | ECS_POLICY_ANONYMIZE => {}
@@ -931,6 +940,7 @@ impl Default for EcsAnonymizationConfig {
 impl Default for EcsPolicyConfig {
     fn default() -> Self {
         Self {
+            enabled: false,
             strategy: ECS_POLICY_STRIP.to_string(),
             anonymization: EcsAnonymizationConfig::default(),
         }

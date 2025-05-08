@@ -263,6 +263,11 @@ impl EcsProcessor {
             return Ok(None);
         }
         
+        // 如果ECS策略未启用，直接返回原始查询
+        if !policy.enabled {
+            return Ok(None);
+        }
+        
         // 获取原始查询中的 ECS 数据，优先使用传入的 client_ecs_from_query
         let ecs_data = if let Some(ecs) = client_ecs_from_query {
             Some(ecs.clone())

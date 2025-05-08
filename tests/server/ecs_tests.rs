@@ -187,6 +187,7 @@ fn test_strip_policy() {
     
     // 创建剥离策略
     let policy = EcsPolicyConfig {
+        enabled: true,
         strategy: ECS_POLICY_STRIP.to_string(),
         anonymization: EcsAnonymizationConfig::default(),
     };
@@ -222,6 +223,7 @@ fn test_forward_policy() {
     
     // 创建转发策略
     let policy = EcsPolicyConfig {
+        enabled: true,
         strategy: ECS_POLICY_FORWARD.to_string(),
         anonymization: EcsAnonymizationConfig::default(),
     };
@@ -266,6 +268,7 @@ fn test_anonymize_policy() {
     
     // 创建匿名化策略（设置 /24 前缀）
     let policy = EcsPolicyConfig {
+        enabled: true,
         strategy: ECS_POLICY_ANONYMIZE.to_string(),
         anonymization: EcsAnonymizationConfig {
             ipv4_prefix_length: 24,
@@ -312,6 +315,7 @@ fn test_respect_client_privacy() {
     
     // 创建转发策略
     let policy = EcsPolicyConfig {
+        enabled: true,
         strategy: ECS_POLICY_FORWARD.to_string(),
         anonymization: EcsAnonymizationConfig::default(),
     };
@@ -360,6 +364,7 @@ fn test_create_ecs_from_client_ip() {
     
     // 创建匿名化策略（设置 /24 前缀）
     let policy = EcsPolicyConfig {
+        enabled: true,
         strategy: ECS_POLICY_ANONYMIZE.to_string(),
         anonymization: EcsAnonymizationConfig {
             ipv4_prefix_length: 24,
@@ -638,4 +643,203 @@ fn test_cache_key_methods() {
     assert_eq!(base_key.record_class, lookup_key.record_class);
     assert!(base_key.ecs_network.is_none());
     assert!(base_key.ecs_scope_prefix_length.is_none());
+}
+
+#[test]
+fn test_ecs_enabled_flag() {
+    // 创建 ECS 数据
+    let ecs = EcsData::new(
+        IpAddr::V4(Ipv4Addr::new(192, 168, 1, 123)),
+        24,  // 源前缀长度
+        0    // 范围前缀长度
+    );
+    
+    // 创建包含 ECS 的查询
+    let query = create_query_with_ecs(&ecs);
+    
+    // 1. 测试 enabled=false 时，ECS 策略不被应用
+    let disabled_policy = EcsPolicyConfig {
+        enabled: false,
+        strategy: ECS_POLICY_STRIP.to_string(),
+        anonymization: EcsAnonymizationConfig::default(),
+    };
+    
+    // 应用禁用的策略
+    let processed = EcsProcessor::process_ecs_for_query(
+        &query, 
+        &disabled_policy, 
+        None,
+        None
+    ).unwrap();
+    
+    // 验证结果：当 enabled=false 时，应当返回 None（表示不修改原始查询）
+    assert!(processed.is_none());
+    
+    // 2. 测试 enabled=true 时，ECS 策略被应用（使用剥离策略）
+    let enabled_policy = EcsPolicyConfig {
+        enabled: true,
+        strategy: ECS_POLICY_STRIP.to_string(),
+        anonymization: EcsAnonymizationConfig::default(),
+    };
+    
+    // 应用启用的策略
+    let processed = EcsProcessor::process_ecs_for_query(
+        &query, 
+        &enabled_policy, 
+        None,
+        None
+    ).unwrap();
+    
+    // 验证结果：当 enabled=true 且策略为 strip 时，应当返回修改后的查询
+    assert!(processed.is_some());
+    
+    // 从处理后的消息中提取 ECS 数据
+    let processed_query = processed.unwrap();
+    let extracted_ecs = EcsProcessor::extract_ecs_from_message(&processed_query);
+    
+    // 验证 ECS 已被剥离
+    assert!(extracted_ecs.is_none());
+}
+
+#[test]
+fn test_upstream_group_ecs_enabled_flag() {
+    // 创建配置字符串，包含全局启用的 ECS 策略和一个上游组特定的禁用 ECS 策略
+    let config_str = r#"
+    http_server:
+      listen_addr: "127.0.0.1:8053"
+      timeout: 10
+    dns_resolver:
+      upstream:
+        resolvers:
+          - address: "8.8.8.8:53"
+            protocol: udp
+        query_timeout: 3
+        enable_dnssec: false
+      ecs_policy:
+        enabled: true
+        strategy: "forward"
+        anonymization:
+          ipv4_prefix_length: 24
+          ipv6_prefix_length: 48
+      routing:
+        enabled: true
+        upstream_groups:
+          - name: "disabled_ecs_group"
+            resolvers:
+              - address: "1.1.1.1:53"
+                protocol: udp
+            ecs_policy:
+              enabled: false
+              strategy: "forward"
+          - name: "enabled_ecs_group"
+            resolvers:
+              - address: "9.9.9.9:53"
+                protocol: udp
+            ecs_policy:
+              enabled: true
+              strategy: "anonymize"
+              anonymization:
+                ipv4_prefix_length: 16
+                ipv6_prefix_length: 32
+    "#;
+    
+    // 解析配置
+    let config: ServerConfig = serde_yaml::from_str(config_str).unwrap();
+    
+    // 测试全局 ECS 策略
+    let global_policy = config.get_effective_ecs_policy("").unwrap();
+    assert!(global_policy.enabled);
+    assert_eq!(global_policy.strategy, ECS_POLICY_FORWARD);
+    
+    // 测试禁用 ECS 的上游组
+    let disabled_group_policy = config.get_effective_ecs_policy("disabled_ecs_group").unwrap();
+    assert!(!disabled_group_policy.enabled);
+    assert_eq!(disabled_group_policy.strategy, ECS_POLICY_FORWARD);
+    
+    // 测试启用 ECS 的上游组
+    let enabled_group_policy = config.get_effective_ecs_policy("enabled_ecs_group").unwrap();
+    assert!(enabled_group_policy.enabled);
+    assert_eq!(enabled_group_policy.strategy, ECS_POLICY_ANONYMIZE);
+    assert_eq!(enabled_group_policy.anonymization.ipv4_prefix_length, 16);
+    assert_eq!(enabled_group_policy.anonymization.ipv6_prefix_length, 32);
+    
+    // 测试不存在的上游组（应回退到全局策略）
+    let fallback_policy = config.get_effective_ecs_policy("non_existent_group").unwrap();
+    assert!(fallback_policy.enabled);
+    assert_eq!(fallback_policy.strategy, ECS_POLICY_FORWARD);
+}
+
+#[test]
+fn test_ecs_policy_validation() {
+    // 创建一个具有无效策略类型的配置，但enabled为false，应该通过验证
+    let invalid_but_disabled_config_str = r#"
+    http_server:
+      listen_addr: "127.0.0.1:8053"
+      timeout: 10
+    dns_resolver:
+      upstream:
+        resolvers:
+          - address: "8.8.8.8:53"
+            protocol: udp
+        query_timeout: 3
+        enable_dnssec: false
+      ecs_policy:
+        enabled: false
+        strategy: "invalid_strategy"
+        anonymization:
+          ipv4_prefix_length: 0  # 无效值
+          ipv6_prefix_length: 200 # 无效值
+    "#;
+    
+    // 应该能成功解析和验证配置
+    let config: ServerConfig = serde_yaml::from_str(invalid_but_disabled_config_str).unwrap();
+    assert!(config.validate_ecs_policy().is_ok());
+    
+    // 创建一个具有无效策略类型的配置，且enabled为true，应该验证失败
+    let invalid_and_enabled_config_str = r#"
+    http_server:
+      listen_addr: "127.0.0.1:8053"
+      timeout: 10
+    dns_resolver:
+      upstream:
+        resolvers:
+          - address: "8.8.8.8:53"
+            protocol: udp
+        query_timeout: 3
+        enable_dnssec: false
+      ecs_policy:
+        enabled: true
+        strategy: "invalid_strategy"
+        anonymization:
+          ipv4_prefix_length: 24
+          ipv6_prefix_length: 48
+    "#;
+    
+    // 应该解析成功但验证失败
+    let config: ServerConfig = serde_yaml::from_str(invalid_and_enabled_config_str).unwrap();
+    assert!(config.validate_ecs_policy().is_err());
+    
+    // 创建一个具有无效IPv4前缀长度的配置，且enabled为true，应该验证失败
+    let invalid_ipv4_config_str = r#"
+    http_server:
+      listen_addr: "127.0.0.1:8053"
+      timeout: 10
+    dns_resolver:
+      upstream:
+        resolvers:
+          - address: "8.8.8.8:53"
+            protocol: udp
+        query_timeout: 3
+        enable_dnssec: false
+      ecs_policy:
+        enabled: true
+        strategy: "anonymize"
+        anonymization:
+          ipv4_prefix_length: 0
+          ipv6_prefix_length: 48
+    "#;
+    
+    // 应该解析成功但验证失败
+    let config: ServerConfig = serde_yaml::from_str(invalid_ipv4_config_str).unwrap();
+    assert!(config.validate_ecs_policy().is_err());
 } 
