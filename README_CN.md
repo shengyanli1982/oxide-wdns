@@ -68,7 +68,9 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
     -   可配置多个**上游 DNS 解析器**，支持 UDP, TCP, DoT (DNS-over-TLS), DoH 多种协议。
     -   灵活的上游选择策略（如轮询、随机）。
 -   🔀 **强大的 DNS 分流:**
-    -   可定义多个**上游 DNS 服务器组** (`upstream_groups`)，每个组可独立配置解析器、DNSSEC 和超时。
+    -   可定义多个**上游 DNS 服务器组** (`upstream_groups`)。每个组都可以独立地配置其解析器、DNSSEC 设置 (例如 `enable_dnssec`)、超时和其他参数。
+        -   如果一个组没有明确定义某个特定设置（如 `enable_dnssec`），它将从 `dns_resolver.upstream` 中继承相应的全局默认值。
+        -   如果一个组明确定义了某个设置，该设置的值*仅对此特定组生效*，覆盖其查询所应使用的全局默认值。这种覆盖是局部的，不会影响全局默认值本身，也不会影响任何其他 `upstream_group` 的配置（包括被指定为 `default_upstream_group` 的组，除非当前组恰好就是那个默认组）。
     -   基于灵活的**规则**将 DNS 查询路由到指定分组。
     -   支持的规则类型：**精确**域名匹配、**正则**表达式匹配、**通配符**匹配 (例如 `*.example.com`)、从本地**文件**加载规则、从远程 **URL** 获取规则。
     -   内置特殊 `__blackhole__` 组用于**阻止/丢弃**特定的 DNS 查询 (例如广告拦截)。
@@ -208,11 +210,12 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
             interval_secs: 3600
 
       # --- 全局/默认上游 DNS 配置 ---
-      # 这些设置作为全局默认值，并且在没有路由规则匹配
-      # 且未指定 default_upstream_group 时的最终后备选项。
+      # 本节定义了各种参数的全局默认值，例如 'enable_dnssec' 和 'query_timeout'。
+      # 如果特定组内没有显式覆盖，则 upstream_groups 会继承这些全局默认值。
+      # 关键在于，这些全局默认值本身不会被任何组的特定覆盖所修改。
       upstream:
-        enable_dnssec: true
-        query_timeout: 30 # 秒
+        enable_dnssec: true # DNSSEC 的全局默认设置。除非组内自行定义，否则组将继承此设置。
+        query_timeout: 30 # 全局默认查询超时时间（秒）。
         resolvers:
           - address: "1.1.1.1:53"
             protocol: "udp"
@@ -245,13 +248,15 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
         enabled: true
 
         # 定义上游 DNS 服务器组
-        # 每个组可以有自己的解析器，并覆盖全局设置 (enable_dnssec, query_timeout)。
+        # 每个组独立配置其参数。特定于组的设置（例如 'enable_dnssec: false'）
+        # 仅针对该组覆盖全局默认值。它既不会改变全局默认值本身，也不会影响其他组。
+        # 如果组内未指定某个设置，则从 'dns_resolver.upstream' 继承。
         upstream_groups:
           - name: "clean_dns" # 示例：一个干净的 DNS 组
-            # 继承全局的 enable_dnssec (true) 和 query_timeout (30)
+            # 此组未指定 'enable_dnssec' 或 'query_timeout'。
+            # 因此，它将从 'dns_resolver.upstream' 继承这些设置 (例如 enable_dnssec: true)。
             resolvers:
               - address: "https://dns.quad9.net/dns-query"
-                protocol: "doh"
               - address: "9.9.9.9:53"
                 protocol: "udp"
             # 可选：为此组覆盖全局 ECS 策略
@@ -260,11 +265,14 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
               strategy: "forward" # 此组将转发原始 ECS
 
           - name: "domestic_dns" # 示例：针对国内域名优化的 DNS 组
-            enable_dnssec: false # 覆盖此组的全局设置
-            query_timeout: 15   # 覆盖此组的全局设置
+            # 此组明确覆盖了 'enable_dnssec' 和 'query_timeout'。
+            # 这些覆盖仅适用于 'domestic_dns' 组。
+            # 它们不会改变 'dns_resolver.upstream' 中的全局默认值，
+            # 也不会影响 'clean_dns' 组或任何其他组决定其 DNSSEC 行为的方式。
+            enable_dnssec: false # 仅针对 'domestic_dns' 组的覆盖。
+            query_timeout: 15   # 仅针对 'domestic_dns' 组的覆盖。
             resolvers:
               - address: "https://dns.alidns.com/dns-query"
-                protocol: "doh"
               - address: "223.5.5.5:53"
                 protocol: "udp"
             # 可选：为此组覆盖全局 ECS 策略并使用匿名化
@@ -323,9 +331,13 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
             upstream_group: "__blackhole__"
 
         # 可选：为未匹配任何规则的查询指定默认上游组。
-        # 如果设置为有效的组名 (例如 "clean_dns")，则使用该组。
-        # 如果为 null 或省略，则使用全局 `dns_resolver.upstream` 配置。
-        default_upstream_group: "clean_dns" # 对上面未匹配的查询使用 clean_dns
+        # 如果在此处指定了 'upstream_groups' 中的一个有效组名（例如 "clean_dns"）：
+        #   - 未匹配的查询将由此指定的默认组处理。
+        #   - 这些查询的 DNSSEC 行为（以及其他参数）完全由此指定的默认组自身的配置决定
+        #     （即，其自己明确的设置，或者在没有明确设置时继承的全局默认值）。
+        #   - 其他非默认组的 'enable_dnssec' 设置对此默认行为没有影响。
+        # 如果为 null、省略或指定的组名无效，则直接使用全局 `dns_resolver.upstream` 配置。
+        default_upstream_group: "clean_dns"
 
     ```
 

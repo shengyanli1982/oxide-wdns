@@ -19,13 +19,15 @@ http_server:
 # --- DNS 解析器配置 ---
 dns_resolver:
   # --- 全局/默认上游 DNS 配置 ---
-  # 这些设置作为全局默认值，可以被 upstream_groups 中的同名设置覆盖。
-  # 如果没有任何路由规则匹配，并且 routing.default_upstream_group 未指定，
-  # 则这里的 resolvers 将作为最终的后备选项。
+  # 此处定义了各项参数的全局默认值。
+  # 例如，'enable_dnssec' 的全局默认值在此设置。
+  # 这些全局默认值本身不会被任何特定组的配置所修改。
   upstream:
-    # 是否启用 DNSSEC 验证
+    # 是否启用 DNSSEC 验证。此为全局默认设置。
+    # 如果一个 upstream_group 未明确定义自己的 'enable_dnssec'，则会继承此处的全局默认值。
+    # 特定组对此设置的覆盖是局部的，不会改变此处的全局默认值。
     enable_dnssec: true
-    # DNS 查询超时时间（秒）
+    # DNS 查询超时时间（秒）。全局默认。
     query_timeout: 30
     # 默认上游 DNS 解析器列表
     resolvers:
@@ -138,12 +140,17 @@ dns_resolver:
     enabled: true
 
     # --- 定义上游 DNS 服务器组 ---
-    # 每个组可以包含多个解析器，并可独立配置 DNSSEC 和超时。
-    # 如果组内未配置某项，则继承全局 'upstream' 中的默认值。
+    # 每个组都可以独立配置其参数（如 'enable_dnssec', 'query_timeout'）。
+    # - 如果组内未明确配置某个参数，则该组将继承 'dns_resolver.upstream' 中定义的相应全局默认值。
+    # - 如果组内明确配置了某个参数，则该配置仅对此特定组生效，覆盖该组继承的全局默认值。
+    #   这种覆盖是局部的，不会影响全局默认值本身，也不会影响任何其他组的配置。
     upstream_groups:
       # 组名：alidns_doh
       - name: "alidns_doh"
-        # 覆盖全局设置：此组禁用 DNSSEC
+        # 覆盖全局设置：此组禁用 DNSSEC。
+        # 此 'enable_dnssec: false' 设置仅对 'alidns_doh' 组生效。
+        # 它不会改变 'dns_resolver.upstream.enable_dnssec' 的全局默认值 (true)，
+        # 也不会影响其他任何组（包括可能被设为 default_upstream_group 的组）的 DNSSEC行为。
         enable_dnssec: false
         # 覆盖全局设置：此组使用 15 秒超时
         query_timeout: 15
@@ -164,8 +171,9 @@ dns_resolver:
 
       # 组名：googledns_doh
       - name: "googledns_doh"
-        # 此组未指定 enable_dnssec 和 query_timeout,
-        # 将继承全局 upstream 的设置 (true 和 30 秒)
+        # 此组未明确指定 'enable_dnssec' 和 'query_timeout'。
+        # 因此，'googledns_doh' 组将继承 'dns_resolver.upstream' 中的全局默认设置
+        # (即 enable_dnssec: true, query_timeout: 30 秒)。
         resolvers:
           # Google DNS (协议: DoH)
           - address: "https://dns.google/dns-query"
@@ -244,8 +252,12 @@ dns_resolver:
       #   upstream_group: "__blackhole__"
 
     # --- 默认上游组配置 ---
-    # 可选: 指定默认的上游组名称。
-    # 如果一个 DNS 请求没有匹配 'rules' 中的任何规则：
-    #   - 若指定了有效的组名（如此处的 "alidns_doh"），则使用该组的配置。
-    #   - 若为 null、未设置或指定的组名无效，则使用顶层 'dns_resolver.upstream' 的配置。
+    # 可选: 指定一个在 'upstream_groups' 中已定义的组名，作为默认的上游处理者。
+    # 当一个 DNS 请求没有匹配任何 'rules' 中的规则时：
+    #   - 如果指定了一个有效的组名（如此处的 "alidns_doh"），则该请求将由该指定组处理。
+    #     该组的 DNSSEC (以及其他) 行为将完全由其自身的配置决定：
+    #       - 如果该组明确定义了自己的 'enable_dnssec'，则使用该值。
+    #       - 如果该组未定义 'enable_dnssec'，则它会继承 'dns_resolver.upstream.enable_dnssec' 的全局默认值。
+    #     重要的是，其他组如何配置其 'enable_dnssec' 对此默认组的行为没有影响。
+    #   - 如果为 null、未设置或指定的组名无效，则请求将直接使用顶层 'dns_resolver.upstream' 的全局配置。
     default_upstream_group: "alidns_doh"

@@ -68,7 +68,9 @@ The design of `owdns` makes it particularly suitable for environments requiring 
     -   Configurable multiple **upstream DNS resolvers** supporting UDP, TCP, DoT (DNS-over-TLS), and DoH protocols.
     -   Flexible upstream selection strategies (e.g., round-robin, random).
 -   🔀 **Powerful DNS Routing/Splitting:**
-    -   Define multiple **upstream DNS server groups** (`upstream_groups`), each with potentially different resolvers, DNSSEC settings, and timeouts.
+    -   Define multiple **upstream DNS server groups** (`upstream_groups`). Each group can independently configure its own resolvers, DNSSEC settings (e.g., `enable_dnssec`), timeouts, and other parameters.
+        -   If a group does not explicitly define a specific setting (like `enable_dnssec`), it inherits the corresponding global default value from `dns_resolver.upstream`.
+        -   If a group _does_ explicitly define a setting, this value applies _only to that specific group_, overriding the global default for its queries. Such an override is local and does not affect the global default value itself, nor does it impact the configuration of any other `upstream_group` (including the one designated as `default_upstream_group`, unless this group _is_ the default group).
     -   Route DNS queries to specific groups based on flexible **rules**.
     -   Supported rule types: **Exact** domain match, **Regex** pattern match, **Wildcard** match (e.g., `*.example.com`), rules loaded from local **File**, and rules fetched from remote **URL**.
     -   Special built-in `__blackhole__` group to **block/drop** specific DNS queries (e.g., for ad blocking).
@@ -208,11 +210,12 @@ You can install Oxide WDNS in the following ways:
             interval_secs: 3600
 
       # --- Global/Default Upstream DNS Configuration ---
-      # These settings act as global defaults and the final fallback if no routing rules match
-      # and no default_upstream_group is specified.
+      # This section defines global default values for various parameters, such as 'enable_dnssec' and 'query_timeout'.
+      # These global defaults are inherited by upstream_groups if not explicitly overridden within a specific group.
+      # Crucially, these global default values themselves are not modified by any group-specific overrides.
       upstream:
-        enable_dnssec: true
-        query_timeout: 30 # seconds
+        enable_dnssec: true # Global default for DNSSEC. Inherited by groups unless they define their own.
+        query_timeout: 30 # Global default query timeout in seconds.
         resolvers:
           - address: "1.1.1.1:53"
             protocol: "udp"
@@ -245,10 +248,13 @@ You can install Oxide WDNS in the following ways:
         enabled: true
 
         # Define upstream DNS server groups
-        # Each group can have its own resolvers and override global settings (enable_dnssec, query_timeout).
+        # Each group independently configures its parameters. A group-specific setting (e.g., 'enable_dnssec: false')
+        # overrides the global default for that group only. It does not alter the global default value itself or affect other groups.
+        # If a setting is not specified within a group, it inherits from 'dns_resolver.upstream'.
         upstream_groups:
           - name: "clean_dns" # Example: A clean DNS group
-            # Inherits global enable_dnssec (true) and query_timeout (30)
+            # This group does not specify 'enable_dnssec' or 'query_timeout'.
+            # Thus, it inherits these from 'dns_resolver.upstream' (e.g., enable_dnssec: true).
             resolvers:
               - address: "https://dns.quad9.net/dns-query"
                 protocol: "doh"
@@ -260,8 +266,12 @@ You can install Oxide WDNS in the following ways:
               strategy: "forward" # This group will forward original ECS
 
           - name: "domestic_dns" # Example: DNS group optimized for domestic domains
-            enable_dnssec: false # Override global setting for this group
-            query_timeout: 15   # Override global setting for this group
+            # This group explicitly overrides 'enable_dnssec' and 'query_timeout'.
+            # These overrides apply only to the 'domestic_dns' group.
+            # They do not change the global defaults in 'dns_resolver.upstream'
+            # nor do they affect how 'clean_dns' or any other group determines its DNSSEC behavior.
+            enable_dnssec: false # Override for 'domestic_dns' only.
+            query_timeout: 15   # Override for 'domestic_dns' only.
             resolvers:
               - address: "https://dns.alidns.com/dns-query"
                 protocol: "doh"
@@ -323,9 +333,14 @@ You can install Oxide WDNS in the following ways:
             upstream_group: "__blackhole__"
 
         # Optional: Default upstream group for queries not matching any rule.
-        # If set to a valid group name (e.g., "clean_dns"), that group is used.
-        # If null or omitted, the global `dns_resolver.upstream` config is used.
-        default_upstream_group: "clean_dns" # Use clean_dns for anything not matched above
+        # If a valid group name (e.g., "clean_dns") from 'upstream_groups' is specified here:
+        #   - Unmatched queries are handled by this designated default group.
+        #   - The DNSSEC behavior (and other parameters) for these queries is determined SOLELY by the
+        #     configuration of THIS designated default group (i.e., its own explicit settings or the
+        #     global defaults it inherits if it has no explicit settings).
+        #   - The 'enable_dnssec' settings of OTHER non-default groups have NO impact on this default behavior.
+        # If null, omitted, or an invalid group name is given, the global `dns_resolver.upstream` config is used directly.
+        default_upstream_group: "clean_dns"
 
     ```
 
