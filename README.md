@@ -84,6 +84,14 @@ The design of `owdns` makes it particularly suitable for environments requiring 
         -   Reduces pressure on upstream DNS servers during initial startup phases after a restart.
         -   Supports configuration for persistence path, whether to load on startup, maximum number of items to save, and whether to skip expired entries.
         -   Supports periodic automatic saving of the cache to disk.
+-   🔒 **EDNS Client Subnet (ECS) Handling:**
+    -   Flexible control over how client ECS information (RFC 7871) is processed and forwarded, balancing user privacy with performance for geo-sensitive services like CDNs.
+    -   Supports three strategies:
+        -   `strip` (default): Removes all ECS information before sending queries upstream, maximizing privacy.
+        -   `forward`: Forwards the client's original ECS information directly to the upstream.
+        -   `anonymize`: Forwards anonymized ECS information (e.g., preserving the /24 network for IPv4).
+    -   Can be configured globally and overridden for specific upstream DNS server groups.
+    -   **ECS-Aware Caching**: The cache considers the ECS scope to ensure more geographically accurate responses.
 -   📊 **Observability:**
     -   Integrated **Prometheus metrics** (`/metrics` endpoint) for easy monitoring of service status and performance.
     -   Provides **Kubernetes health check** endpoint (`/health`).
@@ -216,6 +224,21 @@ You can install Oxide WDNS in the following ways:
           # - address: "https://cloudflare-dns.com/dns-query"
           #   protocol: "doh"
 
+      # --- EDNS Client Subnet (ECS) Handling Policy Configuration ---
+      ecs_policy:
+        # Enable ECS processing policy.
+        # Default: false (but recommended to set to true when needed to enable functionality)
+        enabled: true
+        # Global ECS processing strategy.
+        # Possible values: "strip", "forward", "anonymize"
+        strategy: "strip"
+        # Anonymization settings, effective when strategy is "anonymize".
+        anonymization:
+          # For IPv4 addresses, the network prefix length to preserve (1-32). Default: 24
+          ipv4_prefix_length: 24
+          # For IPv6 addresses, the network prefix length to preserve (1-128). Default: 48
+          ipv6_prefix_length: 48
+
       # --- DNS Routing Configuration ---
       routing:
         # Enable DNS routing feature
@@ -231,6 +254,10 @@ You can install Oxide WDNS in the following ways:
                 protocol: "doh"
               - address: "9.9.9.9:53"
                 protocol: "udp"
+            # Optional: Override global ECS policy for this group
+            ecs_policy:
+              enabled: true
+              strategy: "forward" # This group will forward original ECS
 
           - name: "domestic_dns" # Example: DNS group optimized for domestic domains
             enable_dnssec: false # Override global setting for this group
@@ -240,6 +267,13 @@ You can install Oxide WDNS in the following ways:
                 protocol: "doh"
               - address: "223.5.5.5:53"
                 protocol: "udp"
+            # Optional: Override global ECS policy for this group and use anonymization
+            ecs_policy:
+              enabled: true
+              strategy: "anonymize"
+              anonymization:
+                ipv4_prefix_length: 24
+                ipv6_prefix_length: 56 # Specify a different IPv6 anonymization level for this group
 
           - name: "adblock_dns" # Example: DNS group known for ad blocking
             resolvers:
