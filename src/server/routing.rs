@@ -10,7 +10,6 @@ use tokio::sync::RwLock as AsyncRwLock;
 use tracing::{error, info};
 use reqwest::Client;
 use tokio::time::{Duration, interval};
-use std::borrow::Cow;
 
 use crate::server::config::{RoutingConfig, MatchType, MatchCondition};
 use crate::server::error::{ServerError, Result};

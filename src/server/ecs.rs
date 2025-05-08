@@ -1,9 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use trust_dns_proto::op::{Message, MessageType, Header};
-use trust_dns_proto::rr::dnssec::SupportedAlgorithms;
+use trust_dns_proto::op::{Message, MessageType};
 use trust_dns_proto::rr::{RData, Record, RecordType};
 use trust_dns_proto::rr::rdata::opt::{EdnsCode, EdnsOption, OPT};
-use tracing::{debug, warn};
+use tracing::{warn};
 use crate::common::consts::{
     ECS_POLICY_STRIP, ECS_POLICY_FORWARD, ECS_POLICY_ANONYMIZE,
     EDNS_CLIENT_SUBNET_OPTION_CODE,
@@ -426,7 +425,7 @@ impl EcsProcessor {
                 }
                 
                 // 创建新的 OPT 记录
-                let mut new_opt = OPT::new(new_options);
+                let new_opt = OPT::new(new_options);
                 
                 // 创建新的 OPT 记录
                 let new_opt_record = Record::from_rdata(

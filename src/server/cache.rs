@@ -9,17 +9,17 @@ use std::io::{BufReader, BufWriter};
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use moka::future::Cache;
-use trust_dns_proto::op::{Message, ResponseCode};
+use trust_dns_proto::op::{Message};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
 use tokio::sync::RwLock;
 use tokio::time::interval;
-use tracing::{debug, trace, warn, error, info};
+use tracing::{debug, warn, error, info};
 use serde::{Serialize, Deserialize};
 use tokio::task;
 use crate::server::error::{Result, ServerError};
 use crate::server::config::{CacheConfig, PersistenceCacheConfig};
 use crate::server::ecs::{EcsData, EcsProcessor};
-use crate::common::consts::{CACHE_FILE_MAGIC, CACHE_FILE_VERSION, EDNS_CLIENT_SUBNET_OPTION_CODE};
+use crate::common::consts::{CACHE_FILE_MAGIC, CACHE_FILE_VERSION};
 
 // 可序列化的缓存条目用于持久化
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -193,7 +193,7 @@ impl CacheKey {
             // 如果缓存条目有 ECS 数据，客户端查询也有
             (Some(cached_net_str), Some(cached_scope_prefix), Some(client_net_str)) => {
                 // 尝试一次性从字符串中解析所有必要信息
-                if let Some((cached_ip, cached_prefix)) = Self::parse_network_string(cached_net_str) {
+                if let Some((cached_ip, _cached_prefix)) = Self::parse_network_string(cached_net_str) {
                     if let Some((client_ip, client_prefix)) = Self::parse_network_string(client_net_str) {
                         // 进行双向检查
                         
@@ -423,7 +423,7 @@ impl DnsCache {
     }
     
     // 基于客户端 ECS 信息查找缓存条目
-    pub async fn get_with_ecs(&self, key: &CacheKey, client_ecs: Option<&EcsData>) -> Option<Message> {
+    pub async fn get_with_ecs(&self, key: &CacheKey, _client_ecs: Option<&EcsData>) -> Option<Message> {
         if !self.config.enabled {
             return None;
         }

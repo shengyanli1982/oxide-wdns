@@ -50,6 +50,7 @@ mod tests {
             http_client: Default::default(),
             cache,
             routing: Default::default(),
+            ecs_policy: Default::default(),
         };
         
         ServerConfig { http, dns }

@@ -5,14 +5,14 @@ use std::net::{SocketAddr, IpAddr};
 use std::sync::Arc;
 
 use reqwest::{Client, header};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 use trust_dns_resolver::TokioAsyncResolver;
 use trust_dns_resolver::proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_resolver::config::{
     NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
 
-use crate::server::config::{ServerConfig, UpstreamConfig, ResolverProtocol, EcsPolicyConfig};
+use crate::server::config::{ServerConfig, UpstreamConfig, ResolverProtocol};
 use crate::server::error::{Result, ServerError};
 use crate::server::ecs::{EcsProcessor, EcsData};
 use crate::common::consts::CONTENT_TYPE_DNS_MESSAGE;

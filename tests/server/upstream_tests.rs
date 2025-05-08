@@ -75,7 +75,7 @@ mod tests {
         // 创建UpstreamManager
         info!("Creating UpstreamManager...");
         let http_client = Client::new();
-        let upstream_manager = UpstreamManager::new(&config, http_client).await.unwrap();
+        let upstream_manager = UpstreamManager::new(Arc::new(config), http_client).await.unwrap();
         info!("UpstreamManager created successfully.");
 
         // 创建测试查询
@@ -84,7 +84,7 @@ mod tests {
 
         // 执行查询
         info!("Executing query via UpstreamManager...");
-        let response = upstream_manager.resolve(&query, UpstreamSelection::Global).await.unwrap();
+        let response = upstream_manager.resolve(&query, UpstreamSelection::Global, None, None).await.unwrap();
         info!("Query executed successfully.");
         
         // 验证响应
@@ -143,11 +143,11 @@ mod tests {
         // 创建 UpstreamManager
         let _router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream_manager = UpstreamManager::new(&config, http_client).await.unwrap();
+        let upstream_manager = UpstreamManager::new(Arc::new(config), http_client).await.unwrap();
         
         // 执行查询
         let query = create_test_query("example.com", RecordType::A);
-        let response = upstream_manager.resolve(&query, UpstreamSelection::Global).await.unwrap();
+        let response = upstream_manager.resolve(&query, UpstreamSelection::Global, None, None).await.unwrap();
         
         // 验证响应
         assert_eq!(response.response_code(), ResponseCode::NoError);

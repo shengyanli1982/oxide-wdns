@@ -25,10 +25,10 @@ use crate::common::consts::{
 };
 use crate::server::cache::{CacheKey, DnsCache};
 use crate::server::config::ServerConfig;
-use crate::server::metrics::{DnsMetrics, METRICS};
+use crate::server::metrics::{DnsMetrics};
 use crate::server::routing::{RouteDecision, Router as DnsRouter};
 use crate::server::upstream::{UpstreamManager, UpstreamSelection};
-use crate::server::ecs::{EcsData, EcsProcessor};
+use crate::server::ecs::{EcsProcessor};
 
 
 // 共享的服务器状态
@@ -662,7 +662,7 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
     };
     
     // 解析 DNS 类
-    let dns_class = match request.dns_class {
+    let _dns_class = match request.dns_class {
         Some(class) => {
             // 检查已知有效的 DNS 类型
             match class {

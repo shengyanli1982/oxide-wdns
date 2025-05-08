@@ -16,6 +16,7 @@ mod tests {
     use std::path::Path;
     
     use std::str::FromStr;
+    use std::sync::Arc;
 
     // === 辅助函数 ===
     
@@ -37,9 +38,11 @@ mod tests {
     // 创建测试用的缓存键
     fn create_cache_key(name: &str, record_type: u16) -> CacheKey {
         CacheKey {
-            name: name.to_string(),
+            name: Arc::new(name.to_string()),
             record_type,
             record_class: 1, // IN 类
+            ecs_network: None,
+            ecs_scope_prefix_length: None,
         }
     }
     
