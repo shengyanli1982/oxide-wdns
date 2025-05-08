@@ -10,6 +10,7 @@ pub mod routing;
 pub mod security;
 pub mod upstream;
 pub mod args;
+pub mod ecs;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,7 +66,7 @@ impl DoHServer {
         let cache = Arc::new(DnsCache::new(self.config.dns.cache.clone()));
         let client = create_http_client(&self.config)?;
         let router_manager = Arc::new(DnsRouter::new(self.config.dns.routing.clone(), Some(client.clone())).await?);
-        let upstream_manager = Arc::new(UpstreamManager::new(&self.config, client.clone()).await?);
+        let upstream_manager = Arc::new(UpstreamManager::new(Arc::new(self.config.clone()), client.clone()).await?);
         let metrics = Arc::new(DnsMetrics::new());
 
         let state = ServerState {

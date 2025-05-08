@@ -60,7 +60,7 @@ mod tests {
         let config = create_test_config();
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone())); // 移除unwrap并传递值而非引用
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -541,7 +541,7 @@ mod tests {
         // 创建服务器状态
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -735,7 +735,7 @@ mod tests {
         // 创建服务器状态
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         

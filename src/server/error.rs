@@ -61,6 +61,10 @@ pub enum ServerError {
     #[error("Upstream group not found: {0}")]
     UpstreamGroupNotFound(String),
     
+    // 无效查询
+    #[error("Invalid query: {0}")]
+    InvalidQuery(String),
+    
     // 其他错误
     #[error("Other error: {0}")]
     Other(String),

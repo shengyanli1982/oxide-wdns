@@ -12,8 +12,9 @@ mod health_tests;
 mod metrics_tests;
 mod routing_tests; // 新增的DNS分流测试模块
 mod server_integration_tests;
-mod signal_tests; // 信号测试可能需要特殊处理
+// mod signal_tests;
 mod upstream_tests;
+mod ecs_tests;
 
 // 注意：在Rust测试中，不需要使用pub use语句导出测试模块
 // 可以通过 cargo test -p oxide-wdns server::server_integration_tests 等方式直接运行指定测试

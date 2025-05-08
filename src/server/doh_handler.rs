@@ -25,9 +25,10 @@ use crate::common::consts::{
 };
 use crate::server::cache::{CacheKey, DnsCache};
 use crate::server::config::ServerConfig;
-use crate::server::metrics::{DnsMetrics, METRICS};
+use crate::server::metrics::{DnsMetrics};
 use crate::server::routing::{RouteDecision, Router as DnsRouter};
 use crate::server::upstream::{UpstreamManager, UpstreamSelection};
+use crate::server::ecs::{EcsProcessor};
 
 
 // 共享的服务器状态
@@ -233,9 +234,11 @@ async fn handle_dns_json_query(
     
     // 只在调试级别时记录详细记录信息，减少运行时开销
     if !json_response.answer.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
-        let record_details: Vec<String> = json_response.answer.iter()
-            .map(|ans| format!("{}({}): {}", ans.name, RecordType::from(ans.type_value), ans.data))
-            .collect();
+        // 使用迭代器和预分配容量优化字符串收集
+        let mut record_details = Vec::with_capacity(json_response.answer.len());
+        for ans in &json_response.answer {
+            record_details.push(format!("{}({}): {}", ans.name, RecordType::from(ans.type_value), ans.data));
+        }
             
         debug!(
             name = %params.name,
@@ -298,8 +301,8 @@ async fn handle_dns_wire_get(
     
     // 从查询获取域名（用于日志）
     let domain = query_message.queries().first().map_or_else(
-        || String::from("unknown"), 
-        |q| q.name().to_string()
+        || "unknown".to_string(), 
+        |q| q.name().to_utf8()
     );
     
     // 处理查询
@@ -346,7 +349,7 @@ async fn handle_dns_wire_get(
     
     // 记录请求完成
     let qtype = query_message.queries().first().map_or_else(
-        || String::from("unknown"), 
+        || "unknown".to_string(), 
         |q| format!("{:?}", q.query_type())
     );
     
@@ -445,8 +448,8 @@ async fn handle_dns_wire_post(
     
     // 从查询获取域名（用于日志）
     let domain = query_message.queries().first().map_or_else(
-        || String::from("unknown"), 
-        |q| q.name().to_string()
+        || "unknown".to_string(), 
+        |q| q.name().to_utf8()
     );
     
     // 处理查询
@@ -493,7 +496,7 @@ async fn handle_dns_wire_post(
     
     // 记录请求完成
     let qtype = query_message.queries().first().map_or_else(
-        || String::from("unknown"), 
+        || "unknown".to_string(), 
         |q| format!("{:?}", q.query_type())
     );
     
@@ -551,102 +554,93 @@ async fn process_query(
     router: &DnsRouter,
     cache: &DnsCache,
     query_message: &Message,
-    _client_ip: IpAddr,
+    client_ip: IpAddr,
 ) -> Result<(Message, bool)> {  // 返回元组，第二个参数表示是否缓存命中
-    // 检查查询消息
-    let queries = query_message.queries();
-    if queries.is_empty() {
-        return Err(ServerError::Other("No queries in DNS message".to_string()));
+    // 检查查询有效性
+    if query_message.queries().is_empty() {
+        return Err(ServerError::InvalidQuery("Empty query section".to_string()));
     }
     
-    // 获取DNS查询域名和类型
-    let query = &queries[0];
-    let domain = query.name().to_string();
-    let qtype = query.query_type();
+    // 获取第一个查询
+    let query = &query_message.queries()[0];
     
-    debug!(domain = %domain, qtype = ?qtype, "Processing DNS query");
+    // 提取客户端 ECS 数据
+    let client_ecs = EcsProcessor::extract_ecs_from_message(query_message);
     
     // 创建缓存键
-    let cache_key = CacheKey::new(query.name().clone(), query.query_type(), query.query_class());
-    
-    // 检查缓存
-    if cache.is_enabled() {
-        if let Some(cached_message) = cache.get(&cache_key).await {
-            debug!(domain = %domain, qtype = ?qtype, "Cache hit");
-            
-            // 记录缓存命中指标
-            METRICS.with(|m| m.record_cache_hit());
-            
-            // 克隆缓存的消息并复制原始查询的ID
-            let mut response = cached_message.clone();
-            response.set_id(query_message.id());
-            
-            return Ok((response, true));
-        }
-        
-        // 记录缓存未命中指标
-        METRICS.with(|m| m.record_cache_miss());
-    }
-    
-    // 查询域名并获取路由决策
-    let route_decision = router.match_domain(&domain).await;
-    
-    debug!(domain = %domain, qtype = ?qtype, decision = ?route_decision, "DNS routing decision");
-    
-    // 处理黑洞决策
-    if route_decision == RouteDecision::Blackhole {
-        info!(domain = %domain, "Query blocked by blackhole rule");
-        
-        // 记录被黑洞规则阻止的请求
-        METRICS.with(|m| m.record_blackhole_request());
-        
-        // 记录DNS响应代码
-        METRICS.with(|m| m.record_dns_rcode("NXDomain"));
-        
-        // 创建 NXDOMAIN 响应
-        let mut response = Message::new();
-        response.set_id(query_message.id());
-        response.set_message_type(MessageType::Response);
-        response.set_op_code(query_message.op_code());
-        response.set_response_code(ResponseCode::NXDomain); // 不存在的域名
-        response.set_recursion_desired(query_message.recursion_desired());
-        response.set_recursion_available(true);
-        response.add_query(query.clone());
-        
-        // 如果启用了缓存，使用负缓存 TTL 进行缓存
-        if cache.is_enabled() {
-            let _ = cache.put(&cache_key, &response, cache.negative_ttl()).await;
-        }
-        
-        return Ok((response, false));
-    }
-    
-    // 将路由决策转换为上游选择
-    let upstream_selection = match route_decision {
-        RouteDecision::UseGroup(group_name) => {
-            debug!(domain = %domain, group = %group_name, "Using upstream group");
-            UpstreamSelection::Group(group_name)
-        },
-        RouteDecision::UseGlobal => {
-            debug!(domain = %domain, "Using global upstream");
-            UpstreamSelection::Global
-        },
-        RouteDecision::Blackhole => unreachable!(), // 已经在上面处理过
+    let cache_key = if let Some(ecs) = &client_ecs {
+        // 使用 ECS 数据创建缓存键，无需克隆 name
+        CacheKey::with_ecs(
+            query.name().clone(),
+            query.query_type(),
+            query.query_class(),
+            ecs
+        )
+    } else {
+        // 使用基本信息创建缓存键，无需克隆 name
+        CacheKey::new(
+            query.name().clone(),
+            query.query_type(),
+            query.query_class()
+        )
     };
     
-    // 执行上游查询
-    let response_message = upstream.resolve(query_message, upstream_selection).await?;
-    
-    // 记录DNS响应代码
-    METRICS.with(|m| m.record_dns_rcode(&response_message.response_code().to_string()));
-    
-    // 缓存结果（如果启用）
+    // 尝试从缓存获取
     if cache.is_enabled() {
-        let ttl = cache.calculate_ttl(&response_message);
-        let _ = cache.put(&cache_key, &response_message, ttl).await;
+        if let Some(cached_response) = cache.get_with_ecs(&cache_key, client_ecs.as_ref()).await {
+            // 从缓存构建响应（复制请求 ID 等信息）
+            let mut response = cached_response;
+            response.set_id(query_message.id());
+            return Ok((response, true));
+        }
     }
     
-    Ok((response_message, false))
+    // 缓存未命中，需要查询上游
+    
+    // 使用路由器确定上游组
+    let route_decision = router.match_domain(&query.name().to_utf8()).await;
+    
+    // 选择上游
+    let upstream_selection = match route_decision {
+        RouteDecision::UseGroup(group_name) => UpstreamSelection::Group(group_name),
+        RouteDecision::Blackhole => {
+            // 黑洞策略
+            let mut response = Message::new();
+            response.set_id(query_message.id())
+                .set_message_type(MessageType::Response)
+                .set_recursion_desired(query_message.recursion_desired())
+                .set_recursion_available(true)
+                .set_response_code(ResponseCode::NXDomain);
+            
+            // 复制查询部分
+            for q in query_message.queries() {
+                response.add_query(q.clone());
+            }
+            
+            // 不缓存黑洞响应
+            return Ok((response, false));
+        },
+        RouteDecision::UseGlobal => UpstreamSelection::Global,
+    };
+    
+    // 查询上游，传递客户端 IP 和 ECS 数据
+    let response = upstream.resolve(
+        query_message, 
+        upstream_selection, 
+        Some(client_ip), 
+        client_ecs.as_ref()
+    ).await?;
+    
+    // 缓存响应
+    if cache.is_enabled() && response.response_code() == ResponseCode::NoError {
+        cache.put_with_auto_ttl_and_ecs(&cache_key, &response, client_ecs.as_ref()).await?;
+    } else if cache.is_enabled() && response.response_code() == ResponseCode::NXDomain {
+        // 缓存负响应
+        let negative_ttl = cache.negative_ttl();
+        cache.put_with_ecs(&cache_key, &response, negative_ttl, client_ecs.as_ref()).await?;
+    }
+    
+    Ok((response, false))
 }
 
 // 从 JSON 请求创建 DNS 查询消息
@@ -697,7 +691,11 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
 
 // 将 DNS 响应消息转换为 JSON 响应
 fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
-    // 创建响应对象
+    // 获取消息元素数量，用于预分配空间
+    let query_count = message.queries().len();
+    let answer_count = message.answers().len();
+    
+    // 创建响应对象，预分配空间以减少内存重分配
     let mut response = DnsJsonResponse {
         status: u16::from(message.response_code().low()),
         tc: message.truncated(),
@@ -705,20 +703,14 @@ fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
         ra: message.recursion_available(),
         ad: message.authentic_data(),
         cd: message.checking_disabled(),
-        question: Vec::new(),
-        answer: Vec::new(),
+        question: Vec::with_capacity(query_count),
+        answer: Vec::with_capacity(answer_count),
     };
-    
-    // 预先分配容量以减少内存重分配
-    let query_count = message.queries().len();
-    let answer_count = message.answers().len();
-    response.question.reserve(query_count);
-    response.answer.reserve(answer_count);
     
     // 添加查询
     for query in message.queries() {
         response.question.push(DnsJsonQuestion {
-            name: query.name().to_string(),
+            name: query.name().to_utf8(),
             type_value: query.query_type().into(),
         });
     }
@@ -731,7 +723,7 @@ fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
         };
         
         response.answer.push(DnsJsonAnswer {
-            name: record.name().to_string(),
+            name: record.name().to_utf8(),
             type_value: record.record_type().into(),
             class: record.dns_class().into(),
             ttl: record.ttl(),

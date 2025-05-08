@@ -84,6 +84,14 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
         -   减轻上游 DNS 服务器在服务重启初期的压力。
         -   支持配置持久化路径、是否在启动时加载、保存的最大条目数以及是否跳过已过期的条目。
         -   支持周期性自动保存缓存到磁盘。
+-   🔒 **EDNS 客户端子网 (ECS) 处理:**
+    -   灵活控制如何处理和转发客户端的 ECS 信息 (RFC 7871)，以平衡用户隐私和 CDN 等地理位置敏感服务的性能。
+    -   支持三种策略：
+        -   `strip` (默认): 向上游发送查询前移除所有 ECS 信息，最大化隐私。
+        -   `forward`: 将客户端的原始 ECS 信息直接转发给上游。
+        -   `anonymize`: 转发匿名化处理后的 ECS 信息 (例如，保留 IPv4 的 /24 网段)。
+    -   可在全局级别配置，并针对特定的上游 DNS 服务器组进行覆盖。
+    -   **ECS 感知缓存**: 缓存会考虑 ECS scope，确保返回地理位置更精确的应答。
 -   📊 **可观测性:**
     -   集成 **Prometheus 指标** (`/metrics` 端点)，轻松监控服务状态和性能。
     -   提供 **Kubernetes 健康检查**端点 (`/health`)。
@@ -107,6 +115,13 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
     -   清晰的命令行接口。
     -   详细的输出模式 (`-v, -vv, -vvv`)，便于调试。
     -   支持跳过 TLS 证书验证 (`-k`)，方便测试本地或自签名证书服务器。
+
+## 缓存持久化性能考量
+
+`DnsCache` 的持久化机制利用 `spawn_blocking` (保存) 和 `block_in_place` (加载) 实现核心 I/O 操作的异步化，避免了对主异步运行时的直接阻塞。然而，在大规模缓存和高并发场景下需注意：
+
+-   **保存操作:** 缓存遍历与排序等数据准备阶段，在保存任务的异步上下文中同步执行，可能在高负载时成为 CPU 瓶颈并导致瞬时内存峰值。
+-   **加载操作:** 大量缓存数据的反序列化可能延长服务启动时间。在高负载下，这些因素可能间接影响整体性能与响应能力。
 
 ## 安装
 
@@ -209,6 +224,21 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
           # - address: "https://cloudflare-dns.com/dns-query"
           #   protocol: "doh"
 
+      # --- EDNS 客户端子网 (ECS) 处理策略配置 ---
+      ecs_policy:
+        # 是否启用 ECS 处理策略。
+        # 默认值: false (但推荐在需要时设为 true 以启用相关功能)
+        enabled: true
+        # 全局 ECS 处理策略。
+        # 可选值: "strip", "forward", "anonymize"
+        strategy: "strip"
+        # 当 strategy 为 "anonymize" 时生效的匿名化配置。
+        anonymization:
+          # 对于 IPv4 地址，保留的网络前缀长度 (1-32)。默认值: 24
+          ipv4_prefix_length: 24
+          # 对于 IPv6 地址，保留的网络前缀长度 (1-128)。默认值: 48
+          ipv6_prefix_length: 48
+
       # --- DNS 路由配置 ---
       routing:
         # 是否启用 DNS 分流功能
@@ -224,6 +254,10 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
                 protocol: "doh"
               - address: "9.9.9.9:53"
                 protocol: "udp"
+            # 可选：为此组覆盖全局 ECS 策略
+            ecs_policy:
+              enabled: true
+              strategy: "forward" # 此组将转发原始 ECS
 
           - name: "domestic_dns" # 示例：针对国内域名优化的 DNS 组
             enable_dnssec: false # 覆盖此组的全局设置
@@ -233,6 +267,13 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
                 protocol: "doh"
               - address: "223.5.5.5:53"
                 protocol: "udp"
+            # 可选：为此组覆盖全局 ECS 策略并使用匿名化
+            ecs_policy:
+              enabled: true
+              strategy: "anonymize"
+              anonymization:
+                ipv4_prefix_length: 24
+                ipv6_prefix_length: 56 # 为此组特别指定不同的 IPv6 匿名化级别
 
           - name: "adblock_dns" # 示例：已知提供广告拦截的 DNS 组
             resolvers:

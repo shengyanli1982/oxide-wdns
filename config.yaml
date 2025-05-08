@@ -110,28 +110,6 @@ dns_resolver:
         # 仅在 periodic.enabled: true 时生效。
         interval_secs: 3600
 
-  # --- EDNS 客户端子网 (ECS) 处理策略配置 ---
-  ecs_policy:
-    # 是否启用 ECS 处理策略。
-    # 默认值: false
-    enabled: true
-    # 全局 ECS 处理策略。
-    # 可选值:
-    #   "strip": 默认值。向上游发送查询前移除所有 ECS 信息。
-    #   "forward": 将客户端的原始 ECS 信息直接转发给上游。
-    #   "anonymize": 转发匿名化处理后的 ECS 信息。
-    strategy: "strip"
-    # 当 strategy 为 "anonymize" 时生效的匿名化配置。
-    anonymization:
-      # 对于 IPv4 地址，保留的网络前缀长度 (1-32)。
-      # 例如，24 表示保留 /24 网段 (例如，192.168.1.0/24)。
-      # 默认值: 24
-      ipv4_prefix_length: 24
-      # 对于 IPv6 地址，保留的网络前缀长度 (1-128)。
-      # 例如，48 表示保留 /48 网段。
-      # 默认值: 48
-      ipv6_prefix_length: 48
-
   # --- DNS 分流路由配置 ---
   routing:
     # 是否启用 DNS 分流功能
@@ -155,12 +133,6 @@ dns_resolver:
           # DNSPod Public DNS (协议: DoH)
           - address: "https://doh.pub/dns-query"
             protocol: "doh"
-        # 覆盖全局 ECS 处理策略，只针对此组生效
-        ecs_policy:
-          # 是否启用 ECS 处理策略
-          enabled: true
-          # 此组将使用转发策略
-          strategy: "forward"
 
       # 组名：googledns_doh
       - name: "googledns_doh"
@@ -173,18 +145,6 @@ dns_resolver:
           # Google DNS (协议: UDP)
           - address: "8.8.8.8:53"
             protocol: "udp"
-        # 覆盖全局 ECS 处理策略，只针对此组生效
-        ecs_policy:
-          # 是否启用 ECS 处理策略
-          enabled: true
-          # 此组将使用匿名化策略
-          strategy: "anonymize"
-          # 匿名化参数配置
-          anonymization:
-            # IPv4 前缀长度设为 24 (保留 /24 网段)
-            ipv4_prefix_length: 24
-            # IPv6 前缀长度设为 56 (保留 /56 网段)
-            ipv6_prefix_length: 56
 
     # --- 定义分流规则列表 ---
     # 规则按顺序进行匹配，第一个匹配到的规则生效。
@@ -230,7 +190,7 @@ dns_resolver:
         upstream_group: "__blackhole__"
 
       # # 规则 5: 从本地文件加载国内域名列表，路由到 alidns_doh
-      # # 文件格式请参考下方的"域名列表文件格式"部分。
+      # # 文件格式请参考下方的“域名列表文件格式”部分。
       # - match:
       #     type: file
       #     path: "/etc/oxide-wdns/china_domains.txt"

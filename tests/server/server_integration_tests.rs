@@ -78,7 +78,7 @@ mod tests {
         let config = build_test_config(port, rate_limit_enabled, cache_enabled);
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
@@ -214,7 +214,7 @@ mod tests {
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
-        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let metrics = Arc::new(DnsMetrics::new());
         
         let server_state = ServerState {
@@ -370,7 +370,7 @@ mod tests {
         info!("Creating server state with DNS routing configuration...");
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(&config, http_client).await.unwrap());
+        let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let metrics = Arc::new(DnsMetrics::new());
         
