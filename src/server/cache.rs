@@ -64,8 +64,7 @@ struct CacheFileHeader {
     entry_count: usize,
 }
 
-// 用于缓存持久化的缓存项包装器
-#[derive(Debug, Clone)]
+// 保存到磁盘的缓存项
 struct CacheItemForPersistence {
     // 缓存键
     key: CacheKey,
@@ -458,11 +457,11 @@ impl DnsCache {
         
         // 获取基础键的所有缓存键（异步操作）
         let mut matched_keys = Vec::new();
-        self.cache.iter().for_each(|k, _| {
+        self.cache.iter().for_each(|(k, _)| {
             if k.name == base_key.name && 
                k.record_type == base_key.record_type && 
                k.record_class == base_key.record_class {
-                matched_keys.push(k.clone());
+                matched_keys.push((*k).clone());
             }
         });
         
@@ -483,7 +482,7 @@ impl DnsCache {
                 
                 // 更新最佳匹配
                 if best_match.is_none() || scope_len > best_scope_len {
-                    best_match = Some(cached_key);
+                    best_match = Some(cached_key.clone());
                     best_scope_len = scope_len;
                 }
             }
@@ -495,7 +494,7 @@ impl DnsCache {
                 // 检查是否过期
                 if entry.expires_at <= now {
                     // 过期，异步删除
-                    let key_clone = best_key;
+                    let key_clone = best_key.clone();
                     let cache_clone = self.cache.clone();
                     tokio::spawn(async move {
                         cache_clone.invalidate(&key_clone).await;
@@ -700,7 +699,7 @@ impl DnsCache {
                 let last_accessed = entry.last_accessed.load(Ordering::Relaxed);
                 
                 all_items.push(CacheItemForPersistence {
-                    key,
+                    key: (*key).clone(),
                     entry,
                     access_count,
                     last_accessed

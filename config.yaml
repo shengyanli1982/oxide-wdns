@@ -1,0 +1,211 @@
+# Oxide WDNS 示例配置文件（支持DNS分流）
+
+# --- HTTP 服务器配置 ---
+http_server:
+  # 服务器监听地址和端口
+  listen_addr: "127.0.0.1:3053"
+  # 服务器连接超时时间（秒）
+  timeout: 120
+
+  # --- 速率限制配置 ---
+  rate_limit:
+    # 是否启用速率限制
+    enabled: true
+    # 每个 IP 地址每秒允许的最大请求数
+    per_ip_rate: 100
+    # 单个 IP 地址允许的最大并发请求数
+    per_ip_concurrent: 10
+
+# --- DNS 解析器配置 ---
+dns_resolver:
+  # --- 全局/默认上游 DNS 配置 ---
+  # 这些设置作为全局默认值，可以被 upstream_groups 中的同名设置覆盖。
+  # 如果没有任何路由规则匹配，并且 routing.default_upstream_group 未指定，
+  # 则这里的 resolvers 将作为最终的后备选项。
+  upstream:
+    # 是否启用 DNSSEC 验证
+    enable_dnssec: true
+    # DNS 查询超时时间（秒）
+    query_timeout: 30
+    # 默认上游 DNS 解析器列表
+    resolvers:
+      # Cloudflare DNS (协议: UDP)
+      - address: "1.1.1.1:53"
+        protocol: "udp"
+      # Google DNS (协议: UDP)
+      - address: "8.8.8.8:53"
+        protocol: "udp"
+
+  # --- HTTP 客户端配置（用于 DoH 等） ---
+  http_client:
+    # HTTP 客户端请求超时时间（秒）
+    timeout: 120
+
+    # --- 连接池配置 ---
+    pool:
+      # 连接池中空闲连接的最大保持时间（秒）
+      idle_timeout: 30
+      # 连接池允许的最大空闲连接数
+      max_idle_connections: 10
+
+    # --- HTTP 请求相关配置 ---
+    request:
+      # 发起 HTTP 请求时使用的 User-Agent
+      user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+      # 用于识别客户端真实 IP 地址的 HTTP 头部字段名列表
+      # 按顺序尝试读取，取第一个非空值
+      ip_header_names:
+        - "X-Forwarded-For"
+        - "X-Real-IP"
+        - "CF-Connecting-IP"
+
+  # --- DNS 缓存配置 ---
+  cache:
+    # 是否启用 DNS 缓存
+    enabled: true
+    # 缓存条目的最大数量
+    size: 10000
+
+    # --- 缓存 TTL (Time-To-Live) 配置（单位：秒） ---
+    ttl:
+      # 缓存记录的最小 TTL
+      min: 60
+      # 缓存记录的最大 TTL（例如：86400 秒 = 1 天）
+      max: 86400
+      # 负面缓存（查询失败记录）的 TTL（例如：300 秒 = 5 分钟）
+      negative: 300
+
+    # --- 持久化缓存配置 ---
+    persistence:
+      # 是否启用缓存持久化功能。
+      # 启用后，服务关闭时会自动保存当前缓存状态到磁盘，并在下次启动时尝试加载。
+      # 缓存将以高效的二进制格式存储。
+      enabled: true
+      # 缓存文件的存储路径。
+      # 如果是相对路径，则相对于 oxide-wdns 的工作目录。
+      # 推荐使用绝对路径或确保工作目录的稳定性。
+      path: "./cache.dat"
+      # 服务启动时是否自动从磁盘加载缓存。
+      # 仅在 enabled: true 时生效。
+      load_on_startup: true
+      # (可选) 保存到磁盘的最大缓存条目数。
+      # 用于控制持久化文件的大小，尤其是在内存缓存非常大时。
+      # 如果未设置或设置为 0，则尝试保存所有符合条件的缓存条目 (受 cache.size 限制)。
+      max_items_to_save: 0
+      # 从磁盘加载时，如果缓存条目已过期（根据其原始TTL和保存时间判断），是否跳过加载这些条目。
+      skip_expired_on_load: true
+      # 关机时保存缓存的超时时间（秒）
+      # 如果保存操作超过此时间，将被中断以确保服务能够及时关闭
+      # 默认值: 30
+      shutdown_save_timeout_secs: 30
+      # --- 周期性保存配置 ---
+      # 除了在关闭时保存，还可以配置周期性地将内存缓存保存到磁盘。
+      periodic:
+        # 是否启用周期性保存缓存的功能。
+        # 仅在 persistence.enabled: true 时生效。
+        enabled: true
+
+        # 周期性保存的时间间隔（秒）。
+        # 例如: 3600 (1小时)。
+        # 仅在 periodic.enabled: true 时生效。
+        interval_secs: 3600
+
+  # --- DNS 分流路由配置 ---
+  routing:
+    # 是否启用 DNS 分流功能
+    enabled: true
+
+    # --- 定义上游 DNS 服务器组 ---
+    # 每个组可以包含多个解析器，并可独立配置 DNSSEC 和超时。
+    # 如果组内未配置某项，则继承全局 'upstream' 中的默认值。
+    upstream_groups:
+      # 组名：alidns_doh
+      - name: "alidns_doh"
+        # 覆盖全局设置：此组禁用 DNSSEC
+        enable_dnssec: false
+        # 覆盖全局设置：此组使用 15 秒超时
+        query_timeout: 15
+        # 此组的解析器列表
+        resolvers:
+          # Alidns (协议: DoH)
+          - address: "https://dns.alidns.com/dns-query"
+            protocol: "doh"
+          # DNSPod Public DNS (协议: DoH)
+          - address: "https://doh.pub/dns-query"
+            protocol: "doh"
+
+      # 组名：googledns_doh
+      - name: "googledns_doh"
+        # 此组未指定 enable_dnssec 和 query_timeout,
+        # 将继承全局 upstream 的设置 (true 和 30 秒)
+        resolvers:
+          # Google DNS (协议: DoH)
+          - address: "https://dns.google/dns-query"
+            protocol: "doh"
+          # Google DNS (协议: UDP)
+          - address: "8.8.8.8:53"
+            protocol: "udp"
+
+    # --- 定义分流规则列表 ---
+    # 规则按顺序进行匹配，第一个匹配到的规则生效。
+    rules:
+      # 规则 1: 将精确匹配的域名列表路由到 'alidns_doh' 组
+      - match:
+          # 匹配类型：精确匹配
+          type: exact
+          # 匹配值列表
+          values: ["bilibili.com", "qq.com", "taobao.com"]
+        # 目标上游组
+        upstream_group: "alidns_doh"
+
+      # 规则 2: 将匹配正则表达式的域名路由到 'googledns_doh' 组
+      - match:
+          # 匹配类型：正则表达式匹配
+          type: regex
+          # 匹配的正则表达式列表
+          values:
+            - "^(.*\\.)?(google|youtube|gstatic)\\.com$"
+            - "^(.*\\.)?openai\\.com$"
+        # 目标上游组
+        upstream_group: "googledns_doh"
+
+      # 规则 3: 将通配符匹配的域名路由到 'googledns_doh' 组
+      - match:
+          # 匹配类型：通配符匹配
+          type: wildcard
+          # 匹配的通配符列表
+          values:
+            - "*.google.ac"
+            - "*.ggpht.com"
+        # 目标上游组
+        upstream_group: "googledns_doh"
+
+      # 规则 4: 阻止对特定广告域名的查询
+      - match:
+          # 匹配类型：精确匹配
+          type: exact
+          # 匹配值列表
+          values: ["ads.example.com", "analytics.example.net"]
+        # 特殊目标组：丢弃请求
+        upstream_group: "__blackhole__"
+
+      # # 规则 5: 从本地文件加载国内域名列表，路由到 alidns_doh
+      # # 文件格式请参考下方的“域名列表文件格式”部分。
+      # - match:
+      #     type: file
+      #     path: "/etc/oxide-wdns/china_domains.txt"
+      #   upstream_group: "alidns_doh"
+
+      # # 规则 6: 从远程 URL 加载广告域名列表，使用 __blackhole__ 阻止它们
+      # # 来自 URL 的规则会周期性获取。格式请参考下方说明。
+      # - match:
+      #     type: url
+      #     url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
+      #   upstream_group: "__blackhole__"
+
+    # --- 默认上游组配置 ---
+    # 可选: 指定默认的上游组名称。
+    # 如果一个 DNS 请求没有匹配 'rules' 中的任何规则：
+    #   - 若指定了有效的组名（如此处的 "alidns_doh"），则使用该组的配置。
+    #   - 若为 null、未设置或指定的组名无效，则使用顶层 'dns_resolver.upstream' 的配置。
+    default_upstream_group: "alidns_doh"

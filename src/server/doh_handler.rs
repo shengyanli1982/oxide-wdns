@@ -571,7 +571,7 @@ async fn process_query(
     let cache_key = if let Some(ecs) = &client_ecs {
         // 使用 ECS 数据创建缓存键，无需克隆 name
         CacheKey::with_ecs(
-            query.name(),
+            query.name().clone(),
             query.query_type(),
             query.query_class(),
             ecs
@@ -579,7 +579,7 @@ async fn process_query(
     } else {
         // 使用基本信息创建缓存键，无需克隆 name
         CacheKey::new(
-            query.name(),
+            query.name().clone(),
             query.query_type(),
             query.query_class()
         )
@@ -598,12 +598,12 @@ async fn process_query(
     // 缓存未命中，需要查询上游
     
     // 使用路由器确定上游组
-    let route_decision = router.route(query_message, client_ip)?;
+    let route_decision = router.match_domain(&query.name().to_utf8()).await;
     
     // 选择上游
     let upstream_selection = match route_decision {
-        RouteDecision::Route(group_name) => UpstreamSelection::Group(group_name),
-        RouteDecision::Block => {
+        RouteDecision::UseGroup(group_name) => UpstreamSelection::Group(group_name),
+        RouteDecision::Blackhole => {
             // 黑洞策略
             let mut response = Message::new();
             response.set_id(query_message.id())
@@ -620,7 +620,7 @@ async fn process_query(
             // 不缓存黑洞响应
             return Ok((response, false));
         },
-        RouteDecision::Default => UpstreamSelection::Global,
+        RouteDecision::UseGlobal => UpstreamSelection::Global,
     };
     
     // 查询上游，传递客户端 IP 和 ECS 数据

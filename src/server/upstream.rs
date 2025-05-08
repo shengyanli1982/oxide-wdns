@@ -256,15 +256,37 @@ impl UpstreamManager {
             client.query(&processed_query).await?
         } else {
             // 没有 DoH 客户端，使用标准解析器
-            let query_bytes = processed_query.to_vec()?;
-            let response_bytes = target_config.resolver.dns_query(
-                &query_bytes
+            let query = processed_query.queries().first().ok_or_else(|| 
+                ServerError::Upstream("No query in message".to_string())
+            )?;
+            
+            // 使用lookup方法进行查询
+            let response = target_config.resolver.lookup(
+                query.name().clone(),
+                query.query_type()
             ).await
                 .map_err(|e| ServerError::Upstream(format!("DNS query failed: {}", e)))?;
             
-            // 解析响应
-            Message::from_vec(&response_bytes)
-                .map_err(|e| ServerError::Upstream(format!("Failed to parse DNS response: {}", e)))?
+            // 构建DNS响应消息
+            let mut message = Message::new();
+            message.set_id(processed_query.id())
+                .set_message_type(MessageType::Response)
+                .set_op_code(processed_query.op_code())
+                .set_response_code(ResponseCode::NoError)
+                .set_recursion_desired(processed_query.recursion_desired())
+                .set_recursion_available(true);
+            
+            // 添加原始查询
+            for q in processed_query.queries() {
+                message.add_query(q.clone());
+            }
+            
+            // 添加记录
+            for record in response.record_iter() {
+                message.add_answer(record.clone());
+            }
+            
+            message
         };
         
         // 返回响应

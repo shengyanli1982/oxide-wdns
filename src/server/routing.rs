@@ -145,12 +145,15 @@ impl Router {
         }
         
         // 规范化域名（转换为小写，去除尾部的点）
-        let domain_normalized = domain.to_lowercase().trim_end_matches('.');
+        let domain_lowercase = domain.to_lowercase();
+        let domain_normalized = domain_lowercase.trim_end_matches('.');
         
         // 按顺序检查每个规则
         for rule in &self.rules {
             let matches = match &rule.matcher {
-                CompiledMatcher::Exact(set) => set.contains(&domain_normalized),
+                CompiledMatcher::Exact(set) => {
+                    set.iter().any(|s| s == &domain_normalized)
+                },
                 
                 CompiledMatcher::Regex(patterns) => {
                     patterns.iter().any(|re| re.is_match(&domain_normalized))
@@ -161,7 +164,7 @@ impl Router {
                 },
                 
                 CompiledMatcher::File { exact, regex, wildcard, .. } => {
-                    exact.contains(&domain_normalized) ||
+                    exact.iter().any(|s| s == &domain_normalized) ||
                     regex.iter().any(|re| re.is_match(&domain_normalized)) ||
                     Self::match_wildcard_patterns(&domain_normalized, wildcard)
                 },
@@ -171,7 +174,7 @@ impl Router {
                     let url_rules = rules.read().await;
                     
                     // 检查是否匹配
-                    url_rules.exact.contains(&domain_normalized) ||
+                    url_rules.exact.iter().any(|s| s == &domain_normalized) ||
                     url_rules.regex.iter().any(|re| re.is_match(&domain_normalized)) ||
                     Self::match_wildcard_patterns(&domain_normalized, &url_rules.wildcard)
                 },
@@ -411,7 +414,7 @@ impl Router {
         // 处理特殊情况：*.domain.com
         if let Some(suffix) = pattern.strip_prefix("*.") {
             return WildcardPattern {
-                pattern: pattern,
+                pattern: pattern.clone(),
                 prefix: None,
                 suffix: Some(suffix.to_string()),
             };
@@ -420,10 +423,10 @@ impl Router {
         // 处理特殊情况：prefix.*
         if pattern.ends_with(".*") {
             let prefix_len = pattern.len() - 2;
-            let prefix = &pattern[..prefix_len];
+            let prefix = pattern[..prefix_len].to_string();
             return WildcardPattern {
-                pattern: pattern,
-                prefix: Some(prefix.to_string()),
+                pattern: pattern.clone(),
+                prefix: Some(prefix),
                 suffix: None,
             };
         }
