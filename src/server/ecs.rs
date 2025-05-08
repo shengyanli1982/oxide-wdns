@@ -199,17 +199,13 @@ impl EcsData {
             EcsAddressFamily::IPv4 => {
                 let mut ipv4_bytes = [0u8; 4];
                 // 复制现有字节
-                for i in 0..address_bytes.len().min(4) {
-                    ipv4_bytes[i] = address_bytes[i];
-                }
+                ipv4_bytes[..address_bytes.len().min(4)].copy_from_slice(&address_bytes[..address_bytes.len().min(4)]);
                 IpAddr::V4(Ipv4Addr::from(ipv4_bytes))
             },
             EcsAddressFamily::IPv6 => {
                 let mut ipv6_bytes = [0u8; 16];
                 // 复制现有字节
-                for i in 0..address_bytes.len().min(16) {
-                    ipv6_bytes[i] = address_bytes[i];
-                }
+                ipv6_bytes[..address_bytes.len().min(16)].copy_from_slice(&address_bytes[..address_bytes.len().min(16)]);
                 IpAddr::V6(Ipv6Addr::from(ipv6_bytes))
             }
         };
@@ -235,18 +231,16 @@ impl EcsProcessor {
             .find(|r| r.record_type() == RecordType::OPT) 
         {
             // 解析 OPT 记录
-            if let Some(rdata) = opt_record.data() {
-                if let RData::OPT(ref opt_data) = rdata {
-                    // 查找 ECS 选项
-                    for (code, option) in opt_data.as_ref() {
-                        if *code == EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE) {
-                            // 尝试解析 ECS 数据
-                            match EcsData::from_edns_option(option) {
-                                Ok(ecs_data) => return Some(ecs_data),
-                                Err(err) => {
-                                    warn!("解析 ECS 数据失败: {}", err);
-                                    return None;
-                                }
+            if let Some(RData::OPT(ref opt_data)) = opt_record.data() {
+                // 查找 ECS 选项
+                for (code, option) in opt_data.as_ref() {
+                    if *code == EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE) {
+                        // 尝试解析 ECS 数据
+                        match EcsData::from_edns_option(option) {
+                            Ok(ecs_data) => return Some(ecs_data),
+                            Err(err) => {
+                                warn!("解析 ECS 数据失败: {}", err);
+                                return None;
                             }
                         }
                     }
@@ -404,67 +398,65 @@ impl EcsProcessor {
         let opt_record = &message.additionals()[opt_index];
         
         // 解析 OPT 记录
-        if let Some(rdata) = opt_record.data() {
-            if let RData::OPT(ref opt_data) = rdata {
-                // 检查是否包含ECS选项
-                let has_ecs = opt_data.as_ref().iter().any(|(code, _)| {
-                    *code == EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE)
-                });
-                
-                // 如果没有ECS选项，直接返回，避免不必要的克隆和重建
-                if !has_ecs {
-                    return Ok(());
-                }
-                
-                // 过滤掉 ECS 选项
-                let mut new_options = HashMap::new();
-                for (code, option) in opt_data.as_ref() {
-                    if *code != EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE) {
-                        new_options.insert(*code, option.clone());
-                    }
-                }
-                
-                // 创建新的 OPT 记录
-                let new_opt = OPT::new(new_options);
-                
-                // 创建新的 OPT 记录
-                let new_opt_record = Record::from_rdata(
-                    opt_record.name().clone(),
-                    opt_record.ttl(),
-                    RData::OPT(new_opt)
-                );
-                
-                // 替换原有的 OPT 记录
-                let mut additionals = message.additionals().to_vec();
-                additionals[opt_index] = new_opt_record;
-                
-                // 更新消息
-                let mut header = message.header().clone();
-                header.set_additional_count(additionals.len() as u16);
-                
-                let mut new_message = Message::new();
-                new_message.set_header(header);
-                
-                // 添加查询
-                for query in message.queries() {
-                    new_message.add_query(query.clone());
-                }
-                
-                // 添加其他内容
-                for answer in message.answers() {
-                    new_message.add_answer(answer.clone());
-                }
-                
-                for ns in message.name_servers() {
-                    new_message.add_name_server(ns.clone());
-                }
-                
-                for additional in additionals {
-                    new_message.add_additional(additional);
-                }
-                
-                *message = new_message;
+        if let Some(RData::OPT(ref opt_data)) = opt_record.data() {
+            // 检查是否包含ECS选项
+            let has_ecs = opt_data.as_ref().iter().any(|(code, _)| {
+                *code == EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE)
+            });
+            
+            // 如果没有ECS选项，直接返回，避免不必要的克隆和重建
+            if !has_ecs {
+                return Ok(());
             }
+            
+            // 过滤掉 ECS 选项
+            let mut new_options = HashMap::new();
+            for (code, option) in opt_data.as_ref() {
+                if *code != EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE) {
+                    new_options.insert(*code, option.clone());
+                }
+            }
+            
+            // 创建新的 OPT 记录
+            let new_opt = OPT::new(new_options);
+            
+            // 创建新的 OPT 记录
+            let new_opt_record = Record::from_rdata(
+                opt_record.name().clone(),
+                opt_record.ttl(),
+                RData::OPT(new_opt)
+            );
+            
+            // 替换原有的 OPT 记录
+            let mut additionals = message.additionals().to_vec();
+            additionals[opt_index] = new_opt_record;
+            
+            // 更新消息
+            let mut header = *message.header();
+            header.set_additional_count(additionals.len() as u16);
+            
+            let mut new_message = Message::new();
+            new_message.set_header(header);
+            
+            // 添加查询
+            for query in message.queries() {
+                new_message.add_query(query.clone());
+            }
+            
+            // 添加其他内容
+            for answer in message.answers() {
+                new_message.add_answer(answer.clone());
+            }
+            
+            for ns in message.name_servers() {
+                new_message.add_name_server(ns.clone());
+            }
+            
+            for additional in additionals {
+                new_message.add_additional(additional);
+            }
+            
+            *message = new_message;
         }
         
         Ok(())
@@ -488,39 +480,37 @@ impl EcsProcessor {
             let opt_record = &additionals[opt_index];
             
             // 解析 OPT 记录
-            if let Some(rdata) = opt_record.data() {
-                if let RData::OPT(ref opt_data) = rdata {
-                    // 计算过滤后的选项数量并预分配容量
-                    let existing_options = opt_data.as_ref();
-                    
-                    // 过滤掉原有的 ECS 选项，然后添加新的
-                    let mut new_options = HashMap::new();
-                    
-                    // 先收集所有非 ECS 选项
-                    for (code, option) in existing_options {
-                        if *code != EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE) {
-                            new_options.insert(*code, option.clone());
-                        }
+            if let Some(RData::OPT(ref opt_data)) = opt_record.data() {
+                // 计算过滤后的选项数量并预分配容量
+                let existing_options = opt_data.as_ref();
+                
+                // 过滤掉原有的 ECS 选项，然后添加新的
+                let mut new_options = HashMap::new();
+                
+                // 先收集所有非 ECS 选项
+                for (code, option) in existing_options {
+                    if *code != EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE) {
+                        new_options.insert(*code, option.clone());
                     }
-                    
-                    // 获取ECS选项代码和数据
-                    let ecs_code = EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE);
-                    
-                    // 添加新的 ECS 选项
-                    new_options.insert(ecs_code, ecs_option);
-                    
-                    let new_opt = OPT::new(new_options);
-                    
-                    // 创建新的 OPT 记录
-                    let new_opt_record = Record::from_rdata(
-                        opt_record.name().clone(),
-                        opt_record.ttl(),
-                        RData::OPT(new_opt)
-                    );
-                    
-                    // 替换原有的 OPT 记录
-                    additionals[opt_index] = new_opt_record;
                 }
+                
+                // 获取ECS选项代码和数据
+                let ecs_code = EdnsCode::from(EDNS_CLIENT_SUBNET_OPTION_CODE);
+                
+                // 添加新的 ECS 选项
+                new_options.insert(ecs_code, ecs_option);
+                
+                let new_opt = OPT::new(new_options);
+                
+                // 创建新的 OPT 记录
+                let new_opt_record = Record::from_rdata(
+                    opt_record.name().clone(),
+                    opt_record.ttl(),
+                    RData::OPT(new_opt)
+                );
+                
+                // 替换原有的 OPT 记录
+                additionals[opt_index] = new_opt_record;
             }
         } else {
             // 如果不存在 OPT 记录，创建一个新的
@@ -546,7 +536,7 @@ impl EcsProcessor {
         }
         
         // 更新消息
-        let mut header = message.header().clone();
+        let mut header = *message.header();
         header.set_additional_count(additionals.len() as u16);
         
         let mut new_message = Message::new();

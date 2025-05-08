@@ -151,21 +151,21 @@ impl Router {
         for rule in &self.rules {
             let matches = match &rule.matcher {
                 CompiledMatcher::Exact(set) => {
-                    set.iter().any(|s| s == &domain_normalized)
+                    set.iter().any(|s| s == domain_normalized)
                 },
                 
                 CompiledMatcher::Regex(patterns) => {
-                    patterns.iter().any(|re| re.is_match(&domain_normalized))
+                    patterns.iter().any(|re| re.is_match(domain_normalized))
                 },
                 
                 CompiledMatcher::Wildcard(patterns) => {
-                    Self::match_wildcard_patterns(&domain_normalized, patterns)
+                    Self::match_wildcard_patterns(domain_normalized, patterns)
                 },
                 
                 CompiledMatcher::File { exact, regex, wildcard, .. } => {
-                    exact.iter().any(|s| s == &domain_normalized) ||
-                    regex.iter().any(|re| re.is_match(&domain_normalized)) ||
-                    Self::match_wildcard_patterns(&domain_normalized, wildcard)
+                    exact.iter().any(|s| s == domain_normalized) ||
+                    regex.iter().any(|re| re.is_match(domain_normalized)) ||
+                    Self::match_wildcard_patterns(domain_normalized, wildcard)
                 },
                 
                 CompiledMatcher::Url { rules, .. } => {
@@ -173,9 +173,9 @@ impl Router {
                     let url_rules = rules.read().await;
                     
                     // 检查是否匹配
-                    url_rules.exact.iter().any(|s| s == &domain_normalized) ||
-                    url_rules.regex.iter().any(|re| re.is_match(&domain_normalized)) ||
-                    Self::match_wildcard_patterns(&domain_normalized, &url_rules.wildcard)
+                    url_rules.exact.iter().any(|s| s == domain_normalized) ||
+                    url_rules.regex.iter().any(|re| re.is_match(domain_normalized)) ||
+                    Self::match_wildcard_patterns(domain_normalized, &url_rules.wildcard)
                 },
             };
             
@@ -432,7 +432,7 @@ impl Router {
         
         // 处理一般情况：将*替换为正则表达式
         WildcardPattern {
-            pattern: pattern,
+            pattern,
             prefix: None,
             suffix: None,
         }

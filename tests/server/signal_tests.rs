@@ -111,7 +111,7 @@ mod tests {
         
         // 使用tokio::spawn启动一个任务，在收到信号后模拟CTRL+C
         tokio::spawn(async move {
-            if let Ok(_) = signal_rx.await {
+            if (signal_rx.await).is_ok() {
                 // 模拟CTRL+C信号 - 发送一个信号到当前进程
                 info!("模拟发送CTRL+C信号");
                 
