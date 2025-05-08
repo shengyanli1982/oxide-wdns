@@ -82,10 +82,8 @@ impl DoHClient {
             .map_err(|e| ServerError::Upstream(format!("Failed to read DoH response: {}", e)))?;
             
         // 解析DNS消息
-        let response_message = Message::from_vec(&response_bytes)
-            .map_err(|e| ServerError::Upstream(format!("Failed to parse DNS response: {}", e)))?;
-            
-        Ok(response_message)
+        Message::from_vec(&response_bytes)
+            .map_err(|e| ServerError::Upstream(format!("Failed to parse DNS response: {}", e)))
     }
 }
 
@@ -95,8 +93,8 @@ struct UpstreamGroupConfig {
     resolver: TokioAsyncResolver,
     // DoH客户端
     doh_clients: Vec<Arc<DoHClient>>,
-    // 上游配置
-    config: UpstreamConfig,
+    // 上游配置 - 使用引用代替克隆整个配置
+    config: Arc<UpstreamConfig>,
 }
 
 // 上游 DNS 解析管理器
@@ -105,15 +103,15 @@ pub struct UpstreamManager {
     global_config: UpstreamGroupConfig,
     // 上游组配置 (组名 -> 配置)
     group_configs: HashMap<String, UpstreamGroupConfig>,
-    // 服务器配置（用于获取 ECS 策略）
-    server_config: ServerConfig,
+    // 服务器配置（使用Arc代替完整clone）
+    server_config: Arc<ServerConfig>,
 }
 
 impl UpstreamManager {
     // 创建新的上游解析管理器
-    pub async fn new(config: &ServerConfig, http_client: Client) -> Result<Self> {
-        // 创建全局上游配置
-        let global_config = Self::create_upstream_group_config(config, &config.dns.upstream, http_client.clone())?;
+    pub async fn new(config: Arc<ServerConfig>, http_client: Client) -> Result<Self> {
+        // 创建全局上游配置，使用Arc引用避免clone
+        let global_config = Self::create_upstream_group_config(&config, Arc::new(config.dns.upstream.clone()), http_client.clone())?;
         
         // 创建上游组配置映射
         let mut group_configs = HashMap::new();
@@ -123,10 +121,10 @@ impl UpstreamManager {
             // 为每个上游组创建配置
             for group in &config.dns.routing.upstream_groups {
                 // 获取此组的有效配置（继承与覆盖全局配置）
-                let effective_config = config.get_effective_upstream_config(&group.name)?;
+                let effective_config = Arc::new(config.get_effective_upstream_config(&group.name)?);
                 
                 // 创建上游组配置
-                let group_config = Self::create_upstream_group_config(config, &effective_config, http_client.clone())?;
+                let group_config = Self::create_upstream_group_config(&config, effective_config.clone(), http_client.clone())?;
                 
                 // 添加到映射
                 group_configs.insert(group.name.clone(), group_config);
@@ -150,14 +148,18 @@ impl UpstreamManager {
         Ok(Self {
             global_config,
             group_configs,
-            server_config: config.clone(),
+            server_config: config,
         })
     }
     
     // 创建上游组配置
-    fn create_upstream_group_config(_config: &ServerConfig, upstream_config: &UpstreamConfig, http_client: Client) -> Result<UpstreamGroupConfig> {
+    fn create_upstream_group_config(
+        _config: &ServerConfig, 
+        upstream_config: Arc<UpstreamConfig>, 
+        http_client: Client
+    ) -> Result<UpstreamGroupConfig> {
         // 构建 trust-dns-resolver 配置（用于非DoH协议）
-        let (resolver_config, resolver_opts) = Self::build_resolver_config(upstream_config)?;
+        let (resolver_config, resolver_opts) = Self::build_resolver_config(&upstream_config)?;
         
         // 创建异步解析器
         let resolver = TokioAsyncResolver::tokio(resolver_config, resolver_opts);
@@ -180,7 +182,7 @@ impl UpstreamManager {
         Ok(UpstreamGroupConfig {
             resolver,
             doh_clients,
-            config: upstream_config.clone(),
+            config: upstream_config,
         })
     }
     
@@ -231,7 +233,7 @@ impl UpstreamManager {
             client_ecs
         )? {
             Some(new_query) => new_query,
-            None => query_message.clone(),
+            None => query_message.clone(), // 这里的克隆是必要的
         };
         
         // 记录查询信息
@@ -254,8 +256,9 @@ impl UpstreamManager {
             client.query(&processed_query).await?
         } else {
             // 没有 DoH 客户端，使用标准解析器
+            let query_bytes = processed_query.to_vec()?;
             let response_bytes = target_config.resolver.dns_query(
-                processed_query.to_vec()?.as_slice()
+                &query_bytes
             ).await
                 .map_err(|e| ServerError::Upstream(format!("DNS query failed: {}", e)))?;
             
@@ -284,27 +287,19 @@ impl UpstreamManager {
                     let socket_addr = Self::parse_socket_addr(&resolver.address)?;
                     
                     // 添加解析器
-                    match resolver.protocol {
-                        ResolverProtocol::Udp => {
-                            resolver_config.add_name_server(NameServerConfig {
-                                socket_addr,
-                                protocol: Protocol::Udp,
-                                tls_dns_name: None,
-                                trust_negative_responses: true,
-                                bind_addr: None,
-                            });
-                        },
-                        ResolverProtocol::Tcp => {
-                            resolver_config.add_name_server(NameServerConfig {
-                                socket_addr,
-                                protocol: Protocol::Tcp,
-                                tls_dns_name: None,
-                                trust_negative_responses: true,
-                                bind_addr: None,
-                            });
-                        },
+                    let protocol = match resolver.protocol {
+                        ResolverProtocol::Udp => Protocol::Udp,
+                        ResolverProtocol::Tcp => Protocol::Tcp,
                         _ => unreachable!(),
-                    }
+                    };
+                    
+                    resolver_config.add_name_server(NameServerConfig {
+                        socket_addr,
+                        protocol,
+                        tls_dns_name: None,
+                        trust_negative_responses: true,
+                        bind_addr: None,
+                    });
                 },
                 
                 // DoT 协议

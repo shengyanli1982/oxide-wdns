@@ -234,9 +234,11 @@ async fn handle_dns_json_query(
     
     // 只在调试级别时记录详细记录信息，减少运行时开销
     if !json_response.answer.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
-        let record_details: Vec<String> = json_response.answer.iter()
-            .map(|ans| format!("{}({}): {}", ans.name, RecordType::from(ans.type_value), ans.data))
-            .collect();
+        // 使用迭代器和预分配容量优化字符串收集
+        let mut record_details = Vec::with_capacity(json_response.answer.len());
+        for ans in &json_response.answer {
+            record_details.push(format!("{}({}): {}", ans.name, RecordType::from(ans.type_value), ans.data));
+        }
             
         debug!(
             name = %params.name,
@@ -299,8 +301,8 @@ async fn handle_dns_wire_get(
     
     // 从查询获取域名（用于日志）
     let domain = query_message.queries().first().map_or_else(
-        || String::from("unknown"), 
-        |q| q.name().to_string()
+        || "unknown".to_string(), 
+        |q| q.name().to_utf8()
     );
     
     // 处理查询
@@ -347,7 +349,7 @@ async fn handle_dns_wire_get(
     
     // 记录请求完成
     let qtype = query_message.queries().first().map_or_else(
-        || String::from("unknown"), 
+        || "unknown".to_string(), 
         |q| format!("{:?}", q.query_type())
     );
     
@@ -446,8 +448,8 @@ async fn handle_dns_wire_post(
     
     // 从查询获取域名（用于日志）
     let domain = query_message.queries().first().map_or_else(
-        || String::from("unknown"), 
-        |q| q.name().to_string()
+        || "unknown".to_string(), 
+        |q| q.name().to_utf8()
     );
     
     // 处理查询
@@ -494,7 +496,7 @@ async fn handle_dns_wire_post(
     
     // 记录请求完成
     let qtype = query_message.queries().first().map_or_else(
-        || String::from("unknown"), 
+        || "unknown".to_string(), 
         |q| format!("{:?}", q.query_type())
     );
     
@@ -567,17 +569,17 @@ async fn process_query(
     
     // 创建缓存键
     let cache_key = if let Some(ecs) = &client_ecs {
-        // 使用 ECS 数据创建缓存键
+        // 使用 ECS 数据创建缓存键，无需克隆 name
         CacheKey::with_ecs(
-            query.name().clone(),
+            query.name(),
             query.query_type(),
             query.query_class(),
             ecs
         )
     } else {
-        // 使用基本信息创建缓存键
+        // 使用基本信息创建缓存键，无需克隆 name
         CacheKey::new(
-            query.name().clone(),
+            query.name(),
             query.query_type(),
             query.query_class()
         )
@@ -660,7 +662,7 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
     };
     
     // 解析 DNS 类
-    let _dns_class = match request.dns_class {
+    let dns_class = match request.dns_class {
         Some(class) => {
             // 检查已知有效的 DNS 类型
             match class {
@@ -689,7 +691,11 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
 
 // 将 DNS 响应消息转换为 JSON 响应
 fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
-    // 创建响应对象
+    // 获取消息元素数量，用于预分配空间
+    let query_count = message.queries().len();
+    let answer_count = message.answers().len();
+    
+    // 创建响应对象，预分配空间以减少内存重分配
     let mut response = DnsJsonResponse {
         status: u16::from(message.response_code().low()),
         tc: message.truncated(),
@@ -697,20 +703,14 @@ fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
         ra: message.recursion_available(),
         ad: message.authentic_data(),
         cd: message.checking_disabled(),
-        question: Vec::new(),
-        answer: Vec::new(),
+        question: Vec::with_capacity(query_count),
+        answer: Vec::with_capacity(answer_count),
     };
-    
-    // 预先分配容量以减少内存重分配
-    let query_count = message.queries().len();
-    let answer_count = message.answers().len();
-    response.question.reserve(query_count);
-    response.answer.reserve(answer_count);
     
     // 添加查询
     for query in message.queries() {
         response.question.push(DnsJsonQuestion {
-            name: query.name().to_string(),
+            name: query.name().to_utf8(),
             type_value: query.query_type().into(),
         });
     }
@@ -723,7 +723,7 @@ fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
         };
         
         response.answer.push(DnsJsonAnswer {
-            name: record.name().to_string(),
+            name: record.name().to_utf8(),
             type_value: record.record_type().into(),
             class: record.dns_class().into(),
             ttl: record.ttl(),

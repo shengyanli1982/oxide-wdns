@@ -7,7 +7,7 @@ use std::fs::{File, create_dir_all};
 use std::path::Path;
 use std::io::{BufReader, BufWriter};
 use std::io::Write;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use moka::future::Cache;
 use trust_dns_proto::op::{Message, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
@@ -64,6 +64,19 @@ struct CacheFileHeader {
     entry_count: usize,
 }
 
+// 用于缓存持久化的缓存项包装器
+#[derive(Debug, Clone)]
+struct CacheItemForPersistence {
+    // 缓存键
+    key: CacheKey,
+    // 缓存条目
+    entry: CacheEntry,
+    // 访问次数（从原子计数器提前读取）
+    access_count: u64,
+    // 最后访问时间（从原子计数器提前读取）
+    last_accessed: u64,
+}
+
 // 缓存条目
 #[derive(Debug, Clone)]
 pub struct CacheEntry {
@@ -92,14 +105,14 @@ pub struct DnsCache {
 // 缓存键
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CacheKey {
-    // 查询名
-    pub name: String,
+    // 查询名，使用 Arc 包装减少克隆成本
+    pub name: Arc<String>,
     // 查询类型
     pub record_type: u16,
     // 查询类
     pub record_class: u16,
     // ECS 网络地址（可选）
-    pub ecs_network: Option<String>,
+    pub ecs_network: Option<Arc<String>>,
     // ECS 作用域前缀长度（可选）
     pub ecs_scope_prefix_length: Option<u8>,
 }
@@ -108,7 +121,7 @@ impl CacheKey {
     // 创建新的缓存键
     pub fn new(name: Name, record_type: RecordType, record_class: DNSClass) -> Self {
         Self {
-            name: name.to_string(),
+            name: Arc::new(name.to_string()),
             record_type: record_type.into(),
             record_class: record_class.into(),
             ecs_network: None,
@@ -123,9 +136,9 @@ impl CacheKey {
         record_class: DNSClass,
         ecs_data: &EcsData
     ) -> Self {
-        let ecs_network = Some(format!("{}/{}", ecs_data.address, ecs_data.scope_prefix_length));
+        let ecs_network = Some(Arc::new(format!("{}/{}", ecs_data.address, ecs_data.scope_prefix_length)));
         Self {
-            name: name.to_string(),
+            name: Arc::new(name.to_string()),
             record_type: record_type.into(),
             record_class: record_class.into(),
             ecs_network,
@@ -150,7 +163,7 @@ impl CacheKey {
     // 获取基础键（不包含 ECS 信息）
     pub fn get_base_key(&self) -> Self {
         Self {
-            name: self.name.clone(),
+            name: Arc::clone(&self.name),
             record_type: self.record_type,
             record_class: self.record_class,
             ecs_network: None,
@@ -180,27 +193,18 @@ impl CacheKey {
             
             // 如果缓存条目有 ECS 数据，客户端查询也有
             (Some(cached_net_str), Some(cached_scope_prefix), Some(client_net_str)) => {
-                // 解析网络字符串，格式为 "ip/prefix"
-                if let (Some((cached_ip_str, cached_prefix_str)), Some((client_ip_str, client_prefix_str))) = (
-                    cached_net_str.split_once('/'),
-                    client_net_str.split_once('/')
-                ) {
-                    // 解析 IP 地址和前缀长度
-                    if let (Ok(cached_ip), Ok(cached_src_prefix), Ok(client_ip), Ok(client_src_prefix)) = (
-                        cached_ip_str.parse::<IpAddr>(),
-                        cached_prefix_str.parse::<u8>(),
-                        client_ip_str.parse::<IpAddr>(),
-                        client_prefix_str.parse::<u8>()
-                    ) {
+                // 尝试一次性从字符串中解析所有必要信息
+                if let Some((cached_ip, cached_prefix)) = Self::parse_network_string(cached_net_str) {
+                    if let Some((client_ip, client_prefix)) = Self::parse_network_string(client_net_str) {
                         // 进行双向检查
                         
                         // 1. 检查客户端前缀长度是否大于等于缓存范围前缀长度
                         //    (客户端查询的网络范围应该比缓存的作用域更具体或相同)
-                        let prefix_check = client_src_prefix >= *cached_scope_prefix;
+                        let prefix_check = client_prefix >= *cached_scope_prefix;
                         
                         // 2. 检查客户端网络是否落在缓存作用域内
                         let network_check = self.is_network_contained(
-                            client_ip, client_src_prefix,
+                            client_ip, client_prefix,
                             cached_ip, *cached_scope_prefix
                         );
                         
@@ -218,6 +222,22 @@ impl CacheKey {
             // 其他情况不匹配
             _ => false,
         }
+    }
+    
+    // 将网络字符串解析为IP地址和前缀长度
+    fn parse_network_string(net_str: &str) -> Option<(IpAddr, u8)> {
+        let parts: Vec<&str> = net_str.split('/').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+        
+        if let Ok(ip) = parts[0].parse::<IpAddr>() {
+            if let Ok(prefix) = parts[1].parse::<u8>() {
+                return Some((ip, prefix));
+            }
+        }
+        
+        None
     }
     
     // 检查一个网络是否包含在另一个网络中
@@ -394,6 +414,15 @@ impl DnsCache {
         dns_cache
     }
     
+    // 获取当前系统时间（秒）
+    #[inline]
+    fn get_system_time_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+    
     // 基于客户端 ECS 信息查找缓存条目
     pub async fn get_with_ecs(&self, key: &CacheKey, client_ecs: Option<&EcsData>) -> Option<Message> {
         if !self.config.enabled {
@@ -401,10 +430,7 @@ impl DnsCache {
         }
         
         // 获取当前时间（秒）
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = Self::get_system_time_secs();
         
         // 如果提供了精确的 key（包含 ECS），首先尝试直接查找
         if let Some(entry) = self.cache.get(key).await {
@@ -446,7 +472,8 @@ impl DnsCache {
         }
         
         // 根据 ECS 匹配规则筛选匹配的缓存条目
-        let mut best_match: Option<(CacheKey, u8)> = None;
+        let mut best_match: Option<CacheKey> = None;
+        let mut best_scope_len: u8 = 0;
         
         for cached_key in matched_keys {
             // 检查是否匹配客户端查询
@@ -455,23 +482,20 @@ impl DnsCache {
                 let scope_len = cached_key.ecs_scope_prefix_length.unwrap_or(0);
                 
                 // 更新最佳匹配
-                if let Some((_, best_len)) = best_match {
-                    if scope_len > best_len {
-                        best_match = Some((cached_key, scope_len));
-                    }
-                } else {
-                    best_match = Some((cached_key, scope_len));
+                if best_match.is_none() || scope_len > best_scope_len {
+                    best_match = Some(cached_key);
+                    best_scope_len = scope_len;
                 }
             }
         }
         
         // 如果找到了最佳匹配，使用其键获取缓存条目
-        if let Some((best_key, _)) = best_match {
+        if let Some(best_key) = best_match {
             if let Some(entry) = self.cache.get(&best_key).await {
                 // 检查是否过期
                 if entry.expires_at <= now {
                     // 过期，异步删除
-                    let key_clone = best_key.clone();
+                    let key_clone = best_key;
                     let cache_clone = self.cache.clone();
                     tokio::spawn(async move {
                         cache_clone.invalidate(&key_clone).await;
@@ -505,10 +529,7 @@ impl DnsCache {
         }
         
         // 获取当前时间（秒）
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = Self::get_system_time_secs();
         
         // 计算过期时间
         let expires_at = now + ttl as u64;
@@ -665,28 +686,34 @@ impl DnsCache {
         let cache_path = config.path.clone();
         
         // 获取当前时间戳
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = Self::get_system_time_secs();
         
-        // 提取所有缓存项
+        // 收集所有非过期的缓存项
         let mut all_items = Vec::new();
         
         // 使用快照方式获取所有缓存条目
         let iter = cache.iter();
         for (key, entry) in iter {
             if entry.expires_at > now {  // 只保存未过期的条目
-                all_items.push((key, entry));
+                // 预先获取计数器的值，避免后续多次原子读取
+                let access_count = entry.access_count.load(Ordering::Relaxed);
+                let last_accessed = entry.last_accessed.load(Ordering::Relaxed);
+                
+                all_items.push(CacheItemForPersistence {
+                    key,
+                    entry,
+                    access_count,
+                    last_accessed
+                });
             }
         }
         
         // 按访问频率和最近访问时间排序（优先保存最常用和最近使用的条目）
         all_items.sort_by(|a, b| {
             // 先比较访问次数（降序）
-            b.1.access_count.load(Ordering::Relaxed).cmp(&a.1.access_count.load(Ordering::Relaxed))
+            b.access_count.cmp(&a.access_count)
                 // 如果访问次数相同，再比较最近访问时间（降序）
-                .then_with(|| b.1.last_accessed.load(Ordering::Relaxed).cmp(&a.1.last_accessed.load(Ordering::Relaxed)))
+                .then_with(|| b.last_accessed.cmp(&a.last_accessed))
         });
         
         // 应用最大保存条目限制
@@ -696,16 +723,9 @@ impl DnsCache {
             all_items.len()
         };
         
-        // 取排序后最重要的N个条目
-        let selected_items = &all_items[0..save_count];
-        
-        // 提取键和条目
-        let mut keys = Vec::new();
-        let mut entries = Vec::new();
-        
-        for (key, entry) in selected_items {
-            keys.push(key.clone());
-            entries.push(entry.clone());
+        // 截取需要保存的条目
+        if save_count < all_items.len() {
+            all_items.truncate(save_count);
         }
         
         // 复制临时路径
@@ -714,12 +734,12 @@ impl DnsCache {
         // 在后台线程中执行IO操作
         let saved_count = task::spawn_blocking(move || -> Result<usize> {
             // 准备序列化数据
-            let mut persistable_keys = Vec::with_capacity(keys.len());
-            let mut persistable_entries = Vec::with_capacity(entries.len());
+            let mut persistable_keys = Vec::with_capacity(all_items.len());
+            let mut persistable_entries = Vec::with_capacity(all_items.len());
             
-            for (key, entry) in keys.into_iter().zip(entries.into_iter()) {
+            for item in all_items {
                 // 将消息序列化为字节
-                let message_bytes = match entry.message.to_vec() {
+                let message_bytes = match item.entry.message.to_vec() {
                     Ok(bytes) => bytes,
                     Err(e) => {
                         warn!("Failed to serialize message: {}", e);
@@ -727,20 +747,21 @@ impl DnsCache {
                     }
                 };
                 
+                // 从缓存键创建可序列化键，需要解引用 Arc 包装的字符串
                 let persistable_key = PersistableCacheKey {
-                    name: key.name.clone(),
-                    record_type: key.record_type,
-                    record_class: key.record_class,
-                    ecs_network: key.ecs_network.clone(),
-                    ecs_scope_prefix_length: key.ecs_scope_prefix_length.clone(),
+                    name: (*item.key.name).clone(),
+                    record_type: item.key.record_type,
+                    record_class: item.key.record_class,
+                    ecs_network: item.key.ecs_network.as_ref().map(|s| (**s).clone()),
+                    ecs_scope_prefix_length: item.key.ecs_scope_prefix_length,
                 };
                 
                 let persistable_entry = PersistableCacheEntry {
                     message_bytes,
-                    expires_at: entry.expires_at,
+                    expires_at: item.entry.expires_at,
                     stored_at: now,
-                    access_count: entry.access_count.load(Ordering::Relaxed),
-                    last_accessed: entry.last_accessed.load(Ordering::Relaxed),
+                    access_count: item.access_count,
+                    last_accessed: item.last_accessed,
                 };
                 
                 persistable_keys.push(persistable_key);
@@ -824,10 +845,7 @@ impl DnsCache {
         }
         
         // 获取当前时间
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+        let now = Self::get_system_time_secs();
         
         // 读取所有缓存条目
         let (persistable_keys, persistable_entries): (
@@ -863,10 +881,10 @@ impl DnsCache {
             
             // 创建缓存键和条目
             let key = CacheKey {
-                name: persistable_key.name,
+                name: Arc::new(persistable_key.name),
                 record_type: persistable_key.record_type,
                 record_class: persistable_key.record_class,
-                ecs_network: persistable_key.ecs_network,
+                ecs_network: persistable_key.ecs_network.map(Arc::new),
                 ecs_scope_prefix_length: persistable_key.ecs_scope_prefix_length,
             };
             
@@ -935,7 +953,7 @@ impl From<&Message> for CacheKey {
         // 仅使用第一个查询作为缓存键
         if let Some(query) = message.queries().first() {
             CacheKey {
-                name: query.name().to_string(),
+                name: Arc::new(query.name().to_string()),
                 record_type: query.query_type().into(),
                 record_class: query.query_class().into(),
                 ecs_network: None,
@@ -944,7 +962,7 @@ impl From<&Message> for CacheKey {
         } else {
             // 创建一个空键，实际上不应该发生
             CacheKey {
-                name: String::new(),
+                name: Arc::new(String::new()),
                 record_type: 0,
                 record_class: 0,
                 ecs_network: None,

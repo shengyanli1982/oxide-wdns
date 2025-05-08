@@ -10,6 +10,7 @@ use tokio::sync::RwLock as AsyncRwLock;
 use tracing::{error, info};
 use reqwest::Client;
 use tokio::time::{Duration, interval};
+use std::borrow::Cow;
 
 use crate::server::config::{RoutingConfig, MatchType, MatchCondition};
 use crate::server::error::{ServerError, Result};
@@ -144,26 +145,25 @@ impl Router {
         }
         
         // 规范化域名（转换为小写，去除尾部的点）
-        let domain_normalized = domain.to_lowercase().trim_end_matches('.').to_string();
-        let domain = &domain_normalized;
+        let domain_normalized = domain.to_lowercase().trim_end_matches('.');
         
         // 按顺序检查每个规则
         for rule in &self.rules {
             let matches = match &rule.matcher {
-                CompiledMatcher::Exact(set) => set.contains(domain),
+                CompiledMatcher::Exact(set) => set.contains(&domain_normalized),
                 
                 CompiledMatcher::Regex(patterns) => {
-                    patterns.iter().any(|re| re.is_match(domain))
+                    patterns.iter().any(|re| re.is_match(&domain_normalized))
                 },
                 
                 CompiledMatcher::Wildcard(patterns) => {
-                    Self::match_wildcard_patterns(domain, patterns)
+                    Self::match_wildcard_patterns(&domain_normalized, patterns)
                 },
                 
                 CompiledMatcher::File { exact, regex, wildcard, .. } => {
-                    exact.contains(domain) ||
-                    regex.iter().any(|re| re.is_match(domain)) ||
-                    Self::match_wildcard_patterns(domain, wildcard)
+                    exact.contains(&domain_normalized) ||
+                    regex.iter().any(|re| re.is_match(&domain_normalized)) ||
+                    Self::match_wildcard_patterns(&domain_normalized, wildcard)
                 },
                 
                 CompiledMatcher::Url { rules, .. } => {
@@ -171,9 +171,9 @@ impl Router {
                     let url_rules = rules.read().await;
                     
                     // 检查是否匹配
-                    url_rules.exact.contains(domain) ||
-                    url_rules.regex.iter().any(|re| re.is_match(domain)) ||
-                    Self::match_wildcard_patterns(domain, &url_rules.wildcard)
+                    url_rules.exact.contains(&domain_normalized) ||
+                    url_rules.regex.iter().any(|re| re.is_match(&domain_normalized)) ||
+                    Self::match_wildcard_patterns(&domain_normalized, &url_rules.wildcard)
                 },
             };
             
@@ -372,9 +372,9 @@ impl Router {
         }
         
         // 检查特殊前缀
-        if line.starts_with("regex:") {
+        if let Some(pattern) = line.strip_prefix("regex:") {
             // 提取正则表达式
-            let pattern = line.strip_prefix("regex:").unwrap().trim();
+            let pattern = pattern.trim();
             match Regex::new(pattern) {
                 Ok(re) => regex.push(re),
                 Err(e) => return Err(ServerError::RegexCompilation(format!(
@@ -382,9 +382,9 @@ impl Router {
                     pattern, e
                 ))),
             }
-        } else if line.starts_with("wildcard:") {
+        } else if let Some(pattern) = line.strip_prefix("wildcard:") {
             // 提取通配符模式
-            let pattern = line.strip_prefix("wildcard:").unwrap().trim();
+            let pattern = pattern.trim();
             wildcard.push(Self::parse_wildcard_pattern(pattern));
         } else {
             // 默认为精确匹配（转换为小写）
@@ -402,35 +402,35 @@ impl Router {
         // 处理特殊情况：*
         if pattern == "*" {
             return WildcardPattern {
-                pattern: pattern.to_string(),
+                pattern: "*".to_string(),
                 prefix: None,
                 suffix: None,
             };
         }
         
         // 处理特殊情况：*.domain.com
-        if pattern.starts_with("*.") {
-            let suffix = pattern.strip_prefix("*.").unwrap().to_string();
+        if let Some(suffix) = pattern.strip_prefix("*.") {
             return WildcardPattern {
-                pattern: pattern.to_string(),
+                pattern: pattern,
                 prefix: None,
-                suffix: Some(suffix),
+                suffix: Some(suffix.to_string()),
             };
         }
         
         // 处理特殊情况：prefix.*
         if pattern.ends_with(".*") {
-            let prefix = pattern[..pattern.len() - 2].to_string();
+            let prefix_len = pattern.len() - 2;
+            let prefix = &pattern[..prefix_len];
             return WildcardPattern {
-                pattern: pattern.to_string(),
-                prefix: Some(prefix),
+                pattern: pattern,
+                prefix: Some(prefix.to_string()),
                 suffix: None,
             };
         }
         
         // 处理一般情况：将*替换为正则表达式
         WildcardPattern {
-            pattern: pattern.to_string(),
+            pattern: pattern,
             prefix: None,
             suffix: None,
         }
@@ -446,14 +446,18 @@ impl Router {
             
             // 前缀通配符：*.domain.com
             if let Some(suffix) = &pattern.suffix {
-                if domain == suffix || domain.ends_with(&format!(".{}", suffix)) {
+                if domain == suffix || (domain.len() > suffix.len() + 1 && 
+                                       domain.ends_with(suffix) && 
+                                       domain.as_bytes()[domain.len() - suffix.len() - 1] == b'.') {
                     return true;
                 }
             }
             
             // 后缀通配符：prefix.*
             else if let Some(prefix) = &pattern.prefix {
-                if domain == prefix || domain.starts_with(&format!("{}.", prefix)) {
+                if domain == prefix || (domain.len() > prefix.len() + 1 && 
+                                       domain.starts_with(prefix) && 
+                                       domain.as_bytes()[prefix.len()] == b'.') {
                     return true;
                 }
             }
@@ -475,19 +479,53 @@ impl Router {
             static ref SPECIAL_CHARS: Regex = Regex::new(r"[.+^$(){}|\[\]\\]").unwrap();
         }
         
-        // 转义特殊字符
-        let pattern = SPECIAL_CHARS.replace_all(pattern, r"\$0");
+        // 预估结果字符串的大小，为原大小的2倍加上锚点字符的长度
+        let mut result = String::with_capacity(pattern.len() * 2 + 2);
         
-        // 将 * 替换为 .*
-        let pattern = pattern.replace("*", ".*");
+        // 添加开始锚点
+        result.push('^');
         
-        // 添加开始和结束标记
-        let pattern = format!("^{}$", pattern);
+        // 转义特殊字符并将 * 替换为 .*
+        let mut last_pos = 0;
+        for mat in SPECIAL_CHARS.find_iter(pattern) {
+            // 添加前面未处理的部分
+            let start = mat.start();
+            if start > last_pos {
+                // 检查并处理星号
+                for c in pattern[last_pos..start].chars() {
+                    if c == '*' {
+                        result.push_str(".*");
+                    } else {
+                        result.push(c);
+                    }
+                }
+            }
+            
+            // 添加转义字符
+            result.push('\\');
+            result.push_str(mat.as_str());
+            
+            last_pos = mat.end();
+        }
+        
+        // 处理剩余部分
+        if last_pos < pattern.len() {
+            for c in pattern[last_pos..].chars() {
+                if c == '*' {
+                    result.push_str(".*");
+                } else {
+                    result.push(c);
+                }
+            }
+        }
+        
+        // 添加结束锚点
+        result.push('$');
         
         // 编译正则表达式
-        Regex::new(&pattern).map_err(|e| ServerError::RegexCompilation(format!(
+        Regex::new(&result).map_err(|e| ServerError::RegexCompilation(format!(
             "Failed to compile wildcard pattern regex '{}': {}",
-            pattern, e
+            result, e
         )))
     }
     
@@ -573,7 +611,7 @@ impl Router {
         let mut url_rules = Vec::new();
         for rule in &self.rules {
             if let CompiledMatcher::Url { url, rules } = &rule.matcher {
-                url_rules.push((url.clone(), Arc::clone(rules)));
+                url_rules.push((url.to_string(), Arc::clone(rules)));
             }
         }
         
