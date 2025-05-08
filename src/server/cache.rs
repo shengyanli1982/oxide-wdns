@@ -212,7 +212,7 @@ impl CacheKey {
                 }
                 
                 // 解析失败，使用简化的字符串前缀匹配（退化为原始逻辑）
-                debug!("ECS 网络匹配解析失败，使用简化匹配: cache={}, query={}", 
+                debug!("ECS network matching parse failed, using simplified matching: cache={}, query={}", 
                        cached_net_str, client_net_str);
                        
                 client_net_str.starts_with(&cached_net_str[..cached_net_str.find('/').unwrap_or(cached_net_str.len())])

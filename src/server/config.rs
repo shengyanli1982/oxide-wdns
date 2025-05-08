@@ -795,7 +795,7 @@ impl ServerConfig {
         match policy.strategy.as_str() {
             ECS_POLICY_STRIP | ECS_POLICY_FORWARD | ECS_POLICY_ANONYMIZE => {}
             strategy => return Err(ServerError::Config(format!(
-                "无效的 ECS 策略类型: {}，支持的值为: {}, {}, {}",
+                "Invalid ECS policy type: {}, supported values are: {}, {}, {}",
                 strategy, ECS_POLICY_STRIP, ECS_POLICY_FORWARD, ECS_POLICY_ANONYMIZE
             ))),
         }
@@ -803,7 +803,7 @@ impl ServerConfig {
         // 验证 IPv4 前缀长度
         if policy.anonymization.ipv4_prefix_length == 0 || policy.anonymization.ipv4_prefix_length > MAX_IPV4_PREFIX_LENGTH {
             return Err(ServerError::Config(format!(
-                "无效的 IPv4 前缀长度: {}，有效值范围: 1-{}",
+                "Invalid IPv4 prefix length: {}, valid range: 1-{}",
                 policy.anonymization.ipv4_prefix_length, MAX_IPV4_PREFIX_LENGTH
             )));
         }
@@ -811,7 +811,7 @@ impl ServerConfig {
         // 验证 IPv6 前缀长度
         if policy.anonymization.ipv6_prefix_length == 0 || policy.anonymization.ipv6_prefix_length > MAX_IPV6_PREFIX_LENGTH {
             return Err(ServerError::Config(format!(
-                "无效的 IPv6 前缀长度: {}，有效值范围: 1-{}",
+                "Invalid IPv6 prefix length: {}, valid range: 1-{}",
                 policy.anonymization.ipv6_prefix_length, MAX_IPV6_PREFIX_LENGTH
             )));
         }

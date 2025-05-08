@@ -62,7 +62,7 @@ impl EcsData {
                 // 选择较小的前缀长度作为新的源前缀长度
                 let new_prefix = u8::min(self.source_prefix_length, ipv4_prefix_length);
                 if new_prefix == 0 {
-                    return Err(ServerError::Upstream("无效的 IPv4 前缀长度: 0".to_string()));
+                    return Err(ServerError::Upstream("Invalid IPv4 prefix length: 0".to_string()));
                 }
                 
                 // 匿名化 IPv4 地址，将主机部分置零
@@ -81,7 +81,7 @@ impl EcsData {
                 // 选择较小的前缀长度作为新的源前缀长度
                 let new_prefix = u8::min(self.source_prefix_length, ipv6_prefix_length);
                 if new_prefix == 0 {
-                    return Err(ServerError::Upstream("无效的 IPv6 前缀长度: 0".to_string()));
+                    return Err(ServerError::Upstream("Invalid IPv6 prefix length: 0".to_string()));
                 }
                 
                 // 匿名化 IPv6 地址，将主机部分置零
@@ -145,19 +145,19 @@ impl EcsData {
         // 获取选项数据
         let data = match option {
             EdnsOption::Unknown(code, data) if *code == EDNS_CLIENT_SUBNET_OPTION_CODE => data,
-            _ => return Err(ServerError::Upstream("不是 ECS EDNS 选项".to_string())),
+            _ => return Err(ServerError::Upstream("Not an ECS EDNS option".to_string())),
         };
         
         // 数据必须至少包含 4 字节: FAMILY(2) + SOURCE PREFIX-LENGTH(1) + SCOPE PREFIX-LENGTH(1)
         if data.len() < 4 {
-            return Err(ServerError::Upstream("ECS 选项数据长度不足".to_string()));
+            return Err(ServerError::Upstream("ECS option data length insufficient".to_string()));
         }
         
         // 解析地址族 (大端序)
         let family = match u16::from_be_bytes([data[0], data[1]]) {
             1 => EcsAddressFamily::IPv4,
             2 => EcsAddressFamily::IPv6,
-            f => return Err(ServerError::Upstream(format!("不支持的 ECS 地址族: {}", f))),
+            f => return Err(ServerError::Upstream(format!("Unsupported ECS address family: {}", f))),
         };
         
         // 解析源前缀长度
@@ -167,12 +167,12 @@ impl EcsData {
         match family {
             EcsAddressFamily::IPv4 if source_prefix_length > 32 => {
                 return Err(ServerError::Upstream(format!(
-                    "无效的 IPv4 源前缀长度: {}", source_prefix_length
+                    "Invalid IPv4 source prefix length: {}", source_prefix_length
                 )));
             },
             EcsAddressFamily::IPv6 if source_prefix_length > 128 => {
                 return Err(ServerError::Upstream(format!(
-                    "无效的 IPv6 源前缀长度: {}", source_prefix_length
+                    "Invalid IPv6 source prefix length: {}", source_prefix_length
                 )));
             },
             _ => {}
@@ -188,7 +188,7 @@ impl EcsData {
         // 验证地址字节数
         if address_bytes.len() < expected_bytes {
             return Err(ServerError::Upstream(format!(
-                "ECS 地址数据长度不足. 期望: {} 字节, 实际: {} 字节",
+                "ECS address data length insufficient. Expected: {} bytes, Actual: {} bytes",
                 expected_bytes,
                 address_bytes.len()
             )));
@@ -239,7 +239,7 @@ impl EcsProcessor {
                         match EcsData::from_edns_option(option) {
                             Ok(ecs_data) => return Some(ecs_data),
                             Err(err) => {
-                                warn!("解析 ECS 数据失败: {}", err);
+                                warn!("Failed to parse ECS data: {}", err);
                                 return None;
                             }
                         }
@@ -379,7 +379,7 @@ impl EcsProcessor {
             
             // 未知策略，默认剥离
             _ => {
-                warn!("未知的 ECS 策略: {}, 默认使用剥离策略", policy.strategy);
+                warn!("Unknown ECS policy: {}, using strip policy by default", policy.strategy);
                 process_and_clone(Self::remove_ecs_from_message)
             }
         }
