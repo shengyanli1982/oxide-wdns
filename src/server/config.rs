@@ -21,6 +21,10 @@ use crate::common::consts::{
     DEFAULT_HTTP_CLIENT_POOL_MAX_IDLE_CONNECTIONS, DEFAULT_HTTP_CLIENT_AGENT,
     // 分流相关常量
     BLACKHOLE_UPSTREAM_GROUP_NAME,
+    // ECS 相关常量
+    ECS_POLICY_STRIP, ECS_POLICY_FORWARD, ECS_POLICY_ANONYMIZE,
+    DEFAULT_IPV4_PREFIX_LENGTH, DEFAULT_IPV6_PREFIX_LENGTH,
+    MAX_IPV4_PREFIX_LENGTH, MAX_IPV6_PREFIX_LENGTH,
     // 添加新常量
     MIN_PER_IP_RATE,
     MAX_PER_IP_RATE,
@@ -73,6 +77,10 @@ pub struct DnsResolverConfig {
     // 路由配置（DNS分流）
     #[serde(default)]
     pub routing: RoutingConfig,
+    
+    // EDNS 客户端子网配置
+    #[serde(default)]
+    pub ecs_policy: EcsPolicyConfig,
 }
 
 // 上游 DNS 服务器配置
@@ -242,6 +250,10 @@ pub struct UpstreamGroup {
     
     // 解析器列表
     pub resolvers: Vec<ResolverConfig>,
+    
+    // 上游组级别的 ECS 策略配置（覆盖全局设置）
+    #[serde(default)]
+    pub ecs_policy: Option<EcsPolicyConfig>,
 }
 
 // 分流规则
@@ -337,6 +349,30 @@ pub struct PeriodicSaveConfig {
     pub interval_secs: u64,
 }
 
+// EDNS 客户端子网策略配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EcsPolicyConfig {
+    // 全局 ECS 处理策略
+    #[serde(default = "default_ecs_strategy")]
+    pub strategy: String,
+    
+    // 匿名化配置
+    #[serde(default)]
+    pub anonymization: EcsAnonymizationConfig,
+}
+
+// EDNS 客户端子网匿名化配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EcsAnonymizationConfig {
+    // IPv4 地址匿名化保留前缀长度
+    #[serde(default = "default_ipv4_prefix_length")]
+    pub ipv4_prefix_length: u8,
+    
+    // IPv6 地址匿名化保留前缀长度
+    #[serde(default = "default_ipv6_prefix_length")]
+    pub ipv6_prefix_length: u8,
+}
+
 // 默认值函数 - 使用 consts 中定义的常量
 fn default_resolver_protocol() -> ResolverProtocol {
     ResolverProtocol::Udp
@@ -423,6 +459,21 @@ fn default_cache_shutdown_save_timeout() -> u64 {
     30  // 30秒
 }
 
+// 默认 ECS 策略为剥离
+fn default_ecs_strategy() -> String {
+    ECS_POLICY_STRIP.to_string()
+}
+
+// 默认 IPv4 匿名化前缀长度
+fn default_ipv4_prefix_length() -> u8 {
+    DEFAULT_IPV4_PREFIX_LENGTH
+}
+
+// 默认 IPv6 匿名化前缀长度
+fn default_ipv6_prefix_length() -> u8 {
+    DEFAULT_IPV6_PREFIX_LENGTH
+}
+
 impl ServerConfig {
     // 从配置文件加载配置
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
@@ -492,6 +543,24 @@ impl ServerConfig {
                 group_name
             )))
         }
+    }
+    
+    // 获取特定上游组的有效 ECS 策略配置
+    pub fn get_effective_ecs_policy(&self, group_name: &str) -> Result<EcsPolicyConfig> {
+        // 如果指定了组名，尝试查找该组
+        if !group_name.is_empty() && group_name != BLACKHOLE_UPSTREAM_GROUP_NAME {
+            if let Some(group) = self.dns.routing.upstream_groups
+                .iter()
+                .find(|g| g.name == group_name) {
+                // 如果组存在且指定了 ECS 策略，则使用组策略
+                if let Some(ecs_policy) = &group.ecs_policy {
+                    return Ok(ecs_policy.clone());
+                }
+            }
+        }
+        
+        // 否则使用全局 ECS 策略
+        Ok(self.dns.ecs_policy.clone())
     }
     
     pub fn test(&self) -> Result<()> {
@@ -690,6 +759,54 @@ impl ServerConfig {
             }
         }
         
+        // 验证 ECS 策略配置
+        self.validate_ecs_policy()?;
+        
+        Ok(())
+    }
+    
+    // 验证 ECS 策略配置有效性
+    pub fn validate_ecs_policy(&self) -> Result<()> {
+        // 验证全局 ECS 策略
+        self.validate_single_ecs_policy(&self.dns.ecs_policy)?;
+        
+        // 验证每个上游组的 ECS 策略
+        for group in &self.dns.routing.upstream_groups {
+            if let Some(ecs_policy) = &group.ecs_policy {
+                self.validate_single_ecs_policy(ecs_policy)?;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    // 验证单个 ECS 策略配置
+    fn validate_single_ecs_policy(&self, policy: &EcsPolicyConfig) -> Result<()> {
+        // 验证策略类型
+        match policy.strategy.as_str() {
+            ECS_POLICY_STRIP | ECS_POLICY_FORWARD | ECS_POLICY_ANONYMIZE => {}
+            strategy => return Err(ServerError::Config(format!(
+                "无效的 ECS 策略类型: {}，支持的值为: {}, {}, {}",
+                strategy, ECS_POLICY_STRIP, ECS_POLICY_FORWARD, ECS_POLICY_ANONYMIZE
+            ))),
+        }
+        
+        // 验证 IPv4 前缀长度
+        if policy.anonymization.ipv4_prefix_length == 0 || policy.anonymization.ipv4_prefix_length > MAX_IPV4_PREFIX_LENGTH {
+            return Err(ServerError::Config(format!(
+                "无效的 IPv4 前缀长度: {}，有效值范围: 1-{}",
+                policy.anonymization.ipv4_prefix_length, MAX_IPV4_PREFIX_LENGTH
+            )));
+        }
+        
+        // 验证 IPv6 前缀长度
+        if policy.anonymization.ipv6_prefix_length == 0 || policy.anonymization.ipv6_prefix_length > MAX_IPV6_PREFIX_LENGTH {
+            return Err(ServerError::Config(format!(
+                "无效的 IPv6 前缀长度: {}，有效值范围: 1-{}",
+                policy.anonymization.ipv6_prefix_length, MAX_IPV6_PREFIX_LENGTH
+            )));
+        }
+        
         Ok(())
     }
 }
@@ -774,6 +891,7 @@ impl Default for DnsResolverConfig {
             http_client: HttpClientConfig::default(),
             cache: CacheConfig::default(),
             routing: RoutingConfig::default(),
+            ecs_policy: EcsPolicyConfig::default(),
         }
     }
 }
@@ -797,6 +915,24 @@ impl Default for PeriodicSaveConfig {
         Self {
             enabled: false,
             interval_secs: default_cache_periodic_interval_secs(),
+        }
+    }
+}
+
+impl Default for EcsAnonymizationConfig {
+    fn default() -> Self {
+        Self {
+            ipv4_prefix_length: DEFAULT_IPV4_PREFIX_LENGTH,
+            ipv6_prefix_length: DEFAULT_IPV6_PREFIX_LENGTH,
+        }
+    }
+}
+
+impl Default for EcsPolicyConfig {
+    fn default() -> Self {
+        Self {
+            strategy: ECS_POLICY_STRIP.to_string(),
+            anonymization: EcsAnonymizationConfig::default(),
         }
     }
 }

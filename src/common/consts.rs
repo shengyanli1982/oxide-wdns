@@ -41,6 +41,34 @@ pub const DNS_CLASS_IN: u16 = 1;
 pub const BLACKHOLE_UPSTREAM_GROUP_NAME: &str = "__blackhole__";
 
 //
+// EDNS 客户端子网 (ECS) 常量
+//
+
+// EDNS 客户端子网 Option Code（RFC 7871）
+pub const EDNS_CLIENT_SUBNET_OPTION_CODE: u16 = 8;
+
+// ECS 策略：剥离
+pub const ECS_POLICY_STRIP: &str = "strip";
+
+// ECS 策略：转发
+pub const ECS_POLICY_FORWARD: &str = "forward";
+
+// ECS 策略：匿名化
+pub const ECS_POLICY_ANONYMIZE: &str = "anonymize";
+
+// 默认 IPv4 匿名化前缀长度
+pub const DEFAULT_IPV4_PREFIX_LENGTH: u8 = 24;
+
+// 默认 IPv6 匿名化前缀长度
+pub const DEFAULT_IPV6_PREFIX_LENGTH: u8 = 48;
+
+// ECS 最大 IPv4 前缀长度
+pub const MAX_IPV4_PREFIX_LENGTH: u8 = 32;
+
+// ECS 最大 IPv6 前缀长度
+pub const MAX_IPV6_PREFIX_LENGTH: u8 = 128;
+
+//
 // 缓存常量
 //
 

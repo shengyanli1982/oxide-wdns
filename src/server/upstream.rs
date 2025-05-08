@@ -1,7 +1,7 @@
 // src/server/upstream.rs
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
 use std::sync::Arc;
 
 use reqwest::{Client, header};
@@ -12,8 +12,9 @@ use trust_dns_resolver::config::{
     NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
 
-use crate::server::config::{ServerConfig, UpstreamConfig, ResolverProtocol};
+use crate::server::config::{ServerConfig, UpstreamConfig, ResolverProtocol, EcsPolicyConfig};
 use crate::server::error::{Result, ServerError};
+use crate::server::ecs::{EcsProcessor, EcsData};
 use crate::common::consts::CONTENT_TYPE_DNS_MESSAGE;
 
 // 上游选择
@@ -104,6 +105,8 @@ pub struct UpstreamManager {
     global_config: UpstreamGroupConfig,
     // 上游组配置 (组名 -> 配置)
     group_configs: HashMap<String, UpstreamGroupConfig>,
+    // 服务器配置（用于获取 ECS 策略）
+    server_config: ServerConfig,
 }
 
 impl UpstreamManager {
@@ -147,6 +150,7 @@ impl UpstreamManager {
         Ok(Self {
             global_config,
             group_configs,
+            server_config: config.clone(),
         })
     }
     
@@ -181,7 +185,13 @@ impl UpstreamManager {
     }
     
     // 执行 DNS 查询
-    pub async fn resolve(&self, query_message: &Message, selection: UpstreamSelection) -> Result<Message> {
+    pub async fn resolve(
+        &self, 
+        query_message: &Message, 
+        selection: UpstreamSelection,
+        client_ip: Option<IpAddr>,
+        client_ecs: Option<&EcsData>
+    ) -> Result<Message> {
         if query_message.message_type() != MessageType::Query {
             return Err(ServerError::Upstream("Not a query message type".to_string()));
         }
@@ -199,164 +209,63 @@ impl UpstreamManager {
             None => return Err(ServerError::Upstream("No Query section in query message".to_string())),
         };
         
-        // 确定上游标识符，用于记录指标
-        let upstream_identifier = match &selection {
-            UpstreamSelection::Global => "__global_default__".to_string(),
-            UpstreamSelection::Group(group_name) => group_name.clone(),
-        };
-        
-        // 记录开始时间
-        let start_time = std::time::Instant::now();
-        
-        // 根据选择获取对应的上游组配置
-        let upstream_group = match selection {
-            UpstreamSelection::Global => {
-                debug!("Using global upstream configuration");
-                &self.global_config
-            },
-            UpstreamSelection::Group(ref group_name) => {
-                debug!(group_name = %group_name, "Using upstream group configuration");
+        // 选择目标上游配置
+        let (target_config, group_name) = match &selection {
+            UpstreamSelection::Group(group_name) => {
                 match self.group_configs.get(group_name) {
-                    Some(group) => group,
-                    None => {
-                        warn!(group_name = %group_name, "Upstream group not found, falling back to global");
-                        
-                        // 记录上游组未找到错误
-                        use crate::server::metrics::METRICS;
-                        METRICS.with(|m| m.record_error("UpstreamGroupNotFound"));
-                        
-                        &self.global_config
-                    },
+                    Some(config) => (config, group_name.as_str()),
+                    None => return Err(ServerError::Upstream(format!("Unknown upstream group: {}", group_name))),
                 }
             },
+            UpstreamSelection::Global => (&self.global_config, ""),
         };
         
-        debug!(   
-            name = ?query.name(),
+        // 获取 ECS 策略
+        let ecs_policy = self.server_config.get_effective_ecs_policy(group_name)?;
+        
+        // 处理 ECS，根据策略和 client_ecs 参数修改查询
+        let processed_query = match EcsProcessor::process_ecs_for_query(
+            query_message, 
+            &ecs_policy,
+            client_ip,
+            client_ecs
+        )? {
+            Some(new_query) => new_query,
+            None => query_message.clone(),
+        };
+        
+        // 记录查询信息
+        debug!(
+            name = %query.name(),
             type_value = ?query.query_type(),
-            "Processing DNS query via selected upstream resolvers"
+            class = ?query.query_class(),
+            dnssec_enabled = target_config.config.enable_dnssec,
+            upstream_group = match &selection {
+                UpstreamSelection::Group(g) => g.as_str(),
+                UpstreamSelection::Global => "global",
+            },
+            "Resolving query"
         );
         
-        // 如果有DoH客户端可用，优先使用DoH查询
-        if !upstream_group.doh_clients.is_empty() {
-            // 使用第一个DoH客户端（将来可实现负载均衡）
-            let doh_client = &upstream_group.doh_clients[0];
-            debug!(
-                url = ?doh_client.url,
-                "Querying via DoH resolver"
-            );
+        // 执行查询
+        let response = if !target_config.doh_clients.is_empty() {
+            // 有 DoH 客户端，优先使用
+            let client = &target_config.doh_clients[0]; // 简单选择第一个，后续可以实现更复杂的负载均衡
+            client.query(&processed_query).await?
+        } else {
+            // 没有 DoH 客户端，使用标准解析器
+            let response_bytes = target_config.resolver.dns_query(
+                processed_query.to_vec()?.as_slice()
+            ).await
+                .map_err(|e| ServerError::Upstream(format!("DNS query failed: {}", e)))?;
             
-            // 执行DoH查询
-            match doh_client.query(query_message).await {
-                Ok(response) => {
-                    // 记录查询耗时和计数
-                    let duration = start_time.elapsed();
-                    use crate::server::metrics::METRICS;
-                    METRICS.with(|m| m.record_upstream_query(&upstream_identifier, duration));
-                    
-                    return Ok(response);
-                },
-                Err(e) => {
-                    // DoH查询失败，记录错误
-                    error!(
-                        error = ?e,
-                        "DoH query failed, falling back to standard resolver"
-                    );
-                    // 继续使用标准解析器
-                }
-            }
-        }
+            // 解析响应
+            Message::from_vec(&response_bytes)
+                .map_err(|e| ServerError::Upstream(format!("Failed to parse DNS response: {}", e)))?
+        };
         
-        // 使用标准解析器
-        // 创建一个响应消息，这些基本参数不受查询结果影响
-        let mut response_message = Message::new();
-        response_message
-            .set_id(query_message.id())
-            .set_message_type(MessageType::Response)
-            .set_op_code(query_message.op_code())
-            .set_authoritative(false)
-            .set_recursion_desired(query_message.recursion_desired())
-            .set_recursion_available(true)
-            .set_checking_disabled(query_message.checking_disabled());
-        
-        // 获取 CD 标志 (Checking Disabled)
-        let cd_flag = query_message.checking_disabled();
-        
-        // 根据 CD 标志和配置确定是否需要 DNSSEC 验证
-        let dnssec_enabled = upstream_group.config.enable_dnssec && !cd_flag;
-        
-        // 查询域名
-        // 无论是否设置CD标志，我们始终使用相同的查询方法。
-        // 在ResolverOpts的validate已经配置启用DNSSEC
-        // trust-dns-resolver会根据CD标志自动处理DNSSEC验证
-        let lookup_result = upstream_group.resolver.lookup(query.name().clone(), query.query_type())
-            .await
-            .map_err(ServerError::DnsResolve);
-        
-        // 记录查询耗时和计数
-        let duration = start_time.elapsed();
-        use crate::server::metrics::METRICS;
-        METRICS.with(|m| m.record_upstream_query(&upstream_identifier, duration));
-        
-        // 如果启用了DNSSEC，记录验证结果
-        if dnssec_enabled && !cd_flag {
-            // 查询结果成功，并且有记录返回视为验证成功
-            // 注意：这是简化的实现，更精确的实现应从应答中检查AD标志
-            let validation_success = lookup_result.is_ok();
-            METRICS.with(|m| m.record_dnssec_validation(validation_success));
-        }
-        
-        match lookup_result {
-            Ok(dns_response) => {
-                // 添加原始查询和所有响应记录
-                response_message.add_query(query.clone());
-                response_message.add_answers(dns_response.records().to_vec());
-                response_message.set_response_code(ResponseCode::NoError);
-                
-                // 设置 AD 标志，只有在以下条件都满足时才设置：
-                // 1. DNSSEC 已启用（通过配置）
-                // 2. CD 标志未设置（客户端允许验证）
-                // 3. 有记录返回（没有记录则没有内容可验证）
-                let has_records = !dns_response.records().is_empty();
-                
-                // 当使用trust-dns-resolver时，如果记录通过了DNSSEC验证，则会设置authentic_data标志
-                // 如果启用了DNSSEC并且有记录，我们将其标记为已验证
-                // 这样做的理由是：
-                // 1. trust-dns-resolver在我们启用DNSSEC验证时会验证记录
-                // 2. 如果验证失败，lookup()调用会返回错误
-                // 3. 如果我们到达这里（有记录，无错误），则意味着记录已经通过了验证
-                // 4. 记录是否实际验证过取决于使用的上游解析器和查询的域名
-                let is_validated = dnssec_enabled && has_records && !cd_flag;
-                response_message.set_authentic_data(is_validated);
-                
-                debug!(
-                    name = ?query.name(),
-                    type_value = ?query.query_type(),
-                    records_count = dns_response.records().len(),
-                    dnssec_validated = is_validated,
-                    "DNS query successful"
-                );
-                
-                Ok(response_message)
-            },
-            Err(e) => {
-                error!(
-                    name = ?query.name(),
-                    type_value = ?query.query_type(),
-                    error = ?e,
-                    "DNS query failed"
-                );
-                
-                // 构造一个错误响应
-                response_message.add_query(query.clone());
-                
-                // 使用对应的响应码
-                // 可以进一步实现更详细的错误码转换
-                response_message.set_response_code(ResponseCode::ServFail);
-                
-                Err(e)
-            }
-        }
+        // 返回响应
+        Ok(response)
     }
     
     // 构建 trust-dns-resolver 配置

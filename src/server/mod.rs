@@ -10,6 +10,7 @@ pub mod routing;
 pub mod security;
 pub mod upstream;
 pub mod args;
+pub mod ecs;
 
 use std::sync::Arc;
 use std::time::Duration;

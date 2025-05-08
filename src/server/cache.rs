@@ -7,6 +7,7 @@ use std::fs::{File, create_dir_all};
 use std::path::Path;
 use std::io::{BufReader, BufWriter};
 use std::io::Write;
+use std::net::IpAddr;
 use moka::future::Cache;
 use trust_dns_proto::op::{Message, ResponseCode};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
@@ -17,7 +18,8 @@ use serde::{Serialize, Deserialize};
 use tokio::task;
 use crate::server::error::{Result, ServerError};
 use crate::server::config::{CacheConfig, PersistenceCacheConfig};
-use crate::common::consts::{CACHE_FILE_MAGIC, CACHE_FILE_VERSION};
+use crate::server::ecs::{EcsData, EcsProcessor};
+use crate::common::consts::{CACHE_FILE_MAGIC, CACHE_FILE_VERSION, EDNS_CLIENT_SUBNET_OPTION_CODE};
 
 // 可序列化的缓存条目用于持久化
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +45,10 @@ struct PersistableCacheKey {
     record_type: u16,
     // 查询类
     record_class: u16,
+    // ECS 网络地址（可选）
+    ecs_network: Option<String>,
+    // ECS 作用域前缀长度（可选）
+    ecs_scope_prefix_length: Option<u8>,
 }
 
 // 持久化文件版本信息
@@ -69,6 +75,8 @@ pub struct CacheEntry {
     pub access_count: Arc<AtomicU64>,
     // 最后访问时间（Unix 时间戳，秒），使用原子类型实现无锁更新
     pub last_accessed: Arc<AtomicU64>,
+    // ECS 数据（可选）
+    pub ecs_data: Option<EcsData>,
 }
 
 // DNS 响应缓存
@@ -90,6 +98,10 @@ pub struct CacheKey {
     pub record_type: u16,
     // 查询类
     pub record_class: u16,
+    // ECS 网络地址（可选）
+    pub ecs_network: Option<String>,
+    // ECS 作用域前缀长度（可选）
+    pub ecs_scope_prefix_length: Option<u8>,
 }
 
 impl CacheKey {
@@ -99,7 +111,202 @@ impl CacheKey {
             name: name.to_string(),
             record_type: record_type.into(),
             record_class: record_class.into(),
+            ecs_network: None,
+            ecs_scope_prefix_length: None,
         }
+    }
+    
+    // 创建带 ECS 信息的缓存键
+    pub fn with_ecs(
+        name: Name, 
+        record_type: RecordType, 
+        record_class: DNSClass,
+        ecs_data: &EcsData
+    ) -> Self {
+        let ecs_network = Some(format!("{}/{}", ecs_data.address, ecs_data.scope_prefix_length));
+        Self {
+            name: name.to_string(),
+            record_type: record_type.into(),
+            record_class: record_class.into(),
+            ecs_network,
+            ecs_scope_prefix_length: Some(ecs_data.scope_prefix_length),
+        }
+    }
+    
+    // 创建缓存查找键，用于匹配客户端查询
+    pub fn create_lookup_key(
+        name: Name, 
+        record_type: RecordType, 
+        record_class: DNSClass,
+        client_ecs: Option<&EcsData>
+    ) -> Self {
+        if let Some(ecs) = client_ecs {
+            Self::with_ecs(name, record_type, record_class, ecs)
+        } else {
+            Self::new(name, record_type, record_class)
+        }
+    }
+    
+    // 获取基础键（不包含 ECS 信息）
+    pub fn get_base_key(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            record_type: self.record_type,
+            record_class: self.record_class,
+            ecs_network: None,
+            ecs_scope_prefix_length: None,
+        }
+    }
+    
+    // 判断此键是否与客户端查询匹配（ECS 感知）
+    pub fn matches_client_query(&self, query_key: &Self) -> bool {
+        // 基本字段必须匹配
+        if self.name != query_key.name || 
+           self.record_type != query_key.record_type || 
+           self.record_class != query_key.record_class {
+            return false;
+        }
+        
+        // 处理 ECS 匹配逻辑
+        match (&self.ecs_network, &self.ecs_scope_prefix_length, &query_key.ecs_network) {
+            // 如果缓存条目没有 ECS 数据（全局应答）
+            (None, _, _) => true,
+            
+            // 如果缓存条目有 ECS 数据，但客户端查询没有
+            (Some(_), _, None) => {
+                // 只有当范围前缀长度为 0 的时候才匹配（表示适用于所有网络）
+                self.ecs_scope_prefix_length == Some(0)
+            },
+            
+            // 如果缓存条目有 ECS 数据，客户端查询也有
+            (Some(cached_net_str), Some(cached_scope_prefix), Some(client_net_str)) => {
+                // 解析网络字符串，格式为 "ip/prefix"
+                if let (Some((cached_ip_str, cached_prefix_str)), Some((client_ip_str, client_prefix_str))) = (
+                    cached_net_str.split_once('/'),
+                    client_net_str.split_once('/')
+                ) {
+                    // 解析 IP 地址和前缀长度
+                    if let (Ok(cached_ip), Ok(cached_src_prefix), Ok(client_ip), Ok(client_src_prefix)) = (
+                        cached_ip_str.parse::<IpAddr>(),
+                        cached_prefix_str.parse::<u8>(),
+                        client_ip_str.parse::<IpAddr>(),
+                        client_prefix_str.parse::<u8>()
+                    ) {
+                        // 进行双向检查
+                        
+                        // 1. 检查客户端前缀长度是否大于等于缓存范围前缀长度
+                        //    (客户端查询的网络范围应该比缓存的作用域更具体或相同)
+                        let prefix_check = client_src_prefix >= *cached_scope_prefix;
+                        
+                        // 2. 检查客户端网络是否落在缓存作用域内
+                        let network_check = self.is_network_contained(
+                            client_ip, client_src_prefix,
+                            cached_ip, *cached_scope_prefix
+                        );
+                        
+                        return prefix_check && network_check;
+                    }
+                }
+                
+                // 解析失败，使用简化的字符串前缀匹配（退化为原始逻辑）
+                debug!("ECS 网络匹配解析失败，使用简化匹配: cache={}, query={}", 
+                       cached_net_str, client_net_str);
+                       
+                client_net_str.starts_with(&cached_net_str[..cached_net_str.find('/').unwrap_or(cached_net_str.len())])
+            },
+            
+            // 其他情况不匹配
+            _ => false,
+        }
+    }
+    
+    // 检查一个网络是否包含在另一个网络中
+    // client_net 是否包含在 cached_net 中
+    fn is_network_contained(
+        &self,
+        client_ip: IpAddr,
+        client_prefix: u8,
+        cached_ip: IpAddr,
+        cached_scope_prefix: u8
+    ) -> bool {
+        match (client_ip, cached_ip) {
+            // 只有相同类型的 IP 地址才能比较
+            (IpAddr::V4(client_ipv4), IpAddr::V4(cached_ipv4)) => {
+                // 截断到 cached_scope_prefix 位之后比较
+                Self::are_ipv4_networks_equal(
+                    client_ipv4, cached_scope_prefix.min(client_prefix),
+                    cached_ipv4, cached_scope_prefix
+                )
+            },
+            (IpAddr::V6(client_ipv6), IpAddr::V6(cached_ipv6)) => {
+                // 截断到 cached_scope_prefix 位之后比较
+                Self::are_ipv6_networks_equal(
+                    client_ipv6, cached_scope_prefix.min(client_prefix),
+                    cached_ipv6, cached_scope_prefix
+                )
+            },
+            // 不同类型的 IP 地址不匹配
+            _ => false,
+        }
+    }
+    
+    // 比较两个 IPv4 地址的网络部分是否相等
+    fn are_ipv4_networks_equal(ip1: Ipv4Addr, prefix1: u8, ip2: Ipv4Addr, prefix2: u8) -> bool {
+        if prefix1 != prefix2 {
+            return false;
+        }
+        
+        if prefix1 == 0 {
+            return true; // 全局网络总是匹配
+        }
+        
+        // 转换为 u32 并应用掩码
+        let ip1_u32 = u32::from(ip1);
+        let ip2_u32 = u32::from(ip2);
+        
+        let mask = if prefix1 >= 32 {
+            !0u32 // 所有位都为1
+        } else {
+            !0u32 << (32 - prefix1)
+        };
+        
+        (ip1_u32 & mask) == (ip2_u32 & mask)
+    }
+    
+    // 比较两个 IPv6 地址的网络部分是否相等
+    fn are_ipv6_networks_equal(ip1: Ipv6Addr, prefix1: u8, ip2: Ipv6Addr, prefix2: u8) -> bool {
+        if prefix1 != prefix2 {
+            return false;
+        }
+        
+        if prefix1 == 0 {
+            return true; // 全局网络总是匹配
+        }
+        
+        // 转换为 [u8; 16] 数组并逐字节比较
+        let ip1_bytes = ip1.octets();
+        let ip2_bytes = ip2.octets();
+        
+        // 计算需要比较的完整字节数
+        let full_bytes = (prefix1 / 8) as usize;
+        
+        // 比较完整字节
+        for i in 0..full_bytes {
+            if ip1_bytes[i] != ip2_bytes[i] {
+                return false;
+            }
+        }
+        
+        // 处理部分字节（如果前缀长度不是8的整数倍）
+        let remaining_bits = prefix1 % 8;
+        if remaining_bits > 0 && full_bytes < 16 {
+            let mask = !0u8 << (8 - remaining_bits);
+            if (ip1_bytes[full_bytes] & mask) != (ip2_bytes[full_bytes] & mask) {
+                return false;
+            }
+        }
+        
+        true
     }
 }
 
@@ -187,126 +394,191 @@ impl DnsCache {
         dns_cache
     }
     
-    // 查找缓存条目
-    pub async fn get(&self, key: &CacheKey) -> Option<Message> {
+    // 基于客户端 ECS 信息查找缓存条目
+    pub async fn get_with_ecs(&self, key: &CacheKey, client_ecs: Option<&EcsData>) -> Option<Message> {
         if !self.config.enabled {
             return None;
         }
         
-        // 尝试从缓存获取条目
+        // 获取当前时间（秒）
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        // 如果提供了精确的 key（包含 ECS），首先尝试直接查找
         if let Some(entry) = self.cache.get(key).await {
-            // 检查条目是否过期
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
+            // 检查是否过期
+            if entry.expires_at <= now {
+                // 过期，异步删除
+                let key_clone = key.clone();
+                let cache_clone = self.cache.clone();
+                tokio::spawn(async move {
+                    cache_clone.invalidate(&key_clone).await;
+                });
+                return None;
+            }
+            
+            // 更新访问统计
+            entry.access_count.fetch_add(1, Ordering::Relaxed);
+            entry.last_accessed.store(now, Ordering::Relaxed);
+            
+            // 返回消息克隆
+            return Some((*entry.message).clone());
+        }
+        
+        // 如果直接查找失败，尝试查找所有匹配基础键的条目
+        let base_key = key.get_base_key();
+        
+        // 获取基础键的所有缓存键（异步操作）
+        let mut matched_keys = Vec::new();
+        self.cache.iter().for_each(|k, _| {
+            if k.name == base_key.name && 
+               k.record_type == base_key.record_type && 
+               k.record_class == base_key.record_class {
+                matched_keys.push(k.clone());
+            }
+        });
+        
+        // 如果没有找到任何匹配项，直接返回
+        if matched_keys.is_empty() {
+            return None;
+        }
+        
+        // 根据 ECS 匹配规则筛选匹配的缓存条目
+        let mut best_match: Option<(CacheKey, u8)> = None;
+        
+        for cached_key in matched_keys {
+            // 检查是否匹配客户端查询
+            if cached_key.matches_client_query(key) {
+                // 获取该键的作用域前缀长度（越大表示更精确）
+                let scope_len = cached_key.ecs_scope_prefix_length.unwrap_or(0);
                 
-            if now < entry.expires_at {
-                // 原子地更新访问统计，无需重新插入缓存
-                entry.access_count.fetch_add(1, Ordering::Relaxed);
-                entry.last_accessed.store(now, Ordering::Relaxed);
-                
-                trace!(
-                    name = ?key.name,
-                    type_value = ?key.record_type,
-                    expires_in_secs = entry.expires_at - now,
-                    "Cache hit for DNS record"
-                );
-                
-                // 克隆响应消息并更新 TTL
-                let mut response = (*entry.message).clone();
-                
-                // 更新响应中的 TTL，使其反映剩余的生存时间
-                let remaining_ttl = (entry.expires_at - now) as u32;
-                for record in response.answers_mut() {
-                    if record.record_type() != RecordType::OPT {
-                        record.set_ttl(remaining_ttl);
+                // 更新最佳匹配
+                if let Some((_, best_len)) = best_match {
+                    if scope_len > best_len {
+                        best_match = Some((cached_key, scope_len));
                     }
+                } else {
+                    best_match = Some((cached_key, scope_len));
                 }
-                
-                return Some(response);
-            } else {
-                // 惰性删除过期条目
-                self.cache.remove(key).await;
-                trace!(
-                    name = ?key.name,
-                    type_value = ?key.record_type,
-                    "Expired cache entry removed"
-                );
             }
         }
         
+        // 如果找到了最佳匹配，使用其键获取缓存条目
+        if let Some((best_key, _)) = best_match {
+            if let Some(entry) = self.cache.get(&best_key).await {
+                // 检查是否过期
+                if entry.expires_at <= now {
+                    // 过期，异步删除
+                    let key_clone = best_key.clone();
+                    let cache_clone = self.cache.clone();
+                    tokio::spawn(async move {
+                        cache_clone.invalidate(&key_clone).await;
+                    });
+                    return None;
+                }
+                
+                // 更新访问统计
+                entry.access_count.fetch_add(1, Ordering::Relaxed);
+                entry.last_accessed.store(now, Ordering::Relaxed);
+                
+                // 返回消息克隆
+                return Some((*entry.message).clone());
+            }
+        }
+        
+        // 没有找到匹配的缓存条目
         None
     }
     
-    // 将 DNS 响应消息存入缓存，指定TTL
-    pub async fn put(&self, key: &CacheKey, message: &Message, ttl: u32) -> Result<()> {
-        // 如果缓存被禁用，直接返回
+    // 查找缓存条目
+    pub async fn get(&self, key: &CacheKey) -> Option<Message> {
+        // 直接调用 get_with_ecs，不带 ECS 信息
+        self.get_with_ecs(key, None).await
+    }
+    
+    // 存储缓存条目，支持 ECS
+    pub async fn put_with_ecs(&self, key: &CacheKey, message: &Message, ttl: u32, client_ecs: Option<&EcsData>) -> Result<()> {
         if !self.config.enabled {
             return Ok(());
         }
         
-        // 检查缓存大小
-        let current_size = self.cache.entry_count();
-        if current_size >= self.config.size as u64 {
-            warn!(
-                current_size = current_size,
-                max_size = self.config.size,
-                "Cache is full, consider increasing the cache size"
-            );
-        }
+        // 获取当前时间（秒）
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        
+        // 计算过期时间
+        let expires_at = now + ttl as u64;
+        
+        // 从响应中提取 ECS 数据
+        let response_ecs = EcsProcessor::extract_ecs_from_message(message);
         
         // 创建缓存条目
         let entry = CacheEntry {
             message: Arc::new(message.clone()),
-            expires_at: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                + ttl as u64,
-            access_count: Arc::new(AtomicU64::new(1)),
-            last_accessed: Arc::new(AtomicU64::new(SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs())),
+            expires_at,
+            access_count: Arc::new(AtomicU64::new(0)),
+            last_accessed: Arc::new(AtomicU64::new(now)),
+            ecs_data: response_ecs.clone(),
         };
         
-        // 存入缓存
-        self.cache.insert(key.clone(), entry).await;
+        // 创建适当的缓存键
+        let cache_key = if let Some(ecs) = response_ecs {
+            // 使用响应中的 ECS 数据构建缓存键
+            if let Some(query) = message.queries().first() {
+                CacheKey::with_ecs(
+                    query.name().clone(),
+                    query.query_type(),
+                    query.query_class(),
+                    &ecs
+                )
+            } else {
+                // 无查询，使用提供的键
+                key.clone()
+            }
+        } else if let Some(client_ecs) = client_ecs {
+            // 使用客户端 ECS 数据
+            if let Some(query) = message.queries().first() {
+                CacheKey::with_ecs(
+                    query.name().clone(),
+                    query.query_type(),
+                    query.query_class(),
+                    client_ecs
+                )
+            } else {
+                // 无查询，使用提供的键
+                key.clone()
+            }
+        } else {
+            // 无 ECS 数据
+            key.clone()
+        };
         
-        debug!(
-            name = ?key.name,
-            type_value = ?key.record_type,
-            ttl_seconds = ttl,
-            response_code = ?message.response_code(),
-            "DNS response added to cache"
-        );
+        // 存储缓存条目
+        self.cache.insert(cache_key, entry).await;
         
         Ok(())
     }
     
-    // 将 DNS 响应消息存入缓存（计算最佳TTL）
+    // 存储缓存条目
+    pub async fn put(&self, key: &CacheKey, message: &Message, ttl: u32) -> Result<()> {
+        // 直接调用 put_with_ecs，不带 ECS 信息
+        self.put_with_ecs(key, message, ttl, None).await
+    }
+    
+    // 使用自动 TTL 存储缓存条目
     pub async fn put_with_auto_ttl(&self, key: &CacheKey, message: &Message) -> Result<()> {
-        // 如果缓存被禁用，直接返回
-        if !self.config.enabled {
-            return Ok(());
-        }
-        
-        // 检查响应码
-        if message.response_code() != ResponseCode::NoError {
-            // 对于非成功响应，使用负缓存TTL
-            if message.response_code() == ResponseCode::NXDomain {
-                let ttl = self.config.ttl.negative;
-                self.put(key, message, ttl).await?;
-            }
-            return Ok(());
-        }
-        
-        // 计算最佳TTL
         let ttl = self.calculate_ttl(message);
-        self.put(key, message, ttl).await?;
-        
-        Ok(())
+        self.put(key, message, ttl).await
+    }
+    
+    // 使用自动 TTL 存储缓存条目，支持 ECS
+    pub async fn put_with_auto_ttl_and_ecs(&self, key: &CacheKey, message: &Message, client_ecs: Option<&EcsData>) -> Result<()> {
+        let ttl = self.calculate_ttl(message);
+        self.put_with_ecs(key, message, ttl, client_ecs).await
     }
     
     // 计算缓存条目的 TTL
@@ -459,6 +731,8 @@ impl DnsCache {
                     name: key.name.clone(),
                     record_type: key.record_type,
                     record_class: key.record_class,
+                    ecs_network: key.ecs_network.clone(),
+                    ecs_scope_prefix_length: key.ecs_scope_prefix_length.clone(),
                 };
                 
                 let persistable_entry = PersistableCacheEntry {
@@ -592,6 +866,8 @@ impl DnsCache {
                 name: persistable_key.name,
                 record_type: persistable_key.record_type,
                 record_class: persistable_key.record_class,
+                ecs_network: persistable_key.ecs_network,
+                ecs_scope_prefix_length: persistable_key.ecs_scope_prefix_length,
             };
             
             let entry = CacheEntry {
@@ -599,6 +875,7 @@ impl DnsCache {
                 expires_at: persistable_entry.expires_at,
                 access_count: Arc::new(AtomicU64::new(persistable_entry.access_count)),
                 last_accessed: Arc::new(AtomicU64::new(persistable_entry.last_accessed)),
+                ecs_data: None,
             };
             
             keys.push(key);
@@ -661,6 +938,8 @@ impl From<&Message> for CacheKey {
                 name: query.name().to_string(),
                 record_type: query.query_type().into(),
                 record_class: query.query_class().into(),
+                ecs_network: None,
+                ecs_scope_prefix_length: None,
             }
         } else {
             // 创建一个空键，实际上不应该发生
@@ -668,6 +947,8 @@ impl From<&Message> for CacheKey {
                 name: String::new(),
                 record_type: 0,
                 record_class: 0,
+                ecs_network: None,
+                ecs_scope_prefix_length: None,
             }
         }
     }
