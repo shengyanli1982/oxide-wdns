@@ -13,14 +13,15 @@ use crate::common::consts::DEFAULT_CONFIG_PATH;
     version,
     about = "High-performance Secure DNS via HTTP (DoH) Gateway\n\n\
              Key Features:\n\
-             - Full RFC 8484 HTTP-based DNS transport compliance\n\
-             - Google/Cloudflare JSON format compatibility\n\
-             - Advanced DNSSEC validation\n\
-             - Multi-protocol upstream support (UDP, TCP, DoT, DoH)\n\
-             - Performance-optimized LRU caching\n\
-             - Prometheus metrics integration\n\
-             - Native Kubernetes health probes\n\
-             - Enterprise-grade security with rate limiting and input validation\n\n\
+             - Full RFC 8484 DoH compliance (Wireformat & JSON, GET/POST, HTTP/1.1 & HTTP/2)\n\
+             - Advanced DNSSEC validation for response integrity\n\
+             - Multi-protocol upstream support (UDP, TCP, DoT, DoH) with flexible selection strategies\n\
+             - Powerful DNS routing: rule-based (Exact, Regex, Wildcard, File, URL), multiple upstream groups, __blackhole__ group, loading remote rules\n\
+             - Intelligent LRU caching: includes negative caching and persistent cache (disk load/save, periodic save)\n\
+             - Flexible EDNS Client Subnet (ECS) handling: strip, forward, anonymize strategies; ECS-aware caching\n\
+             - Robust security: built-in IP-based rate limiting and strict input validation\n\
+             - Comprehensive observability: integrated Prometheus metrics, Kubernetes health probes, and structured logging (Tracing)\n\
+             - Cloud-native friendly design with support for graceful shutdown\n\n\
              Author: shengyanli1982\n\
              Email: shengyanlee36@gmail.com\n\
              GitHub: https://github.com/shengyanli1982"
