@@ -2,7 +2,7 @@
 
 use axum::{routing::get, Router};
 use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry,
+    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
 };
 use std::time::Duration;
 use std::thread_local;
@@ -52,8 +52,6 @@ pub struct DnsMetrics {
     pub blackhole_requests_total: IntCounter,
     // 规则源更新状态计数
     pub rule_source_updates_total: IntCounterVec,
-    // 规则源上次成功更新时间戳
-    pub rule_source_last_successful_update_timestamp_seconds: IntGaugeVec,
 }
 
 impl Default for DnsMetrics {
@@ -77,7 +75,7 @@ impl DnsMetrics {
         // 创建按方法和内容类型分类的请求计数指标
         let requests_by_method_type = IntCounterVec::new(
             Opts::new(
-                "doh_requests_by_method_type", 
+                "doh_requests_by_method", 
                 "Request count by HTTP method and content type"
             ),
             &["method", "content_type"],
@@ -108,40 +106,40 @@ impl DnsMetrics {
         .unwrap();
         
         // 创建缓存相关指标
-        let cache_hits = IntCounter::new("doh_cache_hits", "Number of cache hits").unwrap();
-        let cache_misses = IntCounter::new("doh_cache_misses", "Number of cache misses").unwrap();
-        let cache_size = IntGauge::new("doh_cache_size", "Current number of cache entries").unwrap();
+        let cache_hits = IntCounter::new("doh_cache_hits_total", "Number of cache hits").unwrap();
+        let cache_misses = IntCounter::new("doh_cache_misses_total", "Number of cache misses").unwrap();
+        let cache_size = IntGauge::new("doh_cache_entries", "Current number of cache entries").unwrap();
         
         // 创建错误计数指标
         let errors = IntCounterVec::new(
-            Opts::new("doh_errors", "Error count by error type"),
+            Opts::new("doh_errors_total", "Error count by error type"),
             &["type"],
         )
         .unwrap();
         
         // 创建 DNSSEC 相关指标
         let dnssec_validation_success = IntCounter::new(
-            "doh_dnssec_validation_success",
+            "doh_dnssec_valid_total",
             "Number of successful DNSSEC validations",
         )
         .unwrap();
         
         let dnssec_validation_failure = IntCounter::new(
-            "doh_dnssec_validation_failure",
+            "doh_dnssec_invalid_total",
             "Number of failed DNSSEC validations",
         )
         .unwrap();
         
         // 创建上游解析器相关指标 (按上游标识符)
         let upstream_queries = IntCounterVec::new(
-            Opts::new("doh_upstream_queries", "Query count by upstream identifier (group name or global)"),
+            Opts::new("doh_upstream_queries_total", "Query count by upstream identifier (group name or global)"),
             &["upstream_identifier"],
         )
         .unwrap();
         
         let upstream_query_duration = HistogramVec::new(
             HistogramOpts::new(
-                "doh_upstream_query_duration_seconds",
+                "doh_upstream_duration_seconds",
                 "Upstream query time in seconds by upstream identifier (group name or global)",
             )
             .buckets(vec![
@@ -173,14 +171,14 @@ impl DnsMetrics {
         
         // 创建速率限制相关指标
         let rate_limited_requests = IntCounter::new(
-            "doh_rate_limited_requests",
+            "doh_rate_limited_total",
             "Number of rate limited requests",
         )
         .unwrap();
         
         let rate_limited_requests_by_ip = IntCounterVec::new(
             Opts::new(
-                "doh_rate_limited_requests_by_ip",
+                "doh_rate_limited_by_ip",
                 "Rate limited requests by client IP (last octet anonymized)"
             ),
             &["client_ip"],
@@ -189,7 +187,7 @@ impl DnsMetrics {
         
         // 创建 Blackhole 阻止计数指标
         let blackhole_requests_total = IntCounter::new(
-            "doh_blackhole_requests_total",
+            "doh_blackhole_total",
             "Total number of requests blocked by blackhole rule",
         )
         .unwrap();
@@ -197,20 +195,10 @@ impl DnsMetrics {
         // 创建规则源更新状态指标
         let rule_source_updates_total = IntCounterVec::new(
             Opts::new(
-                "doh_rule_source_updates_total",
+                "doh_rule_updates_total",
                 "Count of rule source update attempts by type and status",
             ),
             &["source_type", "status"],
-        )
-        .unwrap();
-
-        // 创建规则源上次成功更新时间戳指标
-        let rule_source_last_successful_update_timestamp_seconds = IntGaugeVec::new(
-            Opts::new(
-                "doh_rule_source_last_successful_update_timestamp_seconds",
-                "Timestamp of the last successful rule source update",
-            ),
-            &["source_type", "source_location"],
         )
         .unwrap();
         
@@ -233,7 +221,6 @@ impl DnsMetrics {
         registry.register(Box::new(rate_limited_requests_by_ip.clone())).unwrap();
         registry.register(Box::new(blackhole_requests_total.clone())).unwrap();
         registry.register(Box::new(rule_source_updates_total.clone())).unwrap();
-        registry.register(Box::new(rule_source_last_successful_update_timestamp_seconds.clone())).unwrap();
         
         DnsMetrics {
             registry,
@@ -255,7 +242,6 @@ impl DnsMetrics {
             rate_limited_requests_by_ip,
             blackhole_requests_total,
             rule_source_updates_total,
-            rule_source_last_successful_update_timestamp_seconds,
         }
     }
     
@@ -373,14 +359,6 @@ impl DnsMetrics {
         self.rule_source_updates_total
             .with_label_values(&[source_type, status])
             .inc();
-    }
-
-    // 记录规则源上次成功更新时间戳
-    // 注意: source_location 可能导致高基数，谨慎使用或进行简化/聚合
-    pub fn record_rule_source_last_update_timestamp(&self, source_type: &str, source_location: &str, timestamp: i64) {
-        self.rule_source_last_successful_update_timestamp_seconds
-            .with_label_values(&[source_type, source_location])
-            .set(timestamp);
     }
 
     // 导出当前指标为字符串（用于测试）

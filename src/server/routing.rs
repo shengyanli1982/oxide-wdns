@@ -340,13 +340,6 @@ impl Router {
         // 记录文件加载成功指标
         METRICS.with(|m| m.record_rule_source_update("file", "success"));
         
-        // 记录上次成功更新时间戳
-        let current_timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        METRICS.with(|m| m.record_rule_source_last_update_timestamp("file", path, current_timestamp));
-        
         info!(
             file = path,
             exact_rules = exact.len(),
@@ -660,13 +653,6 @@ impl Router {
                     
                     // 记录成功指标
                     METRICS.with(|m| m.record_rule_source_update("url", "success"));
-                    
-                    // 记录上次成功更新时间戳
-                    let current_timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64;
-                    METRICS.with(|m| m.record_rule_source_last_update_timestamp("url", url, current_timestamp));
                     
                     // 记录成功
                     info!(url = url, "Updated rules from URL");
