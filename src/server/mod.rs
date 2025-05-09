@@ -104,16 +104,21 @@ impl DoHServer {
             info!("Rate limiting is disabled");
         }
 
-        let mut app = AxumRouter::new()
-            .merge(health_routes())
-            .merge(metrics_routes()) // metrics_routes 现在直接使用 state 中的 metrics
-            .merge(doh_specific_routes);
+        // 创建 Axum Router
+        let mut app = AxumRouter::new();
             
-        // 在调试模式下启用 Swagger UI
+        // 在调试模式下启用 Swagger UI（放在doh_specific_routes之前）
         if self.debug {
             info!("Debug mode enabled: Swagger UI available at /swagger");
             app = app.merge(swagger::create_swagger_routes());
         }
+
+        // 添加健康检查和指标路由
+        // 放在doh_specific_routes之前，放置被限速
+        app = app.merge(health_routes()).merge(metrics_routes());
+
+        // 添加doh_specific_routes
+        app = app.merge(doh_specific_routes);
 
         Ok((app, cache))
     }
