@@ -15,7 +15,6 @@ use tower_governor::{
 };
 
 use crate::server::config::RateLimitConfig;
-use crate::server::metrics::METRICS;
 use crate::common::consts::{MIN_PER_IP_RATE, MAX_PER_IP_RATE, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT};
 
 
@@ -72,13 +71,13 @@ pub fn apply_rate_limiting(routes: Router, config: &RateLimitConfig) -> Router {
             .error_handler(move |err: GovernorError| {
                 // 获取客户端 IP 并记录指标
                 if let GovernorError::TooManyRequests { .. } = &err {
-                    // 这里暂时没有想到好的办法，先写死
-                    let client_ip = "127.0.0.1";
+                    // // 这里暂时没有想到好的办法，先写死
+                    // let client_ip = "127.0.0.1";
 
-                    // 记录速率限制指标 (注意：这里使用了错误的 client_ip_placeholder)
-                    METRICS.with(|m| {
-                        m.record_rate_limit(client_ip);
-                    });
+                    // // 记录速率限制指标 (注意：这里使用了错误的 client_ip_placeholder)
+                    // METRICS.with(|m| {
+                    //     m.record_rate_limit(client_ip);
+                    // });
                     
                     // 使用毫秒更新日志消息
                     debug!("Rate limit exceeded by client. Too Many Requests! Wait for {}ms", interval_milliseconds);

@@ -1,10 +1,7 @@
 // src/server/metrics.rs
 
 use axum::{routing::get, Router};
-use prometheus::{
-    HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry,
-};
-use std::time::Duration;
+use prometheus::{Registry};
 use std::thread_local;
 
 // 线程本地存储的指标实例
@@ -15,8 +12,6 @@ thread_local! {
 // DNS 服务器性能指标
 pub struct DnsMetrics {
     registry: Registry,
-    
-   
 }
 
 impl Default for DnsMetrics {
@@ -29,11 +24,11 @@ impl DnsMetrics {
     // 创建新的指标收集器
     pub fn new() -> Self {
         let registry = Registry::new();
-        
+    
 
         DnsMetrics {
             registry,
-            
+
         }
     }
     
@@ -41,9 +36,8 @@ impl DnsMetrics {
     pub fn registry(&self) -> &Registry {
         &self.registry
     }
-    
 
-    // 导出当前指标为字符串（用于测试）
+    // 导出当前指为字符串（用于测试）
     pub fn export_metrics(&self) -> String {
         let encoder = prometheus::TextEncoder::new();
         let metric_families = self.registry.gather();

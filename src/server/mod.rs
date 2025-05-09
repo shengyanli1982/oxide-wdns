@@ -11,12 +11,11 @@ pub mod security;
 pub mod upstream;
 pub mod args;
 pub mod ecs;
+pub mod swagger;
 
 use std::sync::Arc;
-use std::time::Duration;
 use axum::Router as AxumRouter;
 use reqwest::Client;
-use tokio::time;
 use tracing::info;
 
 use crate::server::error::{Result, ServerError};
@@ -24,7 +23,7 @@ use crate::server::cache::DnsCache;
 use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};
 use crate::server::health::health_routes;
-use crate::server::metrics::{metrics_routes, DnsMetrics};
+use crate::server::metrics::metrics_routes;
 use crate::server::routing::Router as DnsRouter;
 use crate::server::security::{apply_rate_limiting, calculate_period_duration};
 use crate::server::upstream::UpstreamManager;
@@ -45,12 +44,14 @@ pub fn create_http_client(config: &ServerConfig) -> Result<Client> {
 pub struct DoHServer {
     // 配置
     config: ServerConfig,
+    // 是否启用调试模式
+    debug: bool,
 }
 
 impl DoHServer {
     // 创建新的 DoH 服务器
-    pub fn new(config: ServerConfig) -> Self {
-        Self { config }
+    pub fn new(config: ServerConfig, debug: bool) -> Self {
+        Self { config, debug }
     }
 
     // 此方法构建 Axum 应用和相关资源，但不启动服务器。
@@ -60,21 +61,17 @@ impl DoHServer {
     ) -> Result<(
         AxumRouter,
         Arc<DnsCache>,
-        Arc<DnsMetrics>, // 返回 DnsMetrics 以便在外部使用或传递
-        tokio::task::JoinHandle<()>, // cache_metrics_handle
     )> {
         let cache = Arc::new(DnsCache::new(self.config.dns.cache.clone()));
         let client = create_http_client(&self.config)?;
         let router_manager = Arc::new(DnsRouter::new(self.config.dns.routing.clone(), Some(client.clone())).await?);
         let upstream_manager = Arc::new(UpstreamManager::new(Arc::new(self.config.clone()), client.clone()).await?);
-        let metrics = Arc::new(DnsMetrics::new());
 
         let state = ServerState {
             config: self.config.clone(),
             upstream: upstream_manager,
             router: router_manager,
             cache: cache.clone(),
-            metrics: metrics.clone(),
         };
 
         let mut doh_specific_routes = doh_routes(state);
@@ -107,27 +104,17 @@ impl DoHServer {
             info!("Rate limiting is disabled");
         }
 
-        let app = AxumRouter::new()
+        let mut app = AxumRouter::new()
             .merge(health_routes())
             .merge(metrics_routes()) // metrics_routes 现在直接使用 state 中的 metrics
             .merge(doh_specific_routes);
-
-        let cache_metrics_handle =
-            tokio::spawn(Self::update_cache_metrics(cache.clone(), metrics.clone()));
-
-        Ok((app, cache, metrics, cache_metrics_handle))
-    }
-
-    // 更新缓存指标的任务 (保持不变)
-    async fn update_cache_metrics(cache: Arc<DnsCache>, metrics: Arc<DnsMetrics>) {
-        let start = tokio::time::Instant::now();
-        let period = Duration::from_secs(15);
-        let mut interval = time::interval_at(start, period);
-
-        loop {
-            interval.tick().await;
-            let cache_size = cache.len().await; // 假设 len 是 async
-            metrics.record_cache_size(cache_size);
+            
+        // 在调试模式下启用 Swagger UI
+        if self.debug {
+            info!("Debug mode enabled: Swagger UI available at /swagger");
+            app = app.merge(swagger::create_swagger_routes());
         }
+
+        Ok((app, cache))
     }
 }

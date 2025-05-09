@@ -65,6 +65,8 @@ regex = { version = "1.10", features = ["unicode"] } # 用于域名匹配规则
 url = "2.5"
 lazy_static = "1.4" # 用于正则表达式编译缓存
 tokio-graceful-shutdown = "0.15"
+utoipa = { version = "5.3", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 
 [dev-dependencies]
 tempfile = "3.19"

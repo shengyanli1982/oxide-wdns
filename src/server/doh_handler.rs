@@ -25,7 +25,6 @@ use crate::common::consts::{
 };
 use crate::server::cache::{CacheKey, DnsCache};
 use crate::server::config::ServerConfig;
-use crate::server::metrics::{DnsMetrics};
 use crate::server::routing::{RouteDecision, Router as DnsRouter};
 use crate::server::upstream::{UpstreamManager, UpstreamSelection};
 use crate::server::ecs::{EcsProcessor};
@@ -42,12 +41,10 @@ pub struct ServerState {
     pub router: Arc<DnsRouter>,
     // DNS 缓存
     pub cache: Arc<DnsCache>,
-    // 指标收集器
-    pub metrics: Arc<DnsMetrics>,
 }
 
 // DNS-over-HTTPS JSON 请求参数
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct DnsJsonRequest {
     // 查询名称
     pub name: String,
@@ -66,14 +63,14 @@ pub struct DnsJsonRequest {
 }
 
 // DNS-over-HTTPS GET 请求参数（RFC 8484）
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct DnsMsgGetRequest {
     // DNS 请求的 Base64url 编码
     pub dns: String,
 }
 
 // DNS-over-HTTPS JSON 响应格式
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DnsJsonResponse {
     // 响应状态代码
     pub status: u16,
@@ -100,7 +97,7 @@ pub struct DnsJsonResponse {
 }
 
 // DNS-over-HTTPS JSON 查询
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DnsJsonQuestion {
     // 查询名称
     pub name: String,
@@ -109,7 +106,7 @@ pub struct DnsJsonQuestion {
 }
 
 // DNS-over-HTTPS JSON 应答记录
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DnsJsonAnswer {
     // 记录名称
     pub name: String,
@@ -147,9 +144,6 @@ async fn handle_dns_json_query(
     
     // 记录开始时间
     let start = Instant::now();
-    
-    // 更新请求指标
-    state.metrics.record_request("GET", CONTENT_TYPE_DNS_JSON);
     
     debug!(name = %params.name, type_value = params.type_value, client_ip = ?client_ip, "DNS JSON query received");
     
@@ -207,13 +201,8 @@ async fn handle_dns_json_query(
         }
     };
     
-    // 更新响应指标
+    // 计算持续时间
     let duration = start.elapsed();
-    state.metrics.record_response(
-        "GET",
-        u16::from(response_message.response_code().low()),
-        duration,
-    );
     
     // 记录请求完成的详细日志
     let answer_count = json_response.answer.len();
@@ -268,9 +257,6 @@ async fn handle_dns_wire_get(
     
     // 记录开始时间
     let start = Instant::now();
-    
-    // 更新请求指标
-    state.metrics.record_request("GET", CONTENT_TYPE_DNS_MESSAGE);
     
     debug!(client_ip = ?client_ip, "DNS-over-HTTPS GET request received");
     
@@ -339,13 +325,8 @@ async fn handle_dns_wire_get(
         }
     };
     
-    // 更新响应指标
+    // 计算持续时间
     let duration = start.elapsed();
-    state.metrics.record_response(
-        "GET",
-        u16::from(response_message.response_code().low()),
-        duration,
-    );
     
     // 记录请求完成
     let qtype = query_message.queries().first().map_or_else(
@@ -388,9 +369,6 @@ async fn handle_dns_wire_post(
     
     // 记录开始时间
     let start = Instant::now();
-    
-    // 更新请求指标
-    state.metrics.record_request("POST", CONTENT_TYPE_DNS_MESSAGE);
     
     debug!(client_ip = ?client_ip, "DNS-over-HTTPS POST request received");
     
@@ -486,13 +464,8 @@ async fn handle_dns_wire_post(
         }
     };
     
-    // 更新响应指标
+    // 计算持续时间
     let duration = start.elapsed();
-    state.metrics.record_response(
-        "POST",
-        u16::from(response_message.response_code().low()),
-        duration,
-    );
     
     // 记录请求完成
     let qtype = query_message.queries().first().map_or_else(

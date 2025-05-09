@@ -14,7 +14,6 @@ use tokio::time::{Duration, interval};
 use crate::server::config::{RoutingConfig, MatchType, MatchCondition};
 use crate::server::error::{ServerError, Result};
 use crate::common::consts::BLACKHOLE_UPSTREAM_GROUP_NAME;
-use crate::server::metrics::METRICS;
 
 // 路由决策结果
 #[derive(Debug, Clone, PartialEq)]
@@ -519,7 +518,7 @@ impl Router {
             Ok(resp) => resp,
             Err(e) => {
                 error!("Failed to fetch rules from {}: {}", url, e);
-                return Err(e.into());
+                return Err(ServerError::Http(e.to_string()));
             }
         };
         
@@ -537,7 +536,7 @@ impl Router {
             Ok(t) => t,
             Err(e) => {
                 error!("Failed to read response body from {}: {}", url, e);
-                return Err(e.into());
+                return Err(ServerError::Http(e.to_string()));
             }
         };
         
