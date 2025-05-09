@@ -289,10 +289,7 @@ impl Router {
         let file = match File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                // 记录文件加载失败指标
-                METRICS.with(|m| m.record_rule_source_update("file", "failure"));
-                METRICS.with(|m| m.record_error("RuleLoadError"));
-                
+                error!("Failed to open rules file '{}': {}", path, e);
                 return Err(ServerError::RuleLoad(format!(
                     "Failed to open rules file '{}': {}", 
                     path, e
@@ -313,10 +310,7 @@ impl Router {
             let line = match line_result {
                 Ok(l) => l,
                 Err(e) => {
-                    // 记录文件加载失败指标
-                    METRICS.with(|m| m.record_rule_source_update("file", "failure"));
-                    METRICS.with(|m| m.record_error("RuleLoadError"));
-                    
+                    error!("Failed to read line {} from file '{}': {}", line_num + 1, path, e);
                     return Err(ServerError::RuleLoad(format!(
                         "Failed to read line {} from file '{}': {}", 
                         line_num + 1, path, e
@@ -326,19 +320,13 @@ impl Router {
             
             // 处理规则行
             if let Err(e) = Self::process_rule_line(&line, &mut exact, &mut regex, &mut wildcard) {
-                // 记录规则解析失败指标
-                METRICS.with(|m| m.record_rule_source_update("file", "failure"));
-                METRICS.with(|m| m.record_error("InvalidRuleFormat"));
-                
+                error!("Error in file '{}' at line {}: {}", path, line_num + 1, e);
                 return Err(ServerError::RuleLoad(format!(
                     "Error in file '{}' at line {}: {}", 
                     path, line_num + 1, e
                 )));
             }
         }
-        
-        // 记录文件加载成功指标
-        METRICS.with(|m| m.record_rule_source_update("file", "success"));
         
         info!(
             file = path,
@@ -530,38 +518,26 @@ impl Router {
         let response = match client.get(url).send().await {
             Ok(resp) => resp,
             Err(e) => {
-                // 记录失败指标
-                METRICS.with(|m| m.record_error("RuleFetchError"));
-                
-                return Err(ServerError::RuleFetch(format!(
-                    "Failed to fetch rules from URL '{}': {}", 
-                    url, e
-                )));
+                error!("Failed to fetch rules from {}: {}", url, e);
+                return Err(e.into());
             }
         };
         
         // 检查状态码
         if !response.status().is_success() {
-            // 记录失败指标
-            METRICS.with(|m| m.record_error("RuleFetchError"));
-            
+            error!("Failed to fetch rules from {}: HTTP status {}", url, response.status());
             return Err(ServerError::RuleFetch(format!(
                 "Failed to fetch rules from URL '{}': HTTP status {}", 
                 url, response.status()
-            )));
+            )).into());
         }
         
         // 获取响应文本
         let text = match response.text().await {
             Ok(t) => t,
             Err(e) => {
-                // 记录失败指标
-                METRICS.with(|m| m.record_error("RuleFetchError"));
-                
-                return Err(ServerError::RuleFetch(format!(
-                    "Failed to read content from URL '{}': {}", 
-                    url, e
-                )));
+                error!("Failed to read response body from {}: {}", url, e);
+                return Err(e.into());
             }
         };
         
@@ -574,13 +550,8 @@ impl Router {
         for (line_num, line) in text.lines().enumerate() {
             // 处理规则行
             if let Err(e) = Self::process_rule_line(line, &mut exact, &mut regex, &mut wildcard) {
-                // 记录规则解析失败指标
-                METRICS.with(|m| m.record_error("InvalidRuleFormat"));
-                
-                return Err(ServerError::RuleFetch(format!(
-                    "Error in URL '{}' content at line {}: {}", 
-                    url, line_num + 1, e
-                )));
+                error!("Error in URL '{}' content at line {}: {}", url, line_num + 1, e);
+                return Err(e.into());
             }
         }
         
@@ -651,18 +622,10 @@ impl Router {
                     rules_write.wildcard = wildcard;
                     rules_write.last_updated = Some(std::time::Instant::now());
                     
-                    // 记录成功指标
-                    METRICS.with(|m| m.record_rule_source_update("url", "success"));
-                    
                     // 记录成功
                     info!(url = url, "Updated rules from URL");
                 },
                 Err(e) => {
-                    // 记录失败指标
-                    METRICS.with(|m| m.record_rule_source_update("url", "failure"));
-                    METRICS.with(|m| m.record_error("RuleFetchError"));
-                    
-                    // 记录失败
                     error!(url = url, error = %e, "Failed to update rules from URL");
                 }
             }

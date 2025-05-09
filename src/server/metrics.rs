@@ -30,8 +30,6 @@ pub struct DnsMetrics {
     pub cache_misses: IntCounter,
     // 缓存当前大小
     pub cache_size: IntGauge,
-    // 按错误类型分类的错误计数
-    pub errors: IntCounterVec,
     // DNSSEC 验证成功计数
     pub dnssec_validation_success: IntCounter,
     // DNSSEC 验证失败计数
@@ -109,13 +107,6 @@ impl DnsMetrics {
         let cache_hits = IntCounter::new("doh_cache_hits_total", "Number of cache hits").unwrap();
         let cache_misses = IntCounter::new("doh_cache_misses_total", "Number of cache misses").unwrap();
         let cache_size = IntGauge::new("doh_cache_entries", "Current number of cache entries").unwrap();
-        
-        // 创建错误计数指标
-        let errors = IntCounterVec::new(
-            Opts::new("doh_errors_total", "Error count by error type"),
-            &["type"],
-        )
-        .unwrap();
         
         // 创建 DNSSEC 相关指标
         let dnssec_validation_success = IntCounter::new(
@@ -210,7 +201,6 @@ impl DnsMetrics {
         registry.register(Box::new(cache_hits.clone())).unwrap();
         registry.register(Box::new(cache_misses.clone())).unwrap();
         registry.register(Box::new(cache_size.clone())).unwrap();
-        registry.register(Box::new(errors.clone())).unwrap();
         registry.register(Box::new(dnssec_validation_success.clone())).unwrap();
         registry.register(Box::new(dnssec_validation_failure.clone())).unwrap();
         registry.register(Box::new(upstream_queries.clone())).unwrap();
@@ -231,7 +221,6 @@ impl DnsMetrics {
             cache_hits,
             cache_misses,
             cache_size,
-            errors,
             dnssec_validation_success,
             dnssec_validation_failure,
             upstream_queries,
@@ -297,11 +286,6 @@ impl DnsMetrics {
         self.upstream_query_duration
             .with_label_values(&[upstream_identifier])
             .observe(duration.as_secs_f64());
-    }
-    
-    // 记录错误
-    pub fn record_error(&self, error_type: &str) {
-        self.errors.with_label_values(&[error_type]).inc();
     }
     
     // 记录缓存大小

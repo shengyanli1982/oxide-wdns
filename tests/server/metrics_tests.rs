@@ -81,33 +81,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_metrics_error_total_counter() {
-        // 启用 tracing 日志
-        let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
-        info!("Starting test: test_metrics_error_total_counter");
-
-        // 1. 获取/创建指标注册表
-        info!("Setting up DnsMetrics...");
-        let metrics = setup_metrics();
-        info!("DnsMetrics set up.");
-
-        // 2. 调用记录错误的方法
-        let error_type = "dns_format_error";
-        info!(error_type, "Recording error...");
-        metrics.record_error(error_type);
-        info!("Error recorded.");
-
-        // 3. 读取错误总数计数器的值
-        let value = metrics.errors.with_label_values(&[error_type]).get();
-        info!(counter_value = value, error_type, "Retrieved errors counter value for type.");
-
-        // 4. 断言：计数器值增加了 1
-        assert_eq!(value, 1, "Error counter should be incremented by 1");
-        info!("Validated counter value.");
-        info!("Test completed: test_metrics_error_total_counter");
-    }
-
-    #[tokio::test]
     async fn test_metrics_cache_hit_counter() {
         // 启用 tracing 日志
         let _ = tracing_subscriber::fmt().with_env_filter("debug").try_init();
@@ -220,7 +193,6 @@ mod tests {
             m.record_request("GET", "application/dns-message");
             m.record_cache_hit();
             m.record_dns_query_type("A");
-            m.record_error("parse_error");
             info!("Metrics data recorded.");
         });
 
@@ -247,7 +219,6 @@ mod tests {
         assert!(body.contains("doh_requests_total"), "Output should contain total requests metric");
         assert!(body.contains("doh_cache_hits"), "Output should contain cache hits metric");
         assert!(body.contains("doh_dns_queries_by_type"), "Output should contain DNS queries by type metric");
-        assert!(body.contains("doh_errors"), "Output should contain errors metric");
         info!("Validated presence of key metric names.");
 
         // 7. 验证输出包含必要的Prometheus元数据
