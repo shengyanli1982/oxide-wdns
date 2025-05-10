@@ -16,7 +16,7 @@ use crate::common::consts::DEFAULT_CONFIG_PATH;
              - Full RFC 8484 DoH compliance (Wireformat & JSON, GET/POST, HTTP/1.1 & HTTP/2)\n\
              - Advanced DNSSEC validation for response integrity\n\
              - Multi-protocol upstream support (UDP, TCP, DoT, DoH) with flexible selection strategies\n\
-             - Powerful DNS routing: rule-based (Exact, Regex, Wildcard, File, URL), multiple upstream groups, __blackhole__ group, loading remote rules\n\
+             - Powerful DNS routing: rule-based (Exact, Regex, Wildcard, File, URL), multiple upstream groups, loading remote rules\n\
              - Intelligent LRU caching: includes negative caching and persistent cache (disk load/save, periodic save)\n\
              - Flexible EDNS Client Subnet (ECS) handling: strip, forward, anonymize strategies; ECS-aware caching\n\
              - Robust security: built-in IP-based rate limiting and strict input validation\n\

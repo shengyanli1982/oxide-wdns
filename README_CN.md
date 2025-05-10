@@ -637,7 +637,7 @@ Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
     - Full RFC 8484 DoH compliance (Wireformat & JSON, GET/POST, HTTP/1.1 & HTTP/2)
     - Advanced DNSSEC validation for response integrity
     - Multi-protocol upstream support (UDP, TCP, DoT, DoH) with flexible selection strategies
-    - Powerful DNS routing: rule-based (Exact, Regex, Wildcard, File, URL), multiple upstream groups, __blackhole__ group, loading remote rules
+    - Powerful DNS routing: rule-based (Exact, Regex, Wildcard, File, URL), multiple upstream groups, loading remote rules
     - Intelligent LRU caching: includes negative caching and persistent cache (disk load/save, periodic save)
     - Flexible EDNS Client Subnet (ECS) handling: strip, forward, anonymize strategies; ECS-aware caching
     - Robust security: built-in IP-based rate limiting and strict input validation
