@@ -65,7 +65,7 @@ mod tests {
         // 创建一个上游配置，使用我们的模拟DoH服务器
         info!("Creating upstream configuration with mock DoH server...");
         let mut config = create_test_config();
-        config.dns.upstream.resolvers = vec![
+        config.dns.upstreaMETRICS.resolvers = vec![
             ResolverConfig {
                 address: format!("{}/dns-query", mock_server.uri()),
                 protocol: ResolverProtocol::Doh,
@@ -133,7 +133,7 @@ mod tests {
         
         // 创建上游配置
         let mut config = create_test_config();
-        config.dns.upstream.resolvers = vec![
+        config.dns.upstreaMETRICS.resolvers = vec![
             ResolverConfig {
                 address: format!("{}/dns-query", mock_server.uri()),
                 protocol: ResolverProtocol::Doh,

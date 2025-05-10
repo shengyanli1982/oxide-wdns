@@ -76,9 +76,9 @@ pub fn apply_rate_limiting(routes: Router, config: &RateLimitConfig) -> Router {
                     let client_ip = "unknown".to_string();
 
                     // 记录速率限制指标
-                    METRICS.with(|m| {
-                        m.rate_limit_rejected_total().with_label_values(&[&client_ip]).inc();
-                    });
+                    {
+                        METRICS.rate_limit_rejected_total().with_label_values(&[&client_ip]).inc();
+                    }
                     
                     // 使用毫秒更新日志消息
                     debug!(

@@ -249,22 +249,19 @@ impl UpstreamManager {
         );
         
         // 记录DNS查询统计
-        METRICS.with(|m| {
-            m.dns_queries_total().with_label_values(&[
+        {
+            METRICS.dns_queries_total().with_label_values(&[
                 &format!("{:?}", query.query_type()), 
                 "sent_to_upstream"
             ]).inc();
             
-            m.dns_query_type_total().with_label_values(&[
+            METRICS.dns_query_type_total().with_label_values(&[
                 &format!("{:?}", query.query_type())
             ]).inc();
-        });
+        }
         
         // 记录查询开始时间，用于计算查询时间
         let query_start = Instant::now();
-        
-        // 上游查询时间
-        let mut upstream_duration = 0f64;
         
         // 执行查询
         let response = if !target_config.doh_clients.is_empty() {
@@ -272,11 +269,11 @@ impl UpstreamManager {
             let client = &target_config.doh_clients[0]; // 简单选择第一个，后续可以实现更复杂的负载均衡
             
             // 记录上游请求
-            METRICS.with(|m| {
-                m.upstream_requests_total().with_label_values(&[
+            {
+                METRICS.upstream_requests_total().with_label_values(&[
                     &client.url, "DoH", group_name
                 ]).inc();
-            });
+            }
             
             // 开始计时
             let upstream_start = Instant::now();
@@ -285,31 +282,31 @@ impl UpstreamManager {
             match client.query(&processed_query).await {
                 Ok(resp) => {
                     // 计算查询时间
-                    upstream_duration = upstream_start.elapsed().as_secs_f64();
+                    let upstream_duration = upstream_start.elapsed().as_secs_f64();
                     
                     // 记录上游查询时间
-                    METRICS.with(|m| {
-                        m.upstream_duration_seconds().with_label_values(&[
+                    {
+                        METRICS.upstream_duration_seconds().with_label_values(&[
                             &client.url, "DoH", group_name
                         ]).observe(upstream_duration);
-                    });
+                    }
                     
                     resp
                 }
                 Err(e) => {
                     // 计算查询时间
-                    upstream_duration = upstream_start.elapsed().as_secs_f64();
+                    let upstream_duration = upstream_start.elapsed().as_secs_f64();
                     
                     // 记录查询失败
-                    METRICS.with(|m| {
-                        m.upstream_failures_total().with_label_values(&[
+                    {
+                        METRICS.upstream_failures_total().with_label_values(&[
                             "error", &client.url, group_name
                         ]).inc();
                         
-                        m.upstream_duration_seconds().with_label_values(&[
+                        METRICS.upstream_duration_seconds().with_label_values(&[
                             &client.url, "DoH", group_name
                         ]).observe(upstream_duration);
-                    });
+                    }
                     
                     return Err(e);
                 }
@@ -327,11 +324,11 @@ impl UpstreamManager {
                 None => "Unknown".to_string(),
             };
             
-            METRICS.with(|m| {
-                m.upstream_requests_total().with_label_values(&[
+            {
+                METRICS.upstream_requests_total().with_label_values(&[
                     resolver_id, &protocol, group_name
                 ]).inc();
-            });
+            }
             
             // 开始计时
             let upstream_start = Instant::now();
@@ -343,14 +340,14 @@ impl UpstreamManager {
             ).await;
             
             // 计算查询时间
-            upstream_duration = upstream_start.elapsed().as_secs_f64();
+            let upstream_duration = upstream_start.elapsed().as_secs_f64();
             
             // 记录查询时间
-            METRICS.with(|m| {
-                m.upstream_duration_seconds().with_label_values(&[
+            {
+                METRICS.upstream_duration_seconds().with_label_values(&[
                     resolver_id, &protocol, group_name
                 ]).observe(upstream_duration);
-            });
+            }
             
             // 处理查询结果
             let response = match lookup_result {
@@ -381,21 +378,21 @@ impl UpstreamManager {
                         let is_validated = message.authentic_data();
                         
                         // 记录DNSSEC验证结果
-                        METRICS.with(|m| {
+                        {
                             let status = if is_validated { "success" } else { "failure" };
-                            m.dnssec_validations_total().with_label_values(&[status]).inc();
-                        });
+                            METRICS.dnssec_validations_total().with_label_values(&[status]).inc();
+                        }
                     }
                     
                     message
                 },
                 Err(e) => {
                     // 记录查询失败
-                    METRICS.with(|m| {
-                        m.upstream_failures_total().with_label_values(&[
+                    {
+                        METRICS.upstream_failures_total().with_label_values(&[
                             "error", resolver_id, group_name
                         ]).inc();
-                    });
+                    }
                     
                     return Err(ServerError::Upstream(format!("DNS query failed: {}", e)));
                 }
@@ -408,18 +405,18 @@ impl UpstreamManager {
         let query_duration = query_start.elapsed().as_secs_f64();
         
         // 记录总查询时间
-        METRICS.with(|m| {
-            m.dns_query_duration_seconds().with_label_values(&[
+        {
+            METRICS.dns_query_duration_seconds().with_label_values(&[
                 &format!("{:?}", query.query_type())
             ]).observe(query_duration);
-        });
+        }
         
         // 记录响应统计
-        METRICS.with(|m| {
-            m.dns_responses_total().with_label_values(&[
+        {
+            METRICS.dns_responses_total().with_label_values(&[
                 &format!("{:?}", response.response_code())
             ]).inc();
-        });
+        }
         
         // 返回响应
         Ok(response)

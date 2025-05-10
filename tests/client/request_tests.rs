@@ -143,7 +143,7 @@ mod tests {
         let query = &dns_message.queries()[0];
         let query_name = query.name().to_ascii();
         info!(query_name, "Checking query name");
-        assert_eq!(query_name, "example.com.", "Query name should be 'example.com.'");
+        assert_eq!(query_name, "example.coMETRICS.", "Query name should be 'example.coMETRICS.'");
         
         let query_type = query.query_type();
         info!(?query_type, "Checking query type");
@@ -512,7 +512,7 @@ mod tests {
         // 检查 DNS 消息的基本属性
         assert_eq!(dns_message.queries().len(), 1);
         let query = &dns_message.queries()[0];
-        assert_eq!(query.name().to_string(), "example.com.");
+        assert_eq!(query.name().to_string(), "example.coMETRICS.");
         assert_eq!(query.query_type(), RecordType::A);
     }
     

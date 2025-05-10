@@ -2,35 +2,31 @@
 
 #[cfg(test)]
 mod tests {
-    use std::net::SocketAddr;
     use std::sync::Arc;
     use std::time::Duration;
+    use std::net::SocketAddr;
     use std::num::NonZeroU32;
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
-    use futures::future;
     use reqwest::{Client, StatusCode, header::HeaderValue};
     use tokio::sync::oneshot;
-    use tokio::time::sleep;
-    use tracing::{info, warn};
     use trust_dns_proto::op::{Message, MessageType, OpCode};
     use trust_dns_proto::rr::{Name, RecordType};
-    use tower_governor::{{
-        governor::GovernorConfigBuilder,
-        key_extractor::SmartIpKeyExtractor,
-        GovernorLayer,
-    }};
-    use oxide_wdns::common::consts::CONTENT_TYPE_JSON;
-    use oxide_wdns::common::consts::CONTENT_TYPE_DNS_MESSAGE;
-    use oxide_wdns::server::config::ServerConfig;
-    use oxide_wdns::server::doh_handler::ServerState;
-    use oxide_wdns::server::metrics::DnsMetrics;
+    use tracing::{info, warn};
+    use wiremock::{MockServer, Mock, matchers::{method, path, header}, ResponseTemplate};
+    use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+    use tower_governor::key_extractor::SmartIpKeyExtractor;
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
+    use tokio::time::sleep as tokio_sleep;
+    use futures::future;
+    
+    // 项目内部导入
+    use oxide_wdns::common::consts::{CONTENT_TYPE_DNS_MESSAGE, CONTENT_TYPE_DNS_JSON};
     use oxide_wdns::server::cache::DnsCache;
     use oxide_wdns::server::upstream::UpstreamManager;
     use oxide_wdns::server::routing::Router;
-    
-    // 引入 wiremock 库和公共模块
-    use wiremock::{Mock, MockServer, ResponseTemplate};
-    use wiremock::matchers::{method, path, header};
+    use oxide_wdns::server::doh_handler::ServerState;
+    use oxide_wdns::server::config::ServerConfig;
+    use oxide_wdns::server::config::{ResolverConfig, ResolverProtocol};
+    use oxide_wdns::server::doh_handler::{DnsJsonRequest, DnsMsgGetRequest};
     
     // 导入公共测试工具
     use crate::server::mock_http_server::{find_free_port, create_test_query, create_test_response};
@@ -80,13 +76,11 @@ mod tests {
         let http_client = Client::new();
         let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
-        let metrics = Arc::new(DnsMetrics::new());
         
         ServerState {
             config, 
             upstream, 
             cache, 
-            metrics,
             router,
         }
     }
@@ -117,7 +111,7 @@ mod tests {
             let burst_size_nz = NonZeroU32::new(config.per_ip_concurrent.max(1)).unwrap_or_else(|| {
                 warn!("per_ip_concurrent configuration resulted in zero burst size, defaulting to 1");
                 NonZeroU32::new(1).unwrap()
-            });
+            }
             let burst_size_u32 = burst_size_nz.get();
             
             info!(
@@ -144,10 +138,10 @@ mod tests {
                     .unwrap(),
             );
             
-            app = app.layer(GovernorLayer { config: governor_conf });
+            app = app.layer(GovernorLayer { config: governor_conf }
         }
         
-        let app = app
+        app = app
             .merge(oxide_wdns::server::health::health_routes())
             .merge(oxide_wdns::server::metrics::metrics_routes());
         
@@ -161,9 +155,9 @@ mod tests {
                 })
                 .await
                 .unwrap();
-        });
+        }
         
-        sleep(Duration::from_millis(500)).await;
+        tokio_sleep(Duration::from_millis(500)).await;
         
         (addr, shutdown_tx)
     }
@@ -179,7 +173,7 @@ mod tests {
 
         // 1. 启动上游 mock DoH 服务器
         let mock_upstream = MockServer::start().await;
-        info!("Mock upstream DoH server started at: {}", mock_upstream.uri());
+        info!("Mock upstream DoH server started at: {}", mock_upstreaMETRICS.uri());
         
         // 配置 mock 服务器响应
         let response_message = create_test_response(
@@ -203,9 +197,9 @@ mod tests {
         
         // 自定义配置，使用 mock 上游服务器
         let mut config = build_test_config(port, false, false);
-        config.dns.upstream.resolvers = vec![
+        config.dns.upstreaMETRICS.resolvers = vec![
             oxide_wdns::server::config::ResolverConfig {
-                address: format!("{}/dns-query", mock_upstream.uri()),
+                address: format!("{}/dns-query", mock_upstreaMETRICS.uri()),
                 protocol: oxide_wdns::server::config::ResolverProtocol::Doh,
             }
         ];
@@ -215,13 +209,11 @@ mod tests {
         let http_client = Client::new();
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
         let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
-        let metrics = Arc::new(DnsMetrics::new());
         
         let server_state = ServerState {
             config,
             upstream,
             cache,
-            metrics,
             router,
         };
         
@@ -284,22 +276,21 @@ mod tests {
         
         // 通用响应处理函数 - 每个服务器总是返回固定IP，不管查询什么域名
         async fn setup_mock_upstream(mock_server: &MockServer, test_ip: std::net::Ipv4Addr) {
-            // 设置通用响应处理器
             Mock::given(method("POST"))
                 .and(path("/dns-query"))
                 .and(header("Content-Type", CONTENT_TYPE_DNS_MESSAGE))
                 .respond_with(move |req: &wiremock::Request| {
-                    // 解析DNS查询
+                    // 解析DNS请求
                     let body = req.body.clone();
                     let query = Message::from_vec(&body).expect("Invalid DNS query");
                     
-                    // 创建DNS响应，始终使用固定IP
-                    let resp = create_test_response(&query, test_ip);
-                    let resp_bytes = resp.to_vec().unwrap();
+                    // 创建响应
+                    let response = create_test_response(&query, test_ip);
+                    let response_bytes = response.to_vec().unwrap();
                     
                     ResponseTemplate::new(200)
                         .insert_header("Content-Type", CONTENT_TYPE_DNS_MESSAGE)
-                        .set_body_bytes(resp_bytes.clone())
+                        .set_body_bytes(response_bytes)
                 })
                 .mount(mock_server)
                 .await;
@@ -370,15 +361,13 @@ mod tests {
         info!("Creating server state with DNS routing configuration...");
         let router = Arc::new(Router::new(config.dns.routing.clone(), Some(Client::new())).await.unwrap());
         let http_client = Client::new();
-        let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
-        let metrics = Arc::new(DnsMetrics::new());
+        let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         
         let server_state = ServerState {
             config,
             upstream,
             cache,
-            metrics,
             router,
         };
         
@@ -569,7 +558,7 @@ mod tests {
         info!("Server started at address: {}", server_addr);
 
         // 等待指标系统初始化
-        sleep(Duration::from_millis(500)).await;
+        tokio_sleep(Duration::from_millis(500)).await;
 
         // 4. 创建Reqwest HTTP客户端
         let client = Client::new();
@@ -626,7 +615,7 @@ mod tests {
         
         // 等待服务器完全启动并初始化速率限制器
         info!("Waiting for server and rate limiter initialization...");
-        sleep(Duration::from_millis(1000)).await;
+        tokio_sleep(Duration::from_millis(1000)).await;
         
         // 预热 - 发送请求和一个 GET 请求到健康端点
         info!("Warming up server...");
@@ -636,7 +625,7 @@ mod tests {
             .await
             .expect("Warmup health check failed");
         info!("Warmup health check response: {:?}", warmup_response.status());
-        sleep(Duration::from_secs(1)).await;
+        tokio_sleep(Duration::from_secs(1)).await;
         
         // 3. 准备DNS查询
         let query = create_dns_query("example.net", RecordType::A);
@@ -750,7 +739,7 @@ mod tests {
         info!("Parsed first DNS response, ID: {}", first_dns_message.id());
 
         // 短暂等待，确保缓存有机会生效（理论上不需要，但增加稳定性）
-        sleep(Duration::from_millis(100)).await;
+        tokio_sleep(Duration::from_millis(100)).await;
 
         // 5. 立即再次发送相同的DoH查询
         info!("Sending second (cached) DoH request...");
@@ -880,11 +869,11 @@ mod tests {
         // 6. 发送带有错误 Content-Type 的 POST 请求
         info!(
             "Sending DoH POST request with invalid Content-Type: {}",
-            CONTENT_TYPE_JSON
+            CONTENT_TYPE_DNS_JSON
         );
         let response = client
             .post(format!("{}/dns-query", server_addr))
-            .header("Content-Type", HeaderValue::from_static(CONTENT_TYPE_JSON)) // 修复 Content-Type 设置
+            .header("Content-Type", HeaderValue::from_static(CONTENT_TYPE_DNS_JSON)) // 修复 Content-Type 设置
             .body(fake_body)
             .send()
             .await

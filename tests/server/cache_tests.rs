@@ -548,7 +548,7 @@ mod tests {
         let cache = DnsCache::new(config.clone());
         
         // 创建测试数据
-        let domain_name = Name::from_ascii("example.com.").unwrap();
+        let domain_name = Name::from_ascii("example.coMETRICS.").unwrap();
         let query_type = RecordType::A;
         let query_class = DNSClass::IN;
         let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
@@ -634,8 +634,8 @@ mod tests {
         let cache = DnsCache::new(config.clone());
         
         // 创建测试数据
-        let fresh_domain = Name::from_ascii("fresh.example.com.").unwrap();
-        let expired_domain = Name::from_ascii("expired.example.com.").unwrap();
+        let fresh_domain = Name::from_ascii("fresh.example.coMETRICS.").unwrap();
+        let expired_domain = Name::from_ascii("expired.example.coMETRICS.").unwrap();
         let query_type = RecordType::A;
         let query_class = DNSClass::IN;
         let fresh_key = CacheKey::new(fresh_domain.clone(), query_type, query_class);
@@ -738,7 +738,7 @@ mod tests {
         
         // 创建多个测试数据
         for i in 1..=5 {
-            let domain_name = Name::from_ascii(format!("test{}.example.com.", i)).unwrap();
+            let domain_name = Name::from_ascii(format!("test{}.example.coMETRICS.", i)).unwrap();
             let query_type = RecordType::A;
             let query_class = DNSClass::IN;
             let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
@@ -793,12 +793,12 @@ mod tests {
         
         // 验证加载的是访问次数最多的记录
         let test1_key = CacheKey::new(
-            Name::from_ascii("test1.example.com.").unwrap(),
+            Name::from_ascii("test1.example.coMETRICS.").unwrap(),
             RecordType::A,
             DNSClass::IN
         );
         let test5_key = CacheKey::new(
-            Name::from_ascii("test5.example.com.").unwrap(),
+            Name::from_ascii("test5.example.coMETRICS.").unwrap(),
             RecordType::A,
             DNSClass::IN
         );
@@ -834,7 +834,7 @@ mod tests {
         let cache = DnsCache::new(config);
         
         // 创建测试数据
-        let domain_name = Name::from_ascii("periodic.example.com.").unwrap();
+        let domain_name = Name::from_ascii("periodic.example.coMETRICS.").unwrap();
         let query_type = RecordType::A;
         let query_class = DNSClass::IN;
         let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
@@ -927,7 +927,7 @@ mod tests {
         let cache = DnsCache::new(config.clone());
         
         // 创建测试数据
-        let domain_name = Name::from_ascii("shutdown.example.com.").unwrap();
+        let domain_name = Name::from_ascii("shutdown.example.coMETRICS.").unwrap();
         let query_type = RecordType::A;
         let query_class = DNSClass::IN;
         let cache_key = CacheKey::new(domain_name.clone(), query_type, query_class);
@@ -1012,9 +1012,9 @@ mod tests {
         let cache = DnsCache::new(config);
         
         // 添加测试条目到缓存
-        let message = create_test_message("compatibility-test.com.", RecordType::A, 300, Some("192.168.1.1"));
+        let message = create_test_message("compatibility-test.coMETRICS.", RecordType::A, 300, Some("192.168.1.1"));
         let key = CacheKey::new(
-            Name::from_str("compatibility-test.com.").unwrap(),
+            Name::from_str("compatibility-test.coMETRICS.").unwrap(),
             RecordType::A,
             DNSClass::IN,
         );

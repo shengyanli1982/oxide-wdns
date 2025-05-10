@@ -1473,6 +1473,7 @@ dependencies = [
  "moka",
  "native-tls",
  "nix",
+ "once_cell",
  "openssl-sys",
  "predicates",
  "prometheus",

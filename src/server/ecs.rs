@@ -293,9 +293,9 @@ impl EcsProcessor {
                 }
                 
                 // 记录ECS剥离指标
-                METRICS.with(|m| {
-                    m.ecs_processed_total().with_label_values(&["strip"]).inc();
-                });
+                {
+                    METRICS.ecs_processed_total().with_label_values(&["strip"]).inc();
+                }
                 
                 process_and_clone(Self::remove_ecs_from_message)
             },
@@ -306,9 +306,9 @@ impl EcsProcessor {
                     // 检查客户端是否不希望其子网信息被用于地理位置优化
                     if ecs.source_prefix_length == 0 {
                         // 记录ECS剥离指标（当客户端请求不使用ECS时）
-                        METRICS.with(|m| {
-                            m.ecs_processed_total().with_label_values(&["strip"]).inc();
-                        });
+                        {
+                            METRICS.ecs_processed_total().with_label_values(&["strip"]).inc();
+                        }
                         
                         return process_and_clone(Self::remove_ecs_from_message);
                     }
@@ -321,9 +321,9 @@ impl EcsProcessor {
                     );
                     
                     // 记录ECS转发指标
-                    METRICS.with(|m| {
-                        m.ecs_processed_total().with_label_values(&["forward"]).inc();
-                    });
+                    {
+                        METRICS.ecs_processed_total().with_label_values(&["forward"]).inc();
+                    }
                     
                     // 创建新的查询消息并更新ECS
                     let mut new_query = query.clone();
@@ -340,9 +340,9 @@ impl EcsProcessor {
                     let new_ecs = EcsData::new(ip, prefix_length, 0);
                     
                     // 记录ECS转发（添加）指标
-                    METRICS.with(|m| {
-                        m.ecs_processed_total().with_label_values(&["forward_add"]).inc();
-                    });
+                    {
+                        METRICS.ecs_processed_total().with_label_values(&["forward_add"]).inc();
+                    }
                     
                     // 创建新的查询消息并添加ECS
                     let mut new_query = query.clone();
@@ -360,9 +360,9 @@ impl EcsProcessor {
                     // 检查客户端是否不希望其子网信息被用于地理位置优化
                     if ecs_data.source_prefix_length == 0 {
                         // 记录ECS剥离指标（当客户端请求不使用ECS时）
-                        METRICS.with(|m| {
-                            m.ecs_processed_total().with_label_values(&["strip"]).inc();
-                        });
+                        {
+                            METRICS.ecs_processed_total().with_label_values(&["strip"]).inc();
+                        }
                         
                         return process_and_clone(Self::remove_ecs_from_message);
                     }
@@ -374,9 +374,9 @@ impl EcsProcessor {
                     )?;
                     
                     // 记录ECS匿名化指标
-                    METRICS.with(|m| {
-                        m.ecs_processed_total().with_label_values(&["anonymize"]).inc();
-                    });
+                    {
+                        METRICS.ecs_processed_total().with_label_values(&["anonymize"]).inc();
+                    }
                     
                     // 创建新的查询消息，包含匿名化后的 ECS
                     let mut new_query = query.clone();
@@ -399,9 +399,9 @@ impl EcsProcessor {
                     let anonymized_ecs = EcsData::new(anonymized_ip, prefix_length, 0);
                     
                     // 记录ECS匿名化（添加）指标
-                    METRICS.with(|m| {
-                        m.ecs_processed_total().with_label_values(&["anonymize_add"]).inc();
-                    });
+                    {
+                        METRICS.ecs_processed_total().with_label_values(&["anonymize_add"]).inc();
+                    }
                     
                     // 创建新的查询消息，添加匿名化的 ECS
                     let mut new_query = query.clone();
@@ -418,9 +418,9 @@ impl EcsProcessor {
                 warn!("Unknown ECS policy: {}, using strip policy by default", policy.strategy);
                 
                 // 记录ECS剥离指标（未知策略）
-                METRICS.with(|m| {
-                    m.ecs_processed_total().with_label_values(&["strip_unknown"]).inc();
-                });
+                {
+                    METRICS.ecs_processed_total().with_label_values(&["strip_unknown"]).inc();
+                }
                 
                 process_and_clone(Self::remove_ecs_from_message)
             }

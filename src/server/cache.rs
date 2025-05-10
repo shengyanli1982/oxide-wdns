@@ -349,10 +349,8 @@ impl DnsCache {
         };
         
         // 记录缓存初始状态指标
-        METRICS.with(|m| {
-            m.cache_capacity().set(config.size as i64);
-            m.cache_entries().set(0);
-        });
+        METRICS.cache_capacity().set(config.size as i64);
+        METRICS.cache_entries().set(0);
         
         // 如果启用了持久化缓存且配置了启动时加载
         if dns_cache.config.persistence.enabled && dns_cache.config.persistence.load_on_startup {
@@ -369,10 +367,8 @@ impl DnsCache {
                 Ok((keys, entries)) => {
                     // 记录加载持续时间
                     let load_duration = load_start.elapsed();
-                    METRICS.with(|m| {
-                        m.cache_persist_operations_total().with_label_values(&["load"]).inc();
-                        m.cache_persist_duration_seconds().with_label_values(&["load"]).observe(load_duration.as_secs_f64());
-                    });
+                    METRICS.cache_persist_operations_total().with_label_values(&["load"]).inc();
+                    METRICS.cache_persist_duration_seconds().with_label_values(&["load"]).observe(load_duration.as_secs_f64());
                     
                     // 将加载的条目导入到缓存
                     let load_fut = async move {
@@ -383,9 +379,7 @@ impl DnsCache {
                             
                             // 更新缓存条目计数指标
                             if (i + 1) % 1000 == 0 {
-                                METRICS.with(|m| {
-                                    m.cache_entries().set((i + 1) as i64);
-                                });
+                                METRICS.cache_entries().set((i + 1) as i64);
                             }
                             
                             if i > 0 && i % 1000 == 0 {
@@ -393,10 +387,8 @@ impl DnsCache {
                             }
                         }
                         
-                        METRICS.with(|m| {
-                            m.cache_entries().set(entry_count as i64);
-                            m.cache_operations_total().with_label_values(&["insert"]).inc_by(entry_count as u64);
-                        });
+                        METRICS.cache_entries().set(entry_count as i64);
+                        METRICS.cache_operations_total().with_label_values(&["insert"]).inc_by(entry_count as u64);
                         
                         info!("Successfully loaded all cache entries from disk");
                     };
@@ -406,9 +398,7 @@ impl DnsCache {
                 }
                 Err(e) => {
                     warn!("Failed to load cache from file: {}", e);
-                    METRICS.with(|m| {
-                        m.cache_persist_operations_total().with_label_values(&["load_failed"]).inc();
-                    });
+                    METRICS.cache_persist_operations_total().with_label_values(&["load_failed"]).inc();
                 }
             }
         }
@@ -448,17 +438,13 @@ impl DnsCache {
                         Ok(saved_count) => {
                             // 记录保存持续时间
                             let save_duration = save_start.elapsed();
-                            METRICS.with(|m| {
-                                m.cache_persist_operations_total().with_label_values(&["save"]).inc();
-                                m.cache_persist_duration_seconds().with_label_values(&["save"]).observe(save_duration.as_secs_f64());
-                            });
+                            METRICS.cache_persist_operations_total().with_label_values(&["save"]).inc();
+                            METRICS.cache_persist_duration_seconds().with_label_values(&["save"]).observe(save_duration.as_secs_f64());
                             
                             info!("Periodic cache save completed, {} entries saved", saved_count);
                         }
                         Err(e) => {
-                            METRICS.with(|m| {
-                                m.cache_persist_operations_total().with_label_values(&["save_failed"]).inc();
-                            });
+                            METRICS.cache_persist_operations_total().with_label_values(&["save_failed"]).inc();
                             
                             error!("Failed to save cache periodically: {}", e);
                         }
@@ -470,16 +456,15 @@ impl DnsCache {
         }
         
         // 启动周期性缓存条目计数任务
-        let cache_clone = dns_cache.cache.clone();
         let metrics_cancel_flag = Arc::new(RwLock::new(false));
         let metrics_cancel_flag_clone = metrics_cancel_flag.clone();
+        
+        // 克隆缓存对象以避免移动问题
+        let cache_clone = dns_cache.cache.clone();
         
         tokio::spawn(async move {
             let interval_duration = std::time::Duration::from_secs(15); // 15秒间隔
             let mut interval_timer = interval(interval_duration);
-            
-            // 首次调用 tick() 会立即返回，我们在这里消耗掉它
-            interval_timer.tick().await;
             
             loop {
                 // 等待下一个时间间隔
@@ -492,10 +477,9 @@ impl DnsCache {
                 }
                 
                 // 获取缓存条目数并更新指标
+                cache_clone.run_pending_tasks().await;
                 let cache_size = cache_clone.entry_count();
-                METRICS.with(|m| {
-                    m.cache_entries().set(cache_size as i64);
-                });
+                METRICS.cache_entries().set(cache_size as i64);
             }
         });
         
@@ -514,7 +498,7 @@ impl DnsCache {
     }
     
     // 基于客户端 ECS 信息查找缓存条目
-    pub async fn get_with_ecs(&self, key: &CacheKey, client_ecs: Option<&EcsData>) -> Option<Message> {
+    pub async fn get_with_ecs(&self, key: &CacheKey, _client_ecs: Option<&EcsData>) -> Option<Message> {
         if !self.config.enabled {
             return None;
         }
@@ -531,9 +515,7 @@ impl DnsCache {
                 let cache_clone = self.cache.clone();
                 
                 // 记录缓存过期
-                METRICS.with(|m| {
-                    m.cache_operations_total().with_label_values(&["expire"]).inc();
-                });
+                METRICS.cache_operations_total().with_label_values(&["expire"]).inc();
                 
                 tokio::spawn(async move {
                     cache_clone.invalidate(&key_clone).await;
@@ -546,9 +528,7 @@ impl DnsCache {
             entry.last_accessed.store(now, Ordering::Relaxed);
             
             // 记录缓存命中
-            METRICS.with(|m| {
-                m.cache_operations_total().with_label_values(&["hit"]).inc();
-            });
+            METRICS.cache_operations_total().with_label_values(&["hit"]).inc();
             
             // 返回消息克隆
             return Some((*entry.message).clone());
@@ -570,9 +550,7 @@ impl DnsCache {
         // 如果没有找到任何匹配项，直接返回
         if matched_keys.is_empty() {
             // 记录缓存未命中
-            METRICS.with(|m| {
-                m.cache_operations_total().with_label_values(&["miss"]).inc();
-            });
+            METRICS.cache_operations_total().with_label_values(&["miss"]).inc();
             return None;
         }
         
@@ -604,9 +582,7 @@ impl DnsCache {
                     let cache_clone = self.cache.clone();
                     
                     // 记录缓存过期
-                    METRICS.with(|m| {
-                        m.cache_operations_total().with_label_values(&["expire"]).inc();
-                    });
+                    METRICS.cache_operations_total().with_label_values(&["expire"]).inc();
                     
                     tokio::spawn(async move {
                         cache_clone.invalidate(&key_clone).await;
@@ -619,10 +595,8 @@ impl DnsCache {
                 entry.last_accessed.store(now, Ordering::Relaxed);
                 
                 // 记录 ECS 感知缓存命中
-                METRICS.with(|m| {
-                    m.cache_operations_total().with_label_values(&["hit"]).inc();
-                    m.ecs_cache_matches_total().inc();
-                });
+                METRICS.cache_operations_total().with_label_values(&["hit"]).inc();
+                METRICS.ecs_cache_matches_total().inc();
                 
                 // 返回消息克隆
                 return Some((*entry.message).clone());
@@ -630,9 +604,7 @@ impl DnsCache {
         }
         
         // 没有找到匹配的缓存条目
-        METRICS.with(|m| {
-            m.cache_operations_total().with_label_values(&["miss"]).inc();
-        });
+        METRICS.cache_operations_total().with_label_values(&["miss"]).inc();
         None
     }
     
@@ -655,9 +627,7 @@ impl DnsCache {
         let expires_at = now + ttl as u64;
         
         // 记录 TTL
-        METRICS.with(|m| {
-            m.cache_ttl_seconds().with_label_values(&[]).observe(ttl as f64);
-        });
+        METRICS.cache_ttl_seconds().with_label_values(&[]).observe(ttl as f64);
         
         // 从响应中提取 ECS 数据
         let response_ecs = EcsProcessor::extract_ecs_from_message(message);
@@ -707,9 +677,7 @@ impl DnsCache {
         self.cache.insert(cache_key, entry).await;
         
         // 记录缓存插入
-        METRICS.with(|m| {
-            m.cache_operations_total().with_label_values(&["insert"]).inc();
-        });
+        METRICS.cache_operations_total().with_label_values(&["insert"]).inc();
         
         // 注：缓存条目计数现在由周期性任务更新，不再需要在这里更新
         
@@ -778,10 +746,8 @@ impl DnsCache {
         debug!("DNS cache cleared - all entries removed");
         
         // 记录缓存清空
-        METRICS.with(|m| {
-            m.cache_entries().set(0);
-            m.cache_operations_total().with_label_values(&["clear"]).inc();
-        });
+        METRICS.cache_entries().set(0);
+        METRICS.cache_operations_total().with_label_values(&["clear"]).inc();
     }
     
     // 获取当前缓存条目数
@@ -791,9 +757,7 @@ impl DnsCache {
         let count = self.cache.entry_count();
         
         // 更新缓存条目计数指标
-        METRICS.with(|m| {
-            m.cache_entries().set(count as i64);
-        });
+        METRICS.cache_entries().set(count as i64);
         
         count
     }
@@ -816,17 +780,13 @@ impl DnsCache {
         
         // 记录保存完成
         match &result {
-            Ok(saved_count) => {
+            Ok(_) => {
                 let save_duration = save_start.elapsed();
-                METRICS.with(|m| {
-                    m.cache_persist_operations_total().with_label_values(&["save"]).inc();
-                    m.cache_persist_duration_seconds().with_label_values(&["save"]).observe(save_duration.as_secs_f64());
-                });
+                METRICS.cache_persist_operations_total().with_label_values(&["save"]).inc();
+                METRICS.cache_persist_duration_seconds().with_label_values(&["save"]).observe(save_duration.as_secs_f64());
             }
             Err(_) => {
-                METRICS.with(|m| {
-                    m.cache_persist_operations_total().with_label_values(&["save_failed"]).inc();
-                });
+                METRICS.cache_persist_operations_total().with_label_values(&["save_failed"]).inc();
             }
         }
         
@@ -1107,26 +1067,20 @@ impl DnsCache {
                     match result {
                         Ok(count) => {
                             let save_duration = save_start.elapsed();
-                            METRICS.with(|m| {
-                                m.cache_persist_operations_total().with_label_values(&["shutdown_save"]).inc();
-                                m.cache_persist_duration_seconds().with_label_values(&["shutdown_save"]).observe(save_duration.as_secs_f64());
-                            });
+                            METRICS.cache_persist_operations_total().with_label_values(&["shutdown_save"]).inc();
+                            METRICS.cache_persist_duration_seconds().with_label_values(&["shutdown_save"]).observe(save_duration.as_secs_f64());
                             
                             info!("Cache saved to file on shutdown, {} entries", count);
                         }
                         Err(e) => {
-                            METRICS.with(|m| {
-                                m.cache_persist_operations_total().with_label_values(&["shutdown_save_failed"]).inc();
-                            });
+                            METRICS.cache_persist_operations_total().with_label_values(&["shutdown_save_failed"]).inc();
                             
                             error!("Failed to save cache on shutdown: {}", e);
                         }
                     }
                 }
                 Err(_) => {
-                    METRICS.with(|m| {
-                        m.cache_persist_operations_total().with_label_values(&["shutdown_save_timeout"]).inc();
-                    });
+                    METRICS.cache_persist_operations_total().with_label_values(&["shutdown_save_timeout"]).inc();
                     
                     error!("Cache save operation timed out after {} seconds during shutdown", timeout_secs);
                 }
