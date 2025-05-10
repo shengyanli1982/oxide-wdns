@@ -75,23 +75,13 @@ impl DoHServer {
         };
 
         let mut doh_specific_routes = doh_routes(state);
+        
         let rate_limit_config = &self.config.http.rate_limit;
-
         if rate_limit_config.enabled {
             let rate = rate_limit_config.per_ip_rate;
-            if !(MIN_PER_IP_RATE..=MAX_PER_IP_RATE).contains(&rate) {
-                return Err(ServerError::Config(format!(
-                    "Invalid per_ip_rate: {} (must be between {} and {})",
-                    rate, MIN_PER_IP_RATE, MAX_PER_IP_RATE
-                )));
-            }
             let burst = rate_limit_config.per_ip_concurrent;
-            if !(MIN_PER_IP_CONCURRENT..=MAX_PER_IP_CONCURRENT).contains(&burst) {
-                return Err(ServerError::Config(format!(
-                    "Invalid per_ip_concurrent: {} (must be between {} and {})",
-                    burst, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT
-                )));
-            }
+            
+            // 仅计算期间持续时间并应用速率限制
             if calculate_period_duration(rate).is_none() {
                 return Err(ServerError::Config(format!(
                     "Failed to calculate rate limit period for per_ip_rate: {}",
