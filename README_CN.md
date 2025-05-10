@@ -262,6 +262,29 @@ Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
     # 客户端: owdns-cli (或 owdns-cli.exe on Windows)
     ```
 
+3.  **使用 Docker (推荐用于容器化环境):**
+    在容器化环境中运行 Oxide WDNS 的最简便方法是使用 Docker。
+
+    ```bash
+    # 从 Docker Hub 拉取最新镜像
+    docker pull shengyanli1982/oxide-wdns:latest
+
+    # 运行容器
+    # 将容器的 3053 端口映射到主机的 3053 端口
+    # 挂载本地配置文件到容器内
+    docker run -d \
+      --name owdns \
+      -p 3053:3053 \
+      -v $(pwd)/config.yaml:/app/config.yaml \
+      shengyanli1982/oxide-wdns:latest
+
+    # 要在容器中使用客户端工具 (owdns-cli):
+    docker exec owdns /app/owdns-cli [选项] [参数]
+
+    # 例如，使用 DoH 服务器查询 example.com:
+    docker exec owdns /app/owdns-cli https://cloudflare-dns.com/dns-query example.com
+    ```
+
 ## 使用方法
 
 ### 服务端 (`owdns`)
@@ -625,6 +648,66 @@ Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
 
     5.  **访问服务:**
         根据你的 Service 配置 (类型和端口)，你可以通过 ClusterIP (内部), NodePort 或 LoadBalancer IP (外部) 来访问部署好的 `owdns` DoH 服务。例如，如果 Service 是 LoadBalancer 类型并暴露了 80 端口，你可以使用 `http://<LoadBalancer-IP>/dns-query` 作为 DoH 端点。
+
+    **> 方式四：使用 Docker (简单容器部署)**
+
+    如果你想快速使用 Docker 部署 `owdns` 而不需要设置完整的 Kubernetes 环境，可以采用以下方法：
+
+    **部署步骤:**
+
+    1. **创建配置目录:**
+       创建一个目录来存储你的 `config.yaml` 文件：
+
+        ```bash
+        mkdir -p ./owdns-config
+        # 在此目录中创建/编辑你的 config.yaml
+        nano ./owdns-config/config.yaml
+        ```
+
+    2. **拉取并运行 Docker 容器:**
+
+        ```bash
+        docker pull shengyanli1982/oxide-wdns:<tag>
+
+        # 使用你的配置文件运行
+        docker run -d \
+          --name owdns \
+          -p 3053:3053 \
+          -v $(pwd)/owdns-config/config.yaml:/app/config.yaml \
+          shengyanli1982/oxide-wdns:<tag>
+        ```
+
+        该命令：
+
+        - 在后台模式运行容器 (`-d`)
+        - 将容器命名为 "owdns" (`--name owdns`)
+        - 将容器的 3053 端口映射到主机的 3053 端口 (`-p 3053:3053`)
+        - 将你的配置文件挂载到容器内 (`-v`)
+
+    3. **验证容器是否正在运行:**
+
+        ```bash
+        docker ps
+        # 检查日志
+        docker logs owdns
+        ```
+
+    4. **在容器内使用 owdns-cli 客户端:**
+
+        ```bash
+        # 示例：使用 Cloudflare 的 DoH 服务器查询 example.com
+        docker exec owdns /app/owdns-cli https://cloudflare-dns.com/dns-query example.com
+
+        # 使用你本地的 owdns 服务器（假设默认端口为 3053）
+        docker exec owdns /app/owdns-cli http://localhost:3053/dns-query example.com
+        ```
+
+    5. **停止并移除容器:**
+
+        ```bash
+        docker stop owdns
+        docker rm owdns
+        ```
 
 5.  **获取帮助 / 命令行参数:**
     完整的命令行参数可以通过 `-h` 或 `--help` 查看：
