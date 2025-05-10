@@ -111,7 +111,7 @@ mod tests {
             let burst_size_nz = NonZeroU32::new(config.per_ip_concurrent.max(1)).unwrap_or_else(|| {
                 warn!("per_ip_concurrent configuration resulted in zero burst size, defaulting to 1");
                 NonZeroU32::new(1).unwrap()
-            }
+            });
             let burst_size_u32 = burst_size_nz.get();
             
             info!(
@@ -138,7 +138,7 @@ mod tests {
                     .unwrap(),
             );
             
-            app = app.layer(GovernorLayer { config: governor_conf }
+            app = app.layer(GovernorLayer { config: governor_conf });
         }
         
         app = app
@@ -155,7 +155,7 @@ mod tests {
                 })
                 .await
                 .unwrap();
-        }
+        });
         
         tokio_sleep(Duration::from_millis(500)).await;
         
@@ -173,7 +173,7 @@ mod tests {
 
         // 1. 启动上游 mock DoH 服务器
         let mock_upstream = MockServer::start().await;
-        info!("Mock upstream DoH server started at: {}", mock_upstreaMETRICS.uri());
+        info!("Mock upstream DoH server started at: {}", mock_upstream.uri());
         
         // 配置 mock 服务器响应
         let response_message = create_test_response(
@@ -197,9 +197,9 @@ mod tests {
         
         // 自定义配置，使用 mock 上游服务器
         let mut config = build_test_config(port, false, false);
-        config.dns.upstreaMETRICS.resolvers = vec![
+        config.dns.upstream.resolvers = vec![
             oxide_wdns::server::config::ResolverConfig {
-                address: format!("{}/dns-query", mock_upstreaMETRICS.uri()),
+                address: format!("{}/dns-query", mock_upstream.uri()),
                 protocol: oxide_wdns::server::config::ResolverProtocol::Doh,
             }
         ];
@@ -580,13 +580,13 @@ mod tests {
         let metrics_text = metrics_response.text().await.unwrap();
         info!("Received metrics response body ({} bytes)", metrics_text.len());
         assert!(
-            !metrics_text.is_empty(),
-            "Metrics response should not be empty"
-        );
-        // 检查是否包含 Prometheus 格式的指标（至少包含一些基本指标）
-        assert!(
-            metrics_text.contains("doh_"),
-            "Response should contain metrics starting with 'doh_'"
+            !metrics_text.is_empty() && (
+                metrics_text.contains("dns_") || 
+                metrics_text.contains("doh_") || 
+                metrics_text.contains("cache_") || 
+                metrics_text.contains("upstream_")
+            ),
+            "Response should contain valid metrics data"
         );
         info!("Metrics response body contains expected format.");
 

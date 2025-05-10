@@ -580,7 +580,7 @@ mod tests {
         assert_eq!(dns_response.id(), query.id(), "Response ID should match query ID");
         
         // 记录初始缓存命中数 - 使用全局指标
-        let initial_cache_hits = METRICS.with(|m| METRICS.cache_operations_total().with_label_values(&["hit"]).get());
+        let initial_cache_hits = METRICS.cache_operations_total().with_label_values(&["hit"]).get();
         
         // 添加短暂延迟确保第一个请求完全处理
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -607,7 +607,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
         
         // 检查缓存命中指标是否增加 - 使用全局指标
-        let new_cache_hits = METRICS.with(|m| METRICS.cache_operations_total().with_label_values(&["hit"]).get());
+        let new_cache_hits = METRICS.cache_operations_total().with_label_values(&["hit"]).get();
         info!(initial_hits = initial_cache_hits, new_hits = new_cache_hits, "Cache hits metrics");
         
         // 替换之前的断言，使用更灵活的验证方式
@@ -688,7 +688,7 @@ mod tests {
         };
         
         setup_mock_default.await;
-        setup_mock_custoMETRICS.await;
+        setup_mock_custom.await;
         
         // 创建测试配置
         let config_str = format!(r#"
@@ -718,9 +718,9 @@ mod tests {
             rules:
               - match:
                   type: exact
-                  values: ["custoMETRICS.example.com"]
+                  values: ["custom.example.com"]
                 upstream_group: "custom_group"
-        "#, mock_default.uri(), mock_custoMETRICS.uri());
+        "#, mock_default.uri(), mock_custom.uri());
         
         let config: ServerConfig = serde_yaml::from_str(&config_str).unwrap();
         
@@ -772,7 +772,7 @@ mod tests {
         assert_eq!(ip1, "1.1.1.1", "Default upstream should return 1.1.1.1");
         
         // 测试自定义上游查询
-        let query2 = create_test_query("custoMETRICS.example.com", RecordType::A);
+        let query2 = create_test_query("custom.example.com", RecordType::A);
         let query2_bytes = query2.to_vec().unwrap();
         
         let request2 = build_http_request(

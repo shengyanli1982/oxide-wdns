@@ -78,9 +78,9 @@ dns_resolver:
         info!("Validating loaded config values...");
         let config = config_result.unwrap();
         assert_eq!(config.http.listen_addr.to_string(), "127.0.0.1:8053");
-        assert_eq!(config.dns.upstreaMETRICS.resolvers.len(), 1);
-        assert_eq!(config.dns.upstreaMETRICS.resolvers[0].address, "8.8.8.8:53");
-        assert_eq!(config.dns.upstreaMETRICS.resolvers[0].protocol, ResolverProtocol::Udp);
+        assert_eq!(config.dns.upstream.resolvers.len(), 1);
+        assert_eq!(config.dns.upstream.resolvers[0].address, "8.8.8.8:53");
+        assert_eq!(config.dns.upstream.resolvers[0].protocol, ResolverProtocol::Udp);
         info!("Config values validated successfully.");
         info!("Test finished: test_config_load_valid_minimal");
     }
@@ -141,9 +141,9 @@ http_client:
         assert_eq!(config.http.listen_addr.to_string(), "127.0.0.1:8080");
         
         // 验证 DNS 解析器配置
-        assert_eq!(config.dns.upstreaMETRICS.resolvers[0].address, "8.8.8.8:53");
-        assert!(config.dns.upstreaMETRICS.enable_dnssec);
-        assert_eq!(config.dns.upstreaMETRICS.query_timeout, 5);
+        assert_eq!(config.dns.upstream.resolvers[0].address, "8.8.8.8:53");
+        assert!(config.dns.upstream.enable_dnssec);
+        assert_eq!(config.dns.upstream.query_timeout, 5);
         assert!(!config.dns.routing.enabled);
 
         // 验证 HTTP 客户端配置
@@ -360,10 +360,10 @@ dns_resolver:
         // info!(config.http.rate_limit.enabled, "Validated http.rate_limit.enabled default value.");
 
         // 上游DNS默认值
-        assert!(!config.dns.upstreaMETRICS.enable_dnssec, "DNSSEC should be disabled by default");
-        info!(config.dns.upstreaMETRICS.enable_dnssec, "Validated upstreaMETRICS.enable_dnssec default value.");
-        assert!(config.dns.upstreaMETRICS.query_timeout > 0, "Query timeout should have a default value > 0");
-        info!(config.dns.upstreaMETRICS.query_timeout, "Validated upstreaMETRICS.query_timeout default value.");
+        assert!(!config.dns.upstream.enable_dnssec, "DNSSEC should be disabled by default");
+        info!(config.dns.upstream.enable_dnssec, "Validated upstream.enable_dnssec default value.");
+        assert!(config.dns.upstream.query_timeout > 0, "Query timeout should have a default value > 0");
+        info!(config.dns.upstream.query_timeout, "Validated upstream.query_timeout default value.");
 
         // 缓存默认值
         // 默认禁用缓存
@@ -413,7 +413,7 @@ dns_resolver:
       - address: "https://example.invalid/dns-query"  # 无效域名
         protocol: doh
 "#;
-        info!(config_content = %valid_format_config, "Defined config with valid format but unreachable upstreaMETRICS.");
+        info!(config_content = %valid_format_config, "Defined config with valid format but unreachable upstream.");
 
         // 2. 创建临时配置文件。
         info!("Creating temporary config file...");
@@ -430,11 +430,11 @@ dns_resolver:
         
         // 5. 验证配置内容。
         let config = config_result.unwrap();
-        assert_eq!(config.dns.upstreaMETRICS.resolvers.len(), 2);
-        assert_eq!(config.dns.upstreaMETRICS.resolvers[0].address, "10.0.0.1:53");
-        assert_eq!(config.dns.upstreaMETRICS.resolvers[0].protocol, ResolverProtocol::Udp);
-        assert_eq!(config.dns.upstreaMETRICS.resolvers[1].address, "https://example.invalid/dns-query");
-        assert_eq!(config.dns.upstreaMETRICS.resolvers[1].protocol, ResolverProtocol::Doh);
+        assert_eq!(config.dns.upstream.resolvers.len(), 2);
+        assert_eq!(config.dns.upstream.resolvers[0].address, "10.0.0.1:53");
+        assert_eq!(config.dns.upstream.resolvers[0].protocol, ResolverProtocol::Udp);
+        assert_eq!(config.dns.upstream.resolvers[1].address, "https://example.invalid/dns-query");
+        assert_eq!(config.dns.upstream.resolvers[1].protocol, ResolverProtocol::Doh);
         
         info!("Validated loaded config values.");
         info!("Test finished: test_config_validate_upstream_format");

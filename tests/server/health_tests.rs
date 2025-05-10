@@ -44,7 +44,7 @@ mod tests {
         let server_state = health_state.clone();
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
-        }
+        });
         
         (addr, server_state)
     }
