@@ -125,6 +125,120 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
 -   **保存操作:** 缓存遍历与排序等数据准备阶段，在保存任务的异步上下文中同步执行，可能在高负载时成为 CPU 瓶颈并导致瞬时内存峰值。
 -   **加载操作:** 大量缓存数据的反序列化可能延长服务启动时间。在高负载下，这些因素可能间接影响整体性能与响应能力。
 
+## Prometheus 监控指标
+
+Oxide WDNS 提供了全面的 Prometheus 指标，用于监控服务的性能、健康状态和运行状况。这些指标通过 `/metrics` 端点暴露，可被 Prometheus 或其他兼容的监控系统抓取。
+
+### HTTP 性能指标
+
+-   **owdns_http_requests_total** (计数器) - 总请求数，可按 HTTP 方法、路径、状态码、format(wire/json)、http_version(1.1/2) 等标签分类
+-   **owdns_http_request_duration_seconds** (直方图) - 请求处理耗时，可按 HTTP 方法、路径、format 等分类
+-   **owdns_http_request_bytes** (直方图) - 请求大小
+-   **owdns_http_response_bytes** (直方图) - 响应大小
+-   **owdns_rate_limit_rejected_total** (计数器) - 被速率限制拒绝的请求数，按客户端 IP 分类
+
+### 缓存效率和状态指标
+
+-   **owdns_cache_entries** (仪表盘) - 当前缓存条目数
+-   **owdns_cache_capacity** (仪表盘) - 缓存最大容量
+-   **owdns_cache_operations_total** (计数器) - 缓存操作总数，按操作类型分类(operation="hit"/"miss"/"insert"/"evict"/"expire")
+-   **owdns_cache_ttl_seconds** (直方图) - 缓存项 TTL 分布
+
+### DNS 查询统计指标
+
+-   **owdns_dns_queries_total** (计数器) - DNS 查询总数，可按查询类型、查询状态等分类
+-   **owdns_dns_responses_total** (计数器) - DNS 响应总数，可按响应码(RCODE: NOERROR, NXDOMAIN, SERVFAIL 等)分类
+-   **owdns_dns_query_type_total** (计数器) - 各类型 DNS 查询数量(A, AAAA, MX 等)
+-   **owdns_dns_query_duration_seconds** (直方图) - DNS 查询处理时间
+
+### 上游 DNS 解析器指标
+
+-   **owdns_upstream_requests_total** (计数器) - 发往上游解析器的请求总数，可按解析器地址、协议、upstream_group 等分类
+-   **owdns_upstream_failures_total** (计数器) - 上游解析器失败总数，按失败类型分类(type="error"/"timeout")，可细分解析器地址和 upstream_group
+-   **owdns_upstream_duration_seconds** (直方图) - 上游查询耗时，按解析器地址、协议、upstream_group 等分类
+
+### DNS 路由/拆分功能指标
+
+-   **owdns_route_results_total** (计数器) - 路由处理结果总数，按结果类型分类(result="rule_match"/"blackhole"/"default")
+-   **owdns_route_rules** (仪表盘) - 当前活跃路由规则数，按规则类型(exact、regex、wildcard、file、url)分类
+
+### DNSSEC 验证指标
+
+-   **owdns_dnssec_validations_total** (计数器) - DNSSEC 验证次数，按结果分类(status="success"/"failure")
+
+### ECS 处理指标
+
+-   **owdns_ecs_processed_total** (计数器) - ECS 处理总数，按策略(strip/forward/anonymize)分类
+-   **owdns_ecs_cache_matches_total** (计数器) - ECS 感知缓存匹配数
+
+### 持久化缓存功能指标
+
+-   **owdns_cache_persist_operations_total** (计数器) - 缓存持久化操作总数，按操作类型分类(operation="save"/"load")
+-   **owdns_cache_persist_duration_seconds** (直方图) - 缓存持久化操作耗时，按操作类型分类(operation="save"/"load")
+
+这些指标使得对 Oxide WDNS 的性能和行为进行详细监控和分析成为可能，有助于识别问题、优化配置并确保服务满足性能需求。
+
+## API 接口
+
+Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
+
+### RFC 8484 DoH 接口
+
+-   **GET /dns-query**
+
+    -   _内容类型_: application/dns-message
+    -   _参数_: `dns` (Base64url 编码的 DNS 请求)
+    -   _描述_: 使用 RFC 8484 wireformat 查询 DNS 记录，DNS 请求以 base64url 编码
+    -   _示例_: `GET /dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB`
+
+-   **POST /dns-query**
+    -   _内容类型_: application/dns-message
+    -   _请求体_: 二进制 DNS 查询消息
+    -   _描述_: 通过在请求体中提交原始 DNS 消息查询 DNS 记录
+    -   _说明_: 对于大型查询更高效，避免了 base64 编码的开销
+
+### Google/Cloudflare JSON API 兼容接口
+
+-   **GET /resolve**
+    -   _内容类型_: application/dns-json
+    -   _参数_:
+        -   `name` (必需): 要查询的域名 (例如，example.com)
+        -   `type` (可选): DNS 记录类型，可以是数字或字符串 (默认: 1，即 A 记录)
+        -   `dnssec` (可选): 启用 DNSSEC 验证 (true/false)
+        -   `cd` (可选): 禁用 DNSSEC 验证检查 (true/false)
+        -   `do` (可选): 设置 DNSSEC OK 位 (true/false)
+    -   _描述_: 查询 DNS 记录，结果以 JSON 格式返回
+    -   _示例_: `GET /resolve?name=example.com&type=A&dnssec=true`
+
+### 监控和健康检查接口
+
+-   **GET /health**
+
+    -   _描述_: 用于监控服务和 Kubernetes 探针的健康检查端点
+    -   _返回_: 当服务健康时返回 200 OK
+
+-   **GET /metrics**
+    -   _描述_: 暴露性能和运行统计数据的 Prometheus 指标端点
+    -   _内容类型_: text/plain
+
+### 调试模式接口
+
+当服务器使用调试标志 `-d` 运行时，以下开发者工具可用：
+
+-   **GET /scalar**
+    -   _描述_: 交互式 API 文档和测试界面
+    -   _说明_: 仅在服务器以调试模式启动时可用
+
+![scalar](./images/scalar.png)
+
+这些接口遵循标准 HTTP 状态码：
+
+-   200: 查询成功
+-   400: 无效的请求参数
+-   415: 不支持的媒体类型
+-   429: 超过速率限制
+-   500: 处理过程中的服务器错误
+
 ## 安装
 
 你可以通过以下方式安装 Oxide WDNS：
