@@ -526,9 +526,9 @@ impl Router {
         if !response.status().is_success() {
             error!("Failed to fetch rules from {}: HTTP status {}", url, response.status());
             return Err(ServerError::RuleFetch(format!(
-                "Failed to fetch rules from URL '{}': HTTP status {}", 
+                "Failed to fetch rules from URL '{}': HTTP status {}",
                 url, response.status()
-            )).into());
+            )));
         }
         
         // 获取响应文本
@@ -550,7 +550,7 @@ impl Router {
             // 处理规则行
             if let Err(e) = Self::process_rule_line(line, &mut exact, &mut regex, &mut wildcard) {
                 error!("Error in URL '{}' content at line {}: {}", url, line_num + 1, e);
-                return Err(e.into());
+                return Err(e);
             }
         }
         

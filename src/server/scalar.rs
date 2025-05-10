@@ -1,17 +1,15 @@
-// swagger open-ai for Rust
-
 use axum::Router;
 use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
+use utoipa_scalar::{Scalar, Servable};
 use crate::server::doh_handler::{DnsJsonRequest, DnsMsgGetRequest, DnsJsonResponse};
 
 // DoH API 文档
 #[derive(OpenApi)]
 #[openapi(
     paths(
-        crate::server::swagger::get_dns_json_query,
-        crate::server::swagger::get_dns_wire_query,
-        crate::server::swagger::post_dns_wire_query,
+        get_dns_json_query,
+        get_dns_wire_query,
+        post_dns_wire_query,
     ),
     components(
         schemas(DnsJsonRequest, DnsMsgGetRequest, DnsJsonResponse)
@@ -22,14 +20,13 @@ use crate::server::doh_handler::{DnsJsonRequest, DnsMsgGetRequest, DnsJsonRespon
 )]
 pub struct ApiDoc;
 
-// 创建Swagger UI路由
-pub fn create_swagger_routes() -> Router {
-    SwaggerUi::new("/swagger")
-        .url("/api-docs/openapi.json", ApiDoc::openapi())
-        .into()
+// 创建 API 文档路由
+pub fn create_scalar_routes() -> Router {
+    Router::new()
+        .merge(Scalar::with_url("/scalar", ApiDoc::openapi()))
 }
 
-// 查询DNS记录(JSON格式)
+/// Query DNS records in JSON format (GET)
 #[utoipa::path(
     get,
     path = "/resolve",
@@ -50,7 +47,7 @@ pub fn create_swagger_routes() -> Router {
 )]
 pub fn get_dns_json_query() {}
 
-// 查询DNS记录(二进制格式GET)
+/// Query DNS records in binary format (GET)
 #[utoipa::path(
     get,
     path = "/dns-query",
@@ -67,7 +64,7 @@ pub fn get_dns_json_query() {}
 )]
 pub fn get_dns_wire_query() {}
 
-// 查询DNS记录(二进制格式POST)
+/// Query DNS records in binary format (POST)
 #[utoipa::path(
     post,
     path = "/dns-query",

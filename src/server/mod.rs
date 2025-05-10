@@ -11,7 +11,7 @@ pub mod security;
 pub mod upstream;
 pub mod args;
 pub mod ecs;
-pub mod swagger;
+pub mod scalar;
 
 use std::sync::Arc;
 use axum::Router as AxumRouter;
@@ -107,10 +107,12 @@ impl DoHServer {
         // 创建 Axum Router
         let mut app = AxumRouter::new();
             
-        // 在调试模式下启用 Swagger UI（放在doh_specific_routes之前）
+        // 在调试模式下启用 Swagger UI 和 RapiDoc（放在doh_specific_routes之前）
         if self.debug {
-            info!("Debug mode enabled: Swagger UI available at /swagger");
-            app = app.merge(swagger::create_swagger_routes());
+            // info!("Debug mode enabled: Swagger UI available at /swagger");
+            // app = app.merge(swagger::create_swagger_routes());
+            info!("Debug mode enabled: Scalar UI available at /scalar");
+            app = app.merge(scalar::create_scalar_routes());
         }
 
         // 添加健康检查和指标路由
