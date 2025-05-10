@@ -27,7 +27,6 @@ use crate::server::metrics::metrics_routes;
 use crate::server::routing::Router as DnsRouter;
 use crate::server::security::{apply_rate_limiting, calculate_period_duration};
 use crate::server::upstream::UpstreamManager;
-use crate::common::consts::{MIN_PER_IP_RATE, MAX_PER_IP_RATE, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT};
 
 // 创建 HTTP 客户端的公共函数
 pub fn create_http_client(config: &ServerConfig) -> Result<Client> {
