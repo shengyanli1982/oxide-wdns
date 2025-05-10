@@ -34,7 +34,7 @@ pub fn create_scalar_routes() -> Router {
     tag = "DoH",
     params(
         ("name" = String, Query, description = "Domain name to query"),
-        ("type_value" = Option<u16>, Query, description = "DNS record type, defaults to 1 (A record)"),
+        ("type" = Option<u16>, Query, description = "DNS record type, defaults to 1 (A record)"),
         ("dns_class" = Option<u16>, Query, description = "DNS class, defaults to 1 (IN)"),
         ("dnssec" = Option<bool>, Query, description = "Enable DNSSEC, defaults to false"),
         ("cd" = Option<bool>, Query, description = "Enable checking disabled, defaults to false")
