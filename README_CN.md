@@ -634,14 +634,15 @@ Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
     High-performance Secure DNS via HTTP (DoH) Gateway
 
     Key Features:
-    - Full RFC 8484 HTTP-based DNS transport compliance
-    - Google/Cloudflare JSON format compatibility
-    - Advanced DNSSEC validation
-    - Multi-protocol upstream support (UDP, TCP, DoT, DoH)
-    - Performance-optimized LRU caching
-    - Prometheus metrics integration
-    - Native Kubernetes health probes
-    - Enterprise-grade security with rate limiting and input validation
+    - Full RFC 8484 DoH compliance (Wireformat & JSON, GET/POST, HTTP/1.1 & HTTP/2)
+    - Advanced DNSSEC validation for response integrity
+    - Multi-protocol upstream support (UDP, TCP, DoT, DoH) with flexible selection strategies
+    - Powerful DNS routing: rule-based (Exact, Regex, Wildcard, File, URL), multiple upstream groups, __blackhole__ group, loading remote rules
+    - Intelligent LRU caching: includes negative caching and persistent cache (disk load/save, periodic save)
+    - Flexible EDNS Client Subnet (ECS) handling: strip, forward, anonymize strategies; ECS-aware caching
+    - Robust security: built-in IP-based rate limiting and strict input validation
+    - Comprehensive observability: integrated Prometheus metrics, Kubernetes health probes, and structured logging (Tracing)
+    - Cloud-native friendly design with support for graceful shutdown
 
     Author: shengyanli1982
     Email: shengyanlee36@gmail.com
