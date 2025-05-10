@@ -12,7 +12,7 @@ use moka::future::Cache;
 use trust_dns_proto::op::{Message};
 use trust_dns_proto::rr::{DNSClass, Name, RecordType};
 use tokio::sync::RwLock;
-use tokio::time::interval;
+use tokio::time::{interval, Instant};
 use tracing::{debug, warn, error, info};
 use serde::{Serialize, Deserialize};
 use tokio::task;
@@ -20,6 +20,7 @@ use crate::server::error::{Result, ServerError};
 use crate::server::config::{CacheConfig, PersistenceCacheConfig};
 use crate::server::ecs::{EcsData, EcsProcessor};
 use crate::common::consts::{CACHE_FILE_MAGIC, CACHE_FILE_VERSION};
+use crate::server::metrics::METRICS;
 
 // 可序列化的缓存条目用于持久化
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +100,8 @@ pub struct DnsCache {
     config: CacheConfig,
     // 周期性保存任务取消标记
     periodic_save_cancel: Option<Arc<RwLock<bool>>>,
+    // 周期性缓存条目计数任务取消标记
+    metrics_task_cancel: Option<Arc<RwLock<bool>>>,
 }
 
 // 缓存键
@@ -342,25 +345,59 @@ impl DnsCache {
             cache, 
             config: config.clone(), 
             periodic_save_cancel: None,
+            metrics_task_cancel: None,
         };
+        
+        // 记录缓存初始状态指标
+        METRICS.with(|m| {
+            m.cache_capacity().set(config.size as i64);
+            m.cache_entries().set(0);
+        });
         
         // 如果启用了持久化缓存且配置了启动时加载
         if dns_cache.config.persistence.enabled && dns_cache.config.persistence.load_on_startup {
             let config_clone = dns_cache.config.clone();
             let cache_clone = dns_cache.cache.clone();
+            
+            // 记录加载开始时间
+            let load_start = Instant::now();
+            
             // 使用阻塞任务加载缓存文件（这是在启动时一次性操作）
             match task::block_in_place(move || {
                 Self::load_cache_from_file(&config_clone.persistence)
             }) {
                 Ok((keys, entries)) => {
+                    // 记录加载持续时间
+                    let load_duration = load_start.elapsed();
+                    METRICS.with(|m| {
+                        m.cache_persist_operations_total().with_label_values(&["load"]).inc();
+                        m.cache_persist_duration_seconds().with_label_values(&["load"]).observe(load_duration.as_secs_f64());
+                    });
+                    
                     // 将加载的条目导入到缓存
                     let load_fut = async move {
+                        let entry_count = entries.len();
+                        
                         for (i, (key, entry)) in keys.into_iter().zip(entries.into_iter()).enumerate() {
                             cache_clone.insert(key, entry).await;
+                            
+                            // 更新缓存条目计数指标
+                            if (i + 1) % 1000 == 0 {
+                                METRICS.with(|m| {
+                                    m.cache_entries().set((i + 1) as i64);
+                                });
+                            }
+                            
                             if i > 0 && i % 1000 == 0 {
                                 debug!("Loaded {} cache entries so far", i);
                             }
                         }
+                        
+                        METRICS.with(|m| {
+                            m.cache_entries().set(entry_count as i64);
+                            m.cache_operations_total().with_label_values(&["insert"]).inc_by(entry_count as u64);
+                        });
+                        
                         info!("Successfully loaded all cache entries from disk");
                     };
                     
@@ -369,6 +406,9 @@ impl DnsCache {
                 }
                 Err(e) => {
                     warn!("Failed to load cache from file: {}", e);
+                    METRICS.with(|m| {
+                        m.cache_persist_operations_total().with_label_values(&["load_failed"]).inc();
+                    });
                 }
             }
         }
@@ -401,11 +441,25 @@ impl DnsCache {
                         break;
                     }
                     
+                    // 记录保存开始时间
+                    let save_start = Instant::now();
+                    
                     match Self::save_cache_to_file(&config_clone.persistence, &cache_clone).await {
                         Ok(saved_count) => {
+                            // 记录保存持续时间
+                            let save_duration = save_start.elapsed();
+                            METRICS.with(|m| {
+                                m.cache_persist_operations_total().with_label_values(&["save"]).inc();
+                                m.cache_persist_duration_seconds().with_label_values(&["save"]).observe(save_duration.as_secs_f64());
+                            });
+                            
                             info!("Periodic cache save completed, {} entries saved", saved_count);
                         }
                         Err(e) => {
+                            METRICS.with(|m| {
+                                m.cache_persist_operations_total().with_label_values(&["save_failed"]).inc();
+                            });
+                            
                             error!("Failed to save cache periodically: {}", e);
                         }
                     }
@@ -414,6 +468,38 @@ impl DnsCache {
             
             dns_cache.periodic_save_cancel = Some(cancel_flag_clone);
         }
+        
+        // 启动周期性缓存条目计数任务
+        let cache_clone = dns_cache.cache.clone();
+        let metrics_cancel_flag = Arc::new(RwLock::new(false));
+        let metrics_cancel_flag_clone = metrics_cancel_flag.clone();
+        
+        tokio::spawn(async move {
+            let interval_duration = std::time::Duration::from_secs(15); // 15秒间隔
+            let mut interval_timer = interval(interval_duration);
+            
+            // 首次调用 tick() 会立即返回，我们在这里消耗掉它
+            interval_timer.tick().await;
+            
+            loop {
+                // 等待下一个时间间隔
+                interval_timer.tick().await;
+                
+                // 检查是否应该取消任务
+                if *metrics_cancel_flag.read().await {
+                    debug!("Periodic cache metrics task cancelled");
+                    break;
+                }
+                
+                // 获取缓存条目数并更新指标
+                let cache_size = cache_clone.entry_count();
+                METRICS.with(|m| {
+                    m.cache_entries().set(cache_size as i64);
+                });
+            }
+        });
+        
+        dns_cache.metrics_task_cancel = Some(metrics_cancel_flag_clone);
         
         dns_cache
     }
@@ -428,7 +514,7 @@ impl DnsCache {
     }
     
     // 基于客户端 ECS 信息查找缓存条目
-    pub async fn get_with_ecs(&self, key: &CacheKey, _client_ecs: Option<&EcsData>) -> Option<Message> {
+    pub async fn get_with_ecs(&self, key: &CacheKey, client_ecs: Option<&EcsData>) -> Option<Message> {
         if !self.config.enabled {
             return None;
         }
@@ -443,6 +529,12 @@ impl DnsCache {
                 // 过期，异步删除
                 let key_clone = key.clone();
                 let cache_clone = self.cache.clone();
+                
+                // 记录缓存过期
+                METRICS.with(|m| {
+                    m.cache_operations_total().with_label_values(&["expire"]).inc();
+                });
+                
                 tokio::spawn(async move {
                     cache_clone.invalidate(&key_clone).await;
                 });
@@ -452,6 +544,11 @@ impl DnsCache {
             // 更新访问统计
             entry.access_count.fetch_add(1, Ordering::Relaxed);
             entry.last_accessed.store(now, Ordering::Relaxed);
+            
+            // 记录缓存命中
+            METRICS.with(|m| {
+                m.cache_operations_total().with_label_values(&["hit"]).inc();
+            });
             
             // 返回消息克隆
             return Some((*entry.message).clone());
@@ -472,6 +569,10 @@ impl DnsCache {
         
         // 如果没有找到任何匹配项，直接返回
         if matched_keys.is_empty() {
+            // 记录缓存未命中
+            METRICS.with(|m| {
+                m.cache_operations_total().with_label_values(&["miss"]).inc();
+            });
             return None;
         }
         
@@ -501,6 +602,12 @@ impl DnsCache {
                     // 过期，异步删除
                     let key_clone = best_key.clone();
                     let cache_clone = self.cache.clone();
+                    
+                    // 记录缓存过期
+                    METRICS.with(|m| {
+                        m.cache_operations_total().with_label_values(&["expire"]).inc();
+                    });
+                    
                     tokio::spawn(async move {
                         cache_clone.invalidate(&key_clone).await;
                     });
@@ -511,12 +618,21 @@ impl DnsCache {
                 entry.access_count.fetch_add(1, Ordering::Relaxed);
                 entry.last_accessed.store(now, Ordering::Relaxed);
                 
+                // 记录 ECS 感知缓存命中
+                METRICS.with(|m| {
+                    m.cache_operations_total().with_label_values(&["hit"]).inc();
+                    m.ecs_cache_matches_total().inc();
+                });
+                
                 // 返回消息克隆
                 return Some((*entry.message).clone());
             }
         }
         
         // 没有找到匹配的缓存条目
+        METRICS.with(|m| {
+            m.cache_operations_total().with_label_values(&["miss"]).inc();
+        });
         None
     }
     
@@ -537,6 +653,11 @@ impl DnsCache {
         
         // 计算过期时间
         let expires_at = now + ttl as u64;
+        
+        // 记录 TTL
+        METRICS.with(|m| {
+            m.cache_ttl_seconds().with_label_values(&[]).observe(ttl as f64);
+        });
         
         // 从响应中提取 ECS 数据
         let response_ecs = EcsProcessor::extract_ecs_from_message(message);
@@ -584,6 +705,13 @@ impl DnsCache {
         
         // 存储缓存条目
         self.cache.insert(cache_key, entry).await;
+        
+        // 记录缓存插入
+        METRICS.with(|m| {
+            m.cache_operations_total().with_label_values(&["insert"]).inc();
+        });
+        
+        // 注：缓存条目计数现在由周期性任务更新，不再需要在这里更新
         
         Ok(())
     }
@@ -648,13 +776,26 @@ impl DnsCache {
     pub async fn clear(&self) {
         self.cache.invalidate_all();
         debug!("DNS cache cleared - all entries removed");
+        
+        // 记录缓存清空
+        METRICS.with(|m| {
+            m.cache_entries().set(0);
+            m.cache_operations_total().with_label_values(&["clear"]).inc();
+        });
     }
     
     // 获取当前缓存条目数
     pub async fn len(&self) -> u64 {
         self.cache.run_pending_tasks().await;
         // 要获得准确的条目数，需要运行待处理的任务
-        self.cache.entry_count()
+        let count = self.cache.entry_count();
+        
+        // 更新缓存条目计数指标
+        METRICS.with(|m| {
+            m.cache_entries().set(count as i64);
+        });
+        
+        count
     }
     
     // 检查缓存是否为空
@@ -668,7 +809,28 @@ impl DnsCache {
             return Ok(0);
         }
         
-        Self::save_cache_to_file(&self.config.persistence, &self.cache).await
+        // 记录保存开始时间
+        let save_start = Instant::now();
+        
+        let result = Self::save_cache_to_file(&self.config.persistence, &self.cache).await;
+        
+        // 记录保存完成
+        match &result {
+            Ok(saved_count) => {
+                let save_duration = save_start.elapsed();
+                METRICS.with(|m| {
+                    m.cache_persist_operations_total().with_label_values(&["save"]).inc();
+                    m.cache_persist_duration_seconds().with_label_values(&["save"]).observe(save_duration.as_secs_f64());
+                });
+            }
+            Err(_) => {
+                METRICS.with(|m| {
+                    m.cache_persist_operations_total().with_label_values(&["save_failed"]).inc();
+                });
+            }
+        }
+        
+        result
     }
     
     // 实际执行缓存保存的内部方法
@@ -922,11 +1084,20 @@ impl DnsCache {
             *flag = true;
         }
         
+        // 取消周期性缓存条目计数任务
+        if let Some(cancel_flag) = &self.metrics_task_cancel {
+            let mut flag = cancel_flag.write().await;
+            *flag = true;
+        }
+        
         // 如果持久化缓存功能已启用，保存缓存到文件
         if self.config.persistence.enabled {
             // 使用配置的超时时间
             let timeout_secs = self.config.persistence.shutdown_save_timeout_secs;
             let timeout_duration = std::time::Duration::from_secs(timeout_secs);
+            
+            // 记录保存开始时间
+            let save_start = Instant::now();
             
             match tokio::time::timeout(
                 timeout_duration,
@@ -935,14 +1106,28 @@ impl DnsCache {
                 Ok(result) => {
                     match result {
                         Ok(count) => {
+                            let save_duration = save_start.elapsed();
+                            METRICS.with(|m| {
+                                m.cache_persist_operations_total().with_label_values(&["shutdown_save"]).inc();
+                                m.cache_persist_duration_seconds().with_label_values(&["shutdown_save"]).observe(save_duration.as_secs_f64());
+                            });
+                            
                             info!("Cache saved to file on shutdown, {} entries", count);
                         }
                         Err(e) => {
+                            METRICS.with(|m| {
+                                m.cache_persist_operations_total().with_label_values(&["shutdown_save_failed"]).inc();
+                            });
+                            
                             error!("Failed to save cache on shutdown: {}", e);
                         }
                     }
                 }
                 Err(_) => {
+                    METRICS.with(|m| {
+                        m.cache_persist_operations_total().with_label_values(&["shutdown_save_timeout"]).inc();
+                    });
+                    
                     error!("Cache save operation timed out after {} seconds during shutdown", timeout_secs);
                 }
             }

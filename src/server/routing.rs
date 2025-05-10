@@ -14,6 +14,7 @@ use tokio::time::{Duration, interval};
 use crate::server::config::{RoutingConfig, MatchType, MatchCondition};
 use crate::server::error::{ServerError, Result};
 use crate::common::consts::BLACKHOLE_UPSTREAM_GROUP_NAME;
+use crate::server::metrics::METRICS;
 
 // 路由决策结果
 #[derive(Debug, Clone, PartialEq)]
@@ -108,9 +109,26 @@ impl Router {
         
         // 编译规则
         let mut compiled_rules = Vec::new();
+        
+        // 跟踪不同类型规则的数量
+        let mut exact_count = 0;
+        let mut regex_count = 0;
+        let mut wildcard_count = 0;
+        let mut file_count = 0;
+        let mut url_count = 0;
+        
         for rule in routing_config.rules {
             // 编译匹配条件
             let matcher = Self::compile_matcher(&rule.match_)?;
+            
+            // 根据匹配器类型更新计数
+            match &matcher {
+                CompiledMatcher::Exact(_) => exact_count += 1,
+                CompiledMatcher::Regex(_) => regex_count += 1,
+                CompiledMatcher::Wildcard(_) => wildcard_count += 1,
+                CompiledMatcher::File { .. } => file_count += 1,
+                CompiledMatcher::Url { .. } => url_count += 1,
+            }
             
             // 创建编译后的规则
             let compiled_rule = CompiledRule {
@@ -120,6 +138,15 @@ impl Router {
             
             compiled_rules.push(compiled_rule);
         }
+        
+        // 记录规则计数指标
+        METRICS.with(|m| {
+            m.route_rules().with_label_values(&["exact"]).set(exact_count as f64);
+            m.route_rules().with_label_values(&["regex"]).set(regex_count as f64);
+            m.route_rules().with_label_values(&["wildcard"]).set(wildcard_count as f64);
+            m.route_rules().with_label_values(&["file"]).set(file_count as f64);
+            m.route_rules().with_label_values(&["url"]).set(url_count as f64);
+        });
         
         // 创建路由器
         let router = Self {
@@ -139,6 +166,9 @@ impl Router {
     pub async fn match_domain(&self, domain: &str) -> RouteDecision {
         // 如果路由未启用，返回使用全局上游
         if !self.enabled {
+            METRICS.with(|m| {
+                m.route_results_total().with_label_values(&["disabled"]).inc();
+            });
             return RouteDecision::UseGlobal;
         }
         
@@ -182,20 +212,32 @@ impl Router {
             if matches {
                 // 如果是黑洞，返回黑洞决策
                 if rule.upstream_group == BLACKHOLE_UPSTREAM_GROUP_NAME {
+                    METRICS.with(|m| {
+                        m.route_results_total().with_label_values(&["blackhole"]).inc();
+                    });
                     return RouteDecision::Blackhole;
                 }
                 
                 // 否则返回使用特定上游组
+                METRICS.with(|m| {
+                    m.route_results_total().with_label_values(&["rule_match"]).inc();
+                });
                 return RouteDecision::UseGroup(rule.upstream_group.clone());
             }
         }
         
         // 如果没有规则匹配，检查默认上游组
         if let Some(default_group) = &self.default_upstream_group {
+            METRICS.with(|m| {
+                m.route_results_total().with_label_values(&["default"]).inc();
+            });
             return RouteDecision::UseGroup(default_group.clone());
         }
         
         // 没有匹配规则且没有默认组，使用全局上游
+        METRICS.with(|m| {
+            m.route_results_total().with_label_values(&["global"]).inc();
+        });
         RouteDecision::UseGlobal
     }
     
@@ -553,6 +595,15 @@ impl Router {
                 return Err(e);
             }
         }
+        
+        // 更新路由规则指标
+        METRICS.with(|m| {
+            // URL规则总数基于下载的规则自动更新
+            let url_rules_count = exact.len() + regex.len() + wildcard.len(); 
+            m.route_rules().with_label_values(&["url_exact"]).set(exact.len() as f64);
+            m.route_rules().with_label_values(&["url_regex"]).set(regex.len() as f64);
+            m.route_rules().with_label_values(&["url_wildcard"]).set(wildcard.len() as f64);
+        });
         
         info!(
             url = url,

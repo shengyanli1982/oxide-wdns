@@ -11,11 +11,13 @@ use trust_dns_resolver::proto::op::{Message, MessageType, OpCode, ResponseCode};
 use trust_dns_resolver::config::{
     NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
+use tokio::time::Instant;
 
 use crate::server::config::{ServerConfig, UpstreamConfig, ResolverProtocol};
 use crate::server::error::{Result, ServerError};
 use crate::server::ecs::{EcsProcessor, EcsData};
 use crate::common::consts::CONTENT_TYPE_DNS_MESSAGE;
+use crate::server::metrics::METRICS;
 
 // 上游选择
 #[derive(Debug, Clone)]
@@ -219,7 +221,7 @@ impl UpstreamManager {
                     None => return Err(ServerError::Upstream(format!("Unknown upstream group: {}", group_name))),
                 }
             },
-            UpstreamSelection::Global => (&self.global_config, ""),
+            UpstreamSelection::Global => (&self.global_config, "global"),
         };
         
         // 获取 ECS 策略
@@ -242,52 +244,182 @@ impl UpstreamManager {
             type_value = ?query.query_type(),
             class = ?query.query_class(),
             dnssec_enabled = target_config.config.enable_dnssec,
-            upstream_group = match &selection {
-                UpstreamSelection::Group(g) => g.as_str(),
-                UpstreamSelection::Global => "global",
-            },
+            upstream_group = group_name,
             "Resolving query"
         );
+        
+        // 记录DNS查询统计
+        METRICS.with(|m| {
+            m.dns_queries_total().with_label_values(&[
+                &format!("{:?}", query.query_type()), 
+                "sent_to_upstream"
+            ]).inc();
+            
+            m.dns_query_type_total().with_label_values(&[
+                &format!("{:?}", query.query_type())
+            ]).inc();
+        });
+        
+        // 记录查询开始时间，用于计算查询时间
+        let query_start = Instant::now();
+        
+        // 上游查询时间
+        let mut upstream_duration = 0f64;
         
         // 执行查询
         let response = if !target_config.doh_clients.is_empty() {
             // 有 DoH 客户端，优先使用
             let client = &target_config.doh_clients[0]; // 简单选择第一个，后续可以实现更复杂的负载均衡
-            client.query(&processed_query).await?
+            
+            // 记录上游请求
+            METRICS.with(|m| {
+                m.upstream_requests_total().with_label_values(&[
+                    &client.url, "DoH", group_name
+                ]).inc();
+            });
+            
+            // 开始计时
+            let upstream_start = Instant::now();
+            
+            // 执行查询
+            match client.query(&processed_query).await {
+                Ok(resp) => {
+                    // 计算查询时间
+                    upstream_duration = upstream_start.elapsed().as_secs_f64();
+                    
+                    // 记录上游查询时间
+                    METRICS.with(|m| {
+                        m.upstream_duration_seconds().with_label_values(&[
+                            &client.url, "DoH", group_name
+                        ]).observe(upstream_duration);
+                    });
+                    
+                    resp
+                }
+                Err(e) => {
+                    // 计算查询时间
+                    upstream_duration = upstream_start.elapsed().as_secs_f64();
+                    
+                    // 记录查询失败
+                    METRICS.with(|m| {
+                        m.upstream_failures_total().with_label_values(&[
+                            "error", &client.url, group_name
+                        ]).inc();
+                        
+                        m.upstream_duration_seconds().with_label_values(&[
+                            &client.url, "DoH", group_name
+                        ]).observe(upstream_duration);
+                    });
+                    
+                    return Err(e);
+                }
+            }
         } else {
             // 没有 DoH 客户端，使用标准解析器
             let query = processed_query.queries().first().ok_or_else(|| 
                 ServerError::Upstream("No query in message".to_string())
             )?;
             
+            // 记录上游请求（使用通用标识）
+            let resolver_id = "trust-dns-resolver";
+            let protocol = match target_config.config.resolvers.first() {
+                Some(r) => format!("{:?}", r.protocol),
+                None => "Unknown".to_string(),
+            };
+            
+            METRICS.with(|m| {
+                m.upstream_requests_total().with_label_values(&[
+                    resolver_id, &protocol, group_name
+                ]).inc();
+            });
+            
+            // 开始计时
+            let upstream_start = Instant::now();
+            
             // 使用lookup方法进行查询
-            let response = target_config.resolver.lookup(
+            let lookup_result = target_config.resolver.lookup(
                 query.name().clone(),
                 query.query_type()
-            ).await
-                .map_err(|e| ServerError::Upstream(format!("DNS query failed: {}", e)))?;
+            ).await;
             
-            // 构建DNS响应消息
-            let mut message = Message::new();
-            message.set_id(processed_query.id())
-                .set_message_type(MessageType::Response)
-                .set_op_code(processed_query.op_code())
-                .set_response_code(ResponseCode::NoError)
-                .set_recursion_desired(processed_query.recursion_desired())
-                .set_recursion_available(true);
+            // 计算查询时间
+            upstream_duration = upstream_start.elapsed().as_secs_f64();
             
-            // 添加原始查询
-            for q in processed_query.queries() {
-                message.add_query(q.clone());
-            }
+            // 记录查询时间
+            METRICS.with(|m| {
+                m.upstream_duration_seconds().with_label_values(&[
+                    resolver_id, &protocol, group_name
+                ]).observe(upstream_duration);
+            });
             
-            // 添加记录
-            for record in response.record_iter() {
-                message.add_answer(record.clone());
-            }
+            // 处理查询结果
+            let response = match lookup_result {
+                Ok(lookup) => {
+                    // 构建DNS响应消息
+                    let mut message = Message::new();
+                    message.set_id(processed_query.id())
+                        .set_message_type(MessageType::Response)
+                        .set_op_code(processed_query.op_code())
+                        .set_response_code(ResponseCode::NoError)
+                        .set_recursion_desired(processed_query.recursion_desired())
+                        .set_recursion_available(true);
+                    
+                    // 添加原始查询
+                    for q in processed_query.queries() {
+                        message.add_query(q.clone());
+                    }
+                    
+                    // 添加记录
+                    for record in lookup.record_iter() {
+                        message.add_answer(record.clone());
+                    }
+                    
+                    // 如果启用了DNSSEC，记录验证统计
+                    if target_config.config.enable_dnssec {
+                        // lookup 对象没有 dnssec_status 方法，直接设置 AD 标志
+                        // Trust-DNS 解析器会在验证成功时自动设置消息的AD标志
+                        let is_validated = message.authentic_data();
+                        
+                        // 记录DNSSEC验证结果
+                        METRICS.with(|m| {
+                            let status = if is_validated { "success" } else { "failure" };
+                            m.dnssec_validations_total().with_label_values(&[status]).inc();
+                        });
+                    }
+                    
+                    message
+                },
+                Err(e) => {
+                    // 记录查询失败
+                    METRICS.with(|m| {
+                        m.upstream_failures_total().with_label_values(&[
+                            "error", resolver_id, group_name
+                        ]).inc();
+                    });
+                    
+                    return Err(ServerError::Upstream(format!("DNS query failed: {}", e)));
+                }
+            };
             
-            message
+            response
         };
+        
+        // 计算总查询时间
+        let query_duration = query_start.elapsed().as_secs_f64();
+        
+        // 记录总查询时间
+        METRICS.with(|m| {
+            m.dns_query_duration_seconds().with_label_values(&[
+                &format!("{:?}", query.query_type())
+            ]).observe(query_duration);
+        });
+        
+        // 记录响应统计
+        METRICS.with(|m| {
+            m.dns_responses_total().with_label_values(&[
+                &format!("{:?}", response.response_code())
+            ]).inc();
+        });
         
         // 返回响应
         Ok(response)
