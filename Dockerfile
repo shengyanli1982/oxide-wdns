@@ -13,7 +13,8 @@ RUN apk add --no-cache \
     musl-dev \
     pkgconfig \
     cmake \
-    git
+    git \
+    perl
 
 # 设置工作目录
 WORKDIR /build
