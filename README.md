@@ -262,6 +262,29 @@ You can install Oxide WDNS in the following ways:
     # Client: owdns-cli (or owdns-cli.exe on Windows)
     ```
 
+3.  **Using Docker (Recommended for containerized environments):**
+    The easiest way to run Oxide WDNS in a containerized environment is using Docker.
+
+    ```bash
+    # Pull the latest image from Docker Hub
+    docker pull shengyanli1982/oxide-wdns:latest
+
+    # Run the container
+    # Map the container's port 3053 to host port 3053
+    # Mount a local config file into the container
+    docker run -d \
+      --name owdns \
+      -p 3053:3053 \
+      -v $(pwd)/config.yaml:/app/config.yaml \
+      shengyanli1982/oxide-wdns:latest
+
+    # To use the client (owdns-cli) in the container:
+    docker exec owdns /app/owdns-cli [options] [arguments]
+
+    # For example, to query example.com using a DoH server:
+    docker exec owdns /app/owdns-cli https://cloudflare-dns.com/dns-query example.com
+    ```
+
 ## Usage
 
 ### Server (`owdns`)
@@ -628,6 +651,66 @@ You can install Oxide WDNS in the following ways:
 
     5.  **Access the Service:**
         Depending on your Service configuration (type and port), you can access the deployed `owdns` DoH service via ClusterIP (internal), NodePort, or LoadBalancer IP (external). For example, if the Service is of type LoadBalancer and exposes port 80, you can use `http://<LoadBalancer-IP>/dns-query` as the DoH endpoint.
+
+    **> Method 4: Using Docker (Simple Container Deployment)**
+
+    If you want to quickly deploy `owdns` using Docker without setting up a full Kubernetes environment, you can use the following approach:
+
+    **Deployment Steps:**
+
+    1. **Create a Configuration Directory:**
+       Create a directory to store your `config.yaml` file:
+
+        ```bash
+        mkdir -p ./owdns-config
+        # Create/edit your config.yaml in this directory
+        nano ./owdns-config/config.yaml
+        ```
+
+    2. **Pull and Run the Docker Container:**
+
+        ```bash
+        docker pull shengyanli1982/oxide-wdns:<tag>
+
+        # Run with your configuration file
+        docker run -d \
+          --name owdns \
+          -p 3053:3053 \
+          -v $(pwd)/owdns-config/config.yaml:/app/config.yaml \
+          shengyanli1982/oxide-wdns:<tag>
+        ```
+
+        This command:
+
+        - Runs the container in detached mode (`-d`)
+        - Names it "owdns" (`--name owdns`)
+        - Maps port 3053 from the container to your host (`-p 3053:3053`)
+        - Mounts your configuration file into the container (`-v`)
+
+    3. **Verify the Container is Running:**
+
+        ```bash
+        docker ps
+        # Check logs
+        docker logs owdns
+        ```
+
+    4. **Use the owdns-cli Client Inside the Container:**
+
+        ```bash
+        # Example: Query example.com using Cloudflare's DoH server
+        docker exec owdns /app/owdns-cli https://cloudflare-dns.com/dns-query example.com
+
+        # Use your local owdns server (assuming default port 3053)
+        docker exec owdns /app/owdns-cli http://localhost:3053/dns-query example.com
+        ```
+
+    5. **Stop and Remove the Container:**
+
+        ```bash
+        docker stop owdns
+        docker rm owdns
+        ```
 
 5.  **Get Help / Command-Line Arguments:**
     View the complete list of command-line arguments using `-h` or `--help`:
