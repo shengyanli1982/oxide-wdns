@@ -10,7 +10,7 @@ mod tests {
     use tower::util::ServiceExt; // 用于oneshot方法的trait
     use trust_dns_proto::op::{Message, MessageType, OpCode};
     use trust_dns_proto::rr::{Name, RecordType};
-    use wiremock::{MockServer, Mock, ResponseTemplate, matchers};
+    use wiremock::MockServer;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
     use oxide_wdns::common::consts::CONTENT_TYPE_DNS_MESSAGE;
     use oxide_wdns::server::config::ServerConfig;

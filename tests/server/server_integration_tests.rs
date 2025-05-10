@@ -25,8 +25,8 @@ mod tests {
     use oxide_wdns::server::routing::Router;
     use oxide_wdns::server::doh_handler::ServerState;
     use oxide_wdns::server::config::ServerConfig;
-    use oxide_wdns::server::config::{ResolverConfig, ResolverProtocol};
-    use oxide_wdns::server::doh_handler::{DnsJsonRequest, DnsMsgGetRequest};
+    
+    
     
     // 导入公共测试工具
     use crate::server::mock_http_server::{find_free_port, create_test_query, create_test_response};

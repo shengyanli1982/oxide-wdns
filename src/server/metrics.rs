@@ -9,7 +9,7 @@ use prometheus::{
 use once_cell::sync::Lazy;
 
 // 全局静态指标实例
-pub static METRICS: Lazy<DnsMetrics> = Lazy::new(|| DnsMetrics::new());
+pub static METRICS: Lazy<DnsMetrics> = Lazy::new(DnsMetrics::new);
 
 // DNS 服务器性能指标
 pub struct DnsMetrics {
