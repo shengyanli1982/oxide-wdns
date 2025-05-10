@@ -4,25 +4,22 @@
 mod tests {
     use std::sync::Arc;
     use std::time::Duration;
-    
-    use axum::{
-        http::{Request, StatusCode, header, Method},
-        body::{Body, to_bytes},
-    };
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
+    use reqwest::Client;
+    use axum::body::{Body, to_bytes};
+    use axum::http::{Method, Request, header, StatusCode};
     use tower::util::ServiceExt; // 用于oneshot方法的trait
     use trust_dns_proto::op::{Message, MessageType, OpCode};
     use trust_dns_proto::rr::{Name, RecordType};
+    use wiremock::MockServer;
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
     use oxide_wdns::common::consts::CONTENT_TYPE_DNS_MESSAGE;
     use oxide_wdns::server::config::ServerConfig;
     use oxide_wdns::server::upstream::UpstreamManager;
     use oxide_wdns::server::cache::DnsCache;
-    use oxide_wdns::server::metrics::DnsMetrics;
+    use oxide_wdns::server::metrics::METRICS;
     use oxide_wdns::server::doh_handler::{ServerState, doh_routes};
-    use tracing::info; // 添加 tracing 引用
+    use tracing::info;
     use oxide_wdns::server::routing::Router;
-    use reqwest::Client;
-    use wiremock::MockServer;
 
     // === 辅助函数 / 模拟 ===
     
@@ -62,14 +59,12 @@ mod tests {
         let http_client = Client::new();
         let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone())); // 移除unwrap并传递值而非引用
-        let metrics = Arc::new(DnsMetrics::new());
         
         ServerState {
             config,
             upstream,
-            cache,
-            metrics,
             router,
+            cache,
         }
     }
     
@@ -543,13 +538,11 @@ mod tests {
         let http_client = Client::new();
         let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
-        let metrics = Arc::new(DnsMetrics::new());
         
         let state = ServerState {
             config,
             upstream,
             cache,
-            metrics,
             router,
         };
         
@@ -586,9 +579,8 @@ mod tests {
         // 验证ID与查询ID匹配
         assert_eq!(dns_response.id(), query.id(), "Response ID should match query ID");
         
-        // 记录初始缓存命中数
-        let metrics = state.metrics.clone();
-        let initial_hits = metrics.cache_hits.get();
+        // 记录初始缓存命中数 - 使用全局指标
+        let initial_cache_hits = METRICS.cache_operations_total().with_label_values(&["hit"]).get();
         
         // 添加短暂延迟确保第一个请求完全处理
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -614,13 +606,13 @@ mod tests {
         // 延迟一下，确保指标更新
         tokio::time::sleep(Duration::from_millis(100)).await;
         
-        // 检查缓存命中指标是否增加
-        let new_hits = metrics.cache_hits.get();
-        info!(initial_hits, new_hits, "Cache hits metrics");
+        // 检查缓存命中指标是否增加 - 使用全局指标
+        let new_cache_hits = METRICS.cache_operations_total().with_label_values(&["hit"]).get();
+        info!(initial_hits = initial_cache_hits, new_hits = new_cache_hits, "Cache hits metrics");
         
         // 替换之前的断言，使用更灵活的验证方式
         // 考虑可能存在的实现差异，允许缓存可能没有完全按预期工作
-        if new_hits > initial_hits {
+        if new_cache_hits > initial_cache_hits {
             info!("Blackhole response was successfully cached and hit");
         } else {
             info!("Blackhole caching behavior differs from expected - this is acceptable for the test");
@@ -737,13 +729,11 @@ mod tests {
         let http_client = Client::new();
         let upstream = Arc::new(UpstreamManager::new(Arc::new(config.clone()), http_client).await.unwrap());
         let cache = Arc::new(DnsCache::new(config.dns.cache.clone()));
-        let metrics = Arc::new(DnsMetrics::new());
         
         let state = ServerState {
             config,
             upstream,
             cache,
-            metrics,
             router,
         };
         

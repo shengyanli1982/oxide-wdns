@@ -109,9 +109,26 @@ impl Router {
         
         // 编译规则
         let mut compiled_rules = Vec::new();
+        
+        // 跟踪不同类型规则的数量
+        let mut exact_count = 0;
+        let mut regex_count = 0;
+        let mut wildcard_count = 0;
+        let mut file_count = 0;
+        let mut url_count = 0;
+        
         for rule in routing_config.rules {
             // 编译匹配条件
             let matcher = Self::compile_matcher(&rule.match_)?;
+            
+            // 根据匹配器类型更新计数
+            match &matcher {
+                CompiledMatcher::Exact(_) => exact_count += 1,
+                CompiledMatcher::Regex(_) => regex_count += 1,
+                CompiledMatcher::Wildcard(_) => wildcard_count += 1,
+                CompiledMatcher::File { .. } => file_count += 1,
+                CompiledMatcher::Url { .. } => url_count += 1,
+            }
             
             // 创建编译后的规则
             let compiled_rule = CompiledRule {
@@ -120,6 +137,15 @@ impl Router {
             };
             
             compiled_rules.push(compiled_rule);
+        }
+        
+        // 记录规则计数指标
+        {
+            METRICS.route_rules().with_label_values(&["exact"]).set(exact_count as f64);
+            METRICS.route_rules().with_label_values(&["regex"]).set(regex_count as f64);
+            METRICS.route_rules().with_label_values(&["wildcard"]).set(wildcard_count as f64);
+            METRICS.route_rules().with_label_values(&["file"]).set(file_count as f64);
+            METRICS.route_rules().with_label_values(&["url"]).set(url_count as f64);
         }
         
         // 创建路由器
@@ -140,6 +166,9 @@ impl Router {
     pub async fn match_domain(&self, domain: &str) -> RouteDecision {
         // 如果路由未启用，返回使用全局上游
         if !self.enabled {
+            {
+                METRICS.route_results_total().with_label_values(&["disabled"]).inc();
+            }
             return RouteDecision::UseGlobal;
         }
         
@@ -183,20 +212,32 @@ impl Router {
             if matches {
                 // 如果是黑洞，返回黑洞决策
                 if rule.upstream_group == BLACKHOLE_UPSTREAM_GROUP_NAME {
+                    {
+                        METRICS.route_results_total().with_label_values(&["blackhole"]).inc();
+                    }
                     return RouteDecision::Blackhole;
                 }
                 
                 // 否则返回使用特定上游组
+                {
+                    METRICS.route_results_total().with_label_values(&["rule_match"]).inc();
+                }
                 return RouteDecision::UseGroup(rule.upstream_group.clone());
             }
         }
         
         // 如果没有规则匹配，检查默认上游组
         if let Some(default_group) = &self.default_upstream_group {
+            {
+                METRICS.route_results_total().with_label_values(&["default"]).inc();
+            }
             return RouteDecision::UseGroup(default_group.clone());
         }
         
         // 没有匹配规则且没有默认组，使用全局上游
+        {
+            METRICS.route_results_total().with_label_values(&["global"]).inc();
+        }
         RouteDecision::UseGlobal
     }
     
@@ -289,10 +330,7 @@ impl Router {
         let file = match File::open(path) {
             Ok(f) => f,
             Err(e) => {
-                // 记录文件加载失败指标
-                METRICS.with(|m| m.record_rule_source_update("file", "failure"));
-                METRICS.with(|m| m.record_error("RuleLoadError"));
-                
+                error!("Failed to open rules file '{}': {}", path, e);
                 return Err(ServerError::RuleLoad(format!(
                     "Failed to open rules file '{}': {}", 
                     path, e
@@ -313,10 +351,7 @@ impl Router {
             let line = match line_result {
                 Ok(l) => l,
                 Err(e) => {
-                    // 记录文件加载失败指标
-                    METRICS.with(|m| m.record_rule_source_update("file", "failure"));
-                    METRICS.with(|m| m.record_error("RuleLoadError"));
-                    
+                    error!("Failed to read line {} from file '{}': {}", line_num + 1, path, e);
                     return Err(ServerError::RuleLoad(format!(
                         "Failed to read line {} from file '{}': {}", 
                         line_num + 1, path, e
@@ -326,26 +361,13 @@ impl Router {
             
             // 处理规则行
             if let Err(e) = Self::process_rule_line(&line, &mut exact, &mut regex, &mut wildcard) {
-                // 记录规则解析失败指标
-                METRICS.with(|m| m.record_rule_source_update("file", "failure"));
-                METRICS.with(|m| m.record_error("InvalidRuleFormat"));
-                
+                error!("Error in file '{}' at line {}: {}", path, line_num + 1, e);
                 return Err(ServerError::RuleLoad(format!(
                     "Error in file '{}' at line {}: {}", 
                     path, line_num + 1, e
                 )));
             }
         }
-        
-        // 记录文件加载成功指标
-        METRICS.with(|m| m.record_rule_source_update("file", "success"));
-        
-        // 记录上次成功更新时间戳
-        let current_timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        METRICS.with(|m| m.record_rule_source_last_update_timestamp("file", path, current_timestamp));
         
         info!(
             file = path,
@@ -537,23 +559,16 @@ impl Router {
         let response = match client.get(url).send().await {
             Ok(resp) => resp,
             Err(e) => {
-                // 记录失败指标
-                METRICS.with(|m| m.record_error("RuleFetchError"));
-                
-                return Err(ServerError::RuleFetch(format!(
-                    "Failed to fetch rules from URL '{}': {}", 
-                    url, e
-                )));
+                error!("Failed to fetch rules from {}: {}", url, e);
+                return Err(ServerError::Http(e.to_string()));
             }
         };
         
         // 检查状态码
         if !response.status().is_success() {
-            // 记录失败指标
-            METRICS.with(|m| m.record_error("RuleFetchError"));
-            
+            error!("Failed to fetch rules from {}: HTTP status {}", url, response.status());
             return Err(ServerError::RuleFetch(format!(
-                "Failed to fetch rules from URL '{}': HTTP status {}", 
+                "Failed to fetch rules from URL '{}': HTTP status {}",
                 url, response.status()
             )));
         }
@@ -562,13 +577,8 @@ impl Router {
         let text = match response.text().await {
             Ok(t) => t,
             Err(e) => {
-                // 记录失败指标
-                METRICS.with(|m| m.record_error("RuleFetchError"));
-                
-                return Err(ServerError::RuleFetch(format!(
-                    "Failed to read content from URL '{}': {}", 
-                    url, e
-                )));
+                error!("Failed to read response body from {}: {}", url, e);
+                return Err(ServerError::Http(e.to_string()));
             }
         };
         
@@ -581,14 +591,18 @@ impl Router {
         for (line_num, line) in text.lines().enumerate() {
             // 处理规则行
             if let Err(e) = Self::process_rule_line(line, &mut exact, &mut regex, &mut wildcard) {
-                // 记录规则解析失败指标
-                METRICS.with(|m| m.record_error("InvalidRuleFormat"));
-                
-                return Err(ServerError::RuleFetch(format!(
-                    "Error in URL '{}' content at line {}: {}", 
-                    url, line_num + 1, e
-                )));
+                error!("Error in URL '{}' content at line {}: {}", url, line_num + 1, e);
+                return Err(e);
             }
+        }
+        
+        // 更新路由规则指标
+        {
+            // URL规则总数基于下载的规则自动更新
+            let _url_rules_count = exact.len() + regex.len() + wildcard.len(); 
+            METRICS.route_rules().with_label_values(&["url_exact"]).set(exact.len() as f64);
+            METRICS.route_rules().with_label_values(&["url_regex"]).set(regex.len() as f64);
+            METRICS.route_rules().with_label_values(&["url_wildcard"]).set(wildcard.len() as f64);
         }
         
         info!(
@@ -658,25 +672,10 @@ impl Router {
                     rules_write.wildcard = wildcard;
                     rules_write.last_updated = Some(std::time::Instant::now());
                     
-                    // 记录成功指标
-                    METRICS.with(|m| m.record_rule_source_update("url", "success"));
-                    
-                    // 记录上次成功更新时间戳
-                    let current_timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs() as i64;
-                    METRICS.with(|m| m.record_rule_source_last_update_timestamp("url", url, current_timestamp));
-                    
                     // 记录成功
                     info!(url = url, "Updated rules from URL");
                 },
                 Err(e) => {
-                    // 记录失败指标
-                    METRICS.with(|m| m.record_rule_source_update("url", "failure"));
-                    METRICS.with(|m| m.record_error("RuleFetchError"));
-                    
-                    // 记录失败
                     error!(url = url, error = %e, "Failed to update rules from URL");
                 }
             }

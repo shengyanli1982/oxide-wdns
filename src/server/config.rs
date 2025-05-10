@@ -567,8 +567,31 @@ impl ServerConfig {
         Ok(self.dns.ecs_policy.clone())
     }
     
+    // 验证配置有效性
     pub fn test(&self) -> Result<()> {
         // 验证速率限制配置
+        self.validate_rate_limit()?;
+        
+        // 验证缓存持久化依赖链
+        self.validate_cache_dependencies()?;
+        
+        // 验证全局解析器地址
+        self.validate_resolvers(&self.dns.upstream.resolvers)?;
+        
+        // 验证上游组 ECS 策略与路由功能的依赖关系
+        self.validate_routing_ecs_dependencies()?;
+        
+        // 验证路由配置
+        self.validate_routing()?;
+        
+        // 验证 ECS 策略配置
+        self.validate_ecs_policy()?;
+        
+        Ok(())
+    }
+    
+    // 验证速率限制配置
+    fn validate_rate_limit(&self) -> Result<()> {
         if self.http.rate_limit.enabled {
             // 验证每个 IP 每秒最大请求数
             if self.http.rate_limit.per_ip_rate < MIN_PER_IP_RATE || self.http.rate_limit.per_ip_rate > MAX_PER_IP_RATE {
@@ -586,9 +609,31 @@ impl ServerConfig {
                 )));
             }
         }
+        Ok(())
+    }
+    
+    // 验证缓存持久化依赖链
+    fn validate_cache_dependencies(&self) -> Result<()> {
+        // 验证持久化缓存依赖于缓存本身
+        if self.dns.cache.persistence.enabled && !self.dns.cache.enabled {
+            return Err(ServerError::Config(
+                "Cache persistence is enabled but cache itself is disabled. Enable cache first.".to_string()
+            ));
+        }
         
-        // 验证解析器地址
-        for resolver in &self.dns.upstream.resolvers {
+        // 验证周期性保存依赖于持久化缓存
+        if self.dns.cache.persistence.periodic.enabled && !self.dns.cache.persistence.enabled {
+            return Err(ServerError::Config(
+                "Periodic cache persistence is enabled but persistence itself is disabled. Enable persistence first.".to_string()
+            ));
+        }
+        
+        Ok(())
+    }
+    
+    // 验证解析器地址配置
+    fn validate_resolvers(&self, resolvers: &[ResolverConfig]) -> Result<()> {
+        for resolver in resolvers {
             match resolver.protocol {
                 ResolverProtocol::Doh => {
                     // 验证 DoH 地址是有效的 URL
@@ -619,152 +664,175 @@ impl ServerConfig {
                 }
             }
         }
+        Ok(())
+    }
+    
+    // 验证上游组 ECS 策略与路由功能的依赖关系
+    fn validate_routing_ecs_dependencies(&self) -> Result<()> {
+        let mut has_enabled_group_ecs_policy = false;
+        for group in &self.dns.routing.upstream_groups {
+            if let Some(ecs_policy) = &group.ecs_policy {
+                if ecs_policy.enabled {
+                    has_enabled_group_ecs_policy = true;
+                    break;
+                }
+            }
+        }
         
-        // 如果启用了路由功能，验证路由配置
-        if self.dns.routing.enabled {
-            // 创建上游组名称集合，用于后续验证
-            let mut group_names = std::collections::HashSet::new();
-            for group in &self.dns.routing.upstream_groups {
-                // 检查组名不为空
-                if group.name.is_empty() {
-                    return Err(ServerError::Config("Upstream group name cannot be empty".to_string()));
-                }
-                
-                // 检查组名不重复
-                if !group_names.insert(group.name.clone()) {
+        if has_enabled_group_ecs_policy && !self.dns.routing.enabled {
+            return Err(ServerError::Config(
+                "One or more upstream groups have ECS policy enabled, but routing is disabled. Enable routing first.".to_string()
+            ));
+        }
+        
+        Ok(())
+    }
+    
+    // 验证路由配置
+    fn validate_routing(&self) -> Result<()> {
+        // 如果路由功能未启用，则直接返回
+        if !self.dns.routing.enabled {
+            return Ok(());
+        }
+        
+        // 验证上游组配置
+        let group_names = self.validate_upstream_groups()?;
+        
+        // 验证规则配置
+        self.validate_routing_rules(&group_names)?;
+        
+        // 验证默认上游组
+        self.validate_default_upstream_group(&group_names)?;
+        
+        Ok(())
+    }
+    
+    // 验证上游组配置
+    fn validate_upstream_groups(&self) -> Result<std::collections::HashSet<String>> {
+        let mut group_names = std::collections::HashSet::new();
+        
+        for group in &self.dns.routing.upstream_groups {
+            // 检查组名不为空
+            if group.name.is_empty() {
+                return Err(ServerError::Config("Upstream group name cannot be empty".to_string()));
+            }
+            
+            // 检查组名不重复
+            if !group_names.insert(group.name.clone()) {
+                return Err(ServerError::Config(format!(
+                    "Duplicate upstream group name: {}", 
+                    group.name
+                )));
+            }
+            
+            // 检查组中至少有一个解析器
+            if group.resolvers.is_empty() {
+                return Err(ServerError::Config(format!(
+                    "Upstream group '{}' must have at least one resolver", 
+                    group.name
+                )));
+            }
+            
+            // 验证解析器配置
+            self.validate_resolvers(&group.resolvers)?;
+        }
+        
+        Ok(group_names)
+    }
+    
+    // 验证路由规则配置
+    fn validate_routing_rules(&self, group_names: &std::collections::HashSet<String>) -> Result<()> {
+        for (i, rule) in self.dns.routing.rules.iter().enumerate() {
+            // 获取规则索引（从1开始，用于错误消息）
+            let rule_index = i + 1;
+            
+            // 验证上游组名称存在于上游组列表中或为黑洞特殊值
+            if rule.upstream_group != BLACKHOLE_UPSTREAM_GROUP_NAME && !group_names.contains(&rule.upstream_group) {
+                return Err(ServerError::Config(format!(
+                    "Rule #{} references unknown upstream group: {}", 
+                    rule_index,
+                    rule.upstream_group
+                )));
+            }
+            
+            // 验证匹配条件
+            self.validate_match_condition(&rule.match_, rule_index)?;
+        }
+        
+        Ok(())
+    }
+    
+    // 验证匹配条件
+    fn validate_match_condition(&self, match_: &MatchCondition, rule_index: usize) -> Result<()> {
+        match match_.type_ {
+            MatchType::Exact | MatchType::Regex | MatchType::Wildcard => {
+                // 这些类型需要 values 字段
+                if match_.values.is_none() || match_.values.as_ref().unwrap().is_empty() {
                     return Err(ServerError::Config(format!(
-                        "Duplicate upstream group name: {}", 
-                        group.name
+                        "Rule #{} with type {:?} must have non-empty 'values' list", 
+                        rule_index,
+                        match_.type_
                     )));
                 }
                 
-                // 检查组中至少有一个解析器
-                if group.resolvers.is_empty() {
-                    return Err(ServerError::Config(format!(
-                        "Upstream group '{}' must have at least one resolver", 
-                        group.name
-                    )));
-                }
-                
-                // 验证解析器配置
-                for resolver in &group.resolvers {
-                    match resolver.protocol {
-                        ResolverProtocol::Doh => {
-                            // 验证 DoH 地址是有效的 URL
-                            if !resolver.address.starts_with("https://") {
+                // 对于正则表达式类型，验证每个正则表达式的有效性
+                if match_.type_ == MatchType::Regex {
+                    for (j, pattern) in match_.values.as_ref().unwrap().iter().enumerate() {
+                        match regex::Regex::new(pattern) {
+                            Ok(_) => {}, // 正则表达式有效
+                            Err(e) => {
                                 return Err(ServerError::Config(format!(
-                                    "DoH resolver address must start with 'https://': {}", 
-                                    resolver.address
-                                )));
-                            }
-                        },
-                        ResolverProtocol::Dot => {
-                            // 验证 DoT 地址格式 (域名@IP:端口)
-                            if !resolver.address.contains('@') || !resolver.address.contains(':') {
-                                return Err(ServerError::Config(format!(
-                                    "DoT resolver address must be in format 'domain@ip:port': {}", 
-                                    resolver.address
-                                )));
-                            }
-                        },
-                        _ => {
-                            // 验证 UDP/TCP 地址格式 (IP:端口)
-                            if !resolver.address.contains(':') {
-                                return Err(ServerError::Config(format!(
-                                    "Resolver address must be in format 'ip:port': {}", 
-                                    resolver.address
+                                    "Rule #{} has invalid regex at index {}: '{}' - Error: {}", 
+                                    rule_index, j, pattern, e
                                 )));
                             }
                         }
                     }
                 }
-            }
-            
-            // 验证规则配置
-            for (i, rule) in self.dns.routing.rules.iter().enumerate() {
-                // 获取规则索引（从1开始，用于错误消息）
-                let rule_index = i + 1;
-                
-                // 验证上游组名称存在于上游组列表中或为黑洞特殊值
-                if rule.upstream_group != BLACKHOLE_UPSTREAM_GROUP_NAME && !group_names.contains(&rule.upstream_group) {
+            },
+            MatchType::File => {
+                // File 类型需要 path 字段
+                if match_.path.is_none() || match_.path.as_ref().unwrap().is_empty() {
                     return Err(ServerError::Config(format!(
-                        "Rule #{} references unknown upstream group: {}", 
+                        "Rule #{} with type File must have non-empty 'path' value", 
+                        rule_index
+                    )));
+                }
+            },
+            MatchType::Url => {
+                // Url 类型需要 url 字段，且必须是有效的URL
+                if match_.url.is_none() || match_.url.as_ref().unwrap().is_empty() {
+                    return Err(ServerError::Config(format!(
+                        "Rule #{} with type Url must have non-empty 'url' value", 
+                        rule_index
+                    )));
+                }
+                
+                // 验证URL格式
+                let url_str = match_.url.as_ref().unwrap();
+                if !url_str.starts_with("http://") && !url_str.starts_with("https://") {
+                    return Err(ServerError::Config(format!(
+                        "Rule #{} has invalid URL format (must start with http:// or https://): {}", 
                         rule_index,
-                        rule.upstream_group
+                        url_str
                     )));
                 }
-                
-                // 验证匹配条件基于类型
-                match rule.match_.type_ {
-                    MatchType::Exact | MatchType::Regex | MatchType::Wildcard => {
-                        // 这些类型需要 values 字段
-                        if rule.match_.values.is_none() || rule.match_.values.as_ref().unwrap().is_empty() {
-                            return Err(ServerError::Config(format!(
-                                "Rule #{} with type {:?} must have non-empty 'values' list", 
-                                rule_index,
-                                rule.match_.type_
-                            )));
-                        }
-                        
-                        // 对于正则表达式类型，验证每个正则表达式的有效性
-                        if rule.match_.type_ == MatchType::Regex {
-                            for (j, pattern) in rule.match_.values.as_ref().unwrap().iter().enumerate() {
-                                match regex::Regex::new(pattern) {
-                                    Ok(_) => {}, // 正则表达式有效
-                                    Err(e) => {
-                                        return Err(ServerError::Config(format!(
-                                            "Rule #{} has invalid regex at index {}: '{}' - Error: {}", 
-                                            rule_index, j, pattern, e
-                                        )));
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    MatchType::File => {
-                        // File 类型需要 path 字段
-                        if rule.match_.path.is_none() || rule.match_.path.as_ref().unwrap().is_empty() {
-                            return Err(ServerError::Config(format!(
-                                "Rule #{} with type File must have non-empty 'path' value", 
-                                rule_index
-                            )));
-                        }
-                    },
-                    MatchType::Url => {
-                        // Url 类型需要 url 字段，且必须是有效的URL
-                        if rule.match_.url.is_none() || rule.match_.url.as_ref().unwrap().is_empty() {
-                            return Err(ServerError::Config(format!(
-                                "Rule #{} with type Url must have non-empty 'url' value", 
-                                rule_index
-                            )));
-                        }
-                        
-                        // 验证URL格式
-                        let url_str = rule.match_.url.as_ref().unwrap();
-                        if !url_str.starts_with("http://") && !url_str.starts_with("https://") {
-                            return Err(ServerError::Config(format!(
-                                "Rule #{} has invalid URL format (must start with http:// or https://): {}", 
-                                rule_index,
-                                url_str
-                            )));
-                        }
-                    },
-                }
-            }
-            
-            // 验证默认上游组（如果设置）存在于上游组列表中
-            if let Some(default_group) = &self.dns.routing.default_upstream_group {
-                if !group_names.contains(default_group) {
-                    return Err(ServerError::Config(format!(
-                        "Default upstream group does not exist: {}", 
-                        default_group
-                    )));
-                }
-            }
+            },
         }
         
-        // 验证 ECS 策略配置
-        self.validate_ecs_policy()?;
+        Ok(())
+    }
+    
+    // 验证默认上游组配置
+    fn validate_default_upstream_group(&self, group_names: &std::collections::HashSet<String>) -> Result<()> {
+        if let Some(default_group) = &self.dns.routing.default_upstream_group {
+            if !group_names.contains(default_group) {
+                return Err(ServerError::Config(format!(
+                    "Default upstream group does not exist: {}", 
+                    default_group
+                )));
+            }
+        }
         
         Ok(())
     }

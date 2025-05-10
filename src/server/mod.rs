@@ -11,12 +11,11 @@ pub mod security;
 pub mod upstream;
 pub mod args;
 pub mod ecs;
+pub mod scalar;
 
 use std::sync::Arc;
-use std::time::Duration;
 use axum::Router as AxumRouter;
 use reqwest::Client;
-use tokio::time;
 use tracing::info;
 
 use crate::server::error::{Result, ServerError};
@@ -24,11 +23,10 @@ use crate::server::cache::DnsCache;
 use crate::server::config::ServerConfig;
 use crate::server::doh_handler::{doh_routes, ServerState};
 use crate::server::health::health_routes;
-use crate::server::metrics::{metrics_routes, DnsMetrics};
+use crate::server::metrics::metrics_routes;
 use crate::server::routing::Router as DnsRouter;
 use crate::server::security::{apply_rate_limiting, calculate_period_duration};
 use crate::server::upstream::UpstreamManager;
-use crate::common::consts::{MIN_PER_IP_RATE, MAX_PER_IP_RATE, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT};
 
 // 创建 HTTP 客户端的公共函数
 pub fn create_http_client(config: &ServerConfig) -> Result<Client> {
@@ -45,12 +43,14 @@ pub fn create_http_client(config: &ServerConfig) -> Result<Client> {
 pub struct DoHServer {
     // 配置
     config: ServerConfig,
+    // 是否启用调试模式
+    debug: bool,
 }
 
 impl DoHServer {
     // 创建新的 DoH 服务器
-    pub fn new(config: ServerConfig) -> Self {
-        Self { config }
+    pub fn new(config: ServerConfig, debug: bool) -> Self {
+        Self { config, debug }
     }
 
     // 此方法构建 Axum 应用和相关资源，但不启动服务器。
@@ -60,41 +60,27 @@ impl DoHServer {
     ) -> Result<(
         AxumRouter,
         Arc<DnsCache>,
-        Arc<DnsMetrics>, // 返回 DnsMetrics 以便在外部使用或传递
-        tokio::task::JoinHandle<()>, // cache_metrics_handle
     )> {
         let cache = Arc::new(DnsCache::new(self.config.dns.cache.clone()));
         let client = create_http_client(&self.config)?;
         let router_manager = Arc::new(DnsRouter::new(self.config.dns.routing.clone(), Some(client.clone())).await?);
         let upstream_manager = Arc::new(UpstreamManager::new(Arc::new(self.config.clone()), client.clone()).await?);
-        let metrics = Arc::new(DnsMetrics::new());
 
         let state = ServerState {
             config: self.config.clone(),
             upstream: upstream_manager,
             router: router_manager,
             cache: cache.clone(),
-            metrics: metrics.clone(),
         };
 
         let mut doh_specific_routes = doh_routes(state);
+        
         let rate_limit_config = &self.config.http.rate_limit;
-
         if rate_limit_config.enabled {
             let rate = rate_limit_config.per_ip_rate;
-            if !(MIN_PER_IP_RATE..=MAX_PER_IP_RATE).contains(&rate) {
-                return Err(ServerError::Config(format!(
-                    "Invalid per_ip_rate: {} (must be between {} and {})",
-                    rate, MIN_PER_IP_RATE, MAX_PER_IP_RATE
-                )));
-            }
             let burst = rate_limit_config.per_ip_concurrent;
-            if !(MIN_PER_IP_CONCURRENT..=MAX_PER_IP_CONCURRENT).contains(&burst) {
-                return Err(ServerError::Config(format!(
-                    "Invalid per_ip_concurrent: {} (must be between {} and {})",
-                    burst, MIN_PER_IP_CONCURRENT, MAX_PER_IP_CONCURRENT
-                )));
-            }
+            
+            // 仅计算期间持续时间并应用速率限制
             if calculate_period_duration(rate).is_none() {
                 return Err(ServerError::Config(format!(
                     "Failed to calculate rate limit period for per_ip_rate: {}",
@@ -107,27 +93,24 @@ impl DoHServer {
             info!("Rate limiting is disabled");
         }
 
-        let app = AxumRouter::new()
-            .merge(health_routes())
-            .merge(metrics_routes()) // metrics_routes 现在直接使用 state 中的 metrics
-            .merge(doh_specific_routes);
-
-        let cache_metrics_handle =
-            tokio::spawn(Self::update_cache_metrics(cache.clone(), metrics.clone()));
-
-        Ok((app, cache, metrics, cache_metrics_handle))
-    }
-
-    // 更新缓存指标的任务 (保持不变)
-    async fn update_cache_metrics(cache: Arc<DnsCache>, metrics: Arc<DnsMetrics>) {
-        let start = tokio::time::Instant::now();
-        let period = Duration::from_secs(15);
-        let mut interval = time::interval_at(start, period);
-
-        loop {
-            interval.tick().await;
-            let cache_size = cache.len().await; // 假设 len 是 async
-            metrics.record_cache_size(cache_size);
+        // 创建 Axum Router
+        let mut app = AxumRouter::new();
+            
+        // 在调试模式下启用 Swagger UI 和 RapiDoc（放在doh_specific_routes之前）
+        if self.debug {
+            // info!("Debug mode enabled: Swagger UI available at /swagger");
+            // app = app.merge(swagger::create_swagger_routes());
+            info!("Debug mode enabled: Scalar UI available at /scalar");
+            app = app.merge(scalar::create_scalar_routes());
         }
+
+        // 添加健康检查和指标路由
+        // 放在doh_specific_routes之前，放置被限速
+        app = app.merge(health_routes()).merge(metrics_routes());
+
+        // 添加doh_specific_routes
+        app = app.merge(doh_specific_routes);
+
+        Ok((app, cache))
     }
 }

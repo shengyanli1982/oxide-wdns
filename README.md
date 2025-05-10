@@ -125,6 +125,120 @@ The `DnsCache` persistence mechanism leverages `spawn_blocking` (for saving) and
 -   **Save Operations:** Data preparation steps, such as cache iteration and sorting, execute synchronously within the asynchronous context of the save task. This can become a CPU bottleneck and lead to transient memory spikes under heavy load.
 -   **Load Operations:** Deserializing a large volume of cached data can prolong service startup time. Under high-load conditions, these factors may indirectly affect overall performance and responsiveness.
 
+## Prometheus Metrics
+
+Oxide WDNS provides comprehensive Prometheus metrics to monitor the performance, health, and operational status of the service. These metrics are exposed via the `/metrics` endpoint, which can be scraped by Prometheus or other compatible monitoring systems.
+
+### HTTP Performance Metrics
+
+-   **owdns_http_requests_total** (counter) - Total number of HTTP requests, labeled by method, path, status code, format (wire/json), and http_version (1.1/2)
+-   **owdns_http_request_duration_seconds** (histogram) - Request processing latency, labeled by method, path, and format
+-   **owdns_http_request_bytes** (histogram) - Size of incoming HTTP requests
+-   **owdns_http_response_bytes** (histogram) - Size of outgoing HTTP responses
+-   **owdns_rate_limit_rejected_total** (counter) - Number of requests rejected due to rate limiting, labeled by client IP
+
+### Cache Efficiency Metrics
+
+-   **owdns_cache_entries** (gauge) - Current number of entries in the cache
+-   **owdns_cache_capacity** (gauge) - Maximum capacity of the cache
+-   **owdns_cache_operations_total** (counter) - Total cache operations, labeled by operation type (hit/miss/insert/evict/expire)
+-   **owdns_cache_ttl_seconds** (histogram) - Distribution of cache entry TTLs
+
+### DNS Query Metrics
+
+-   **owdns_dns_queries_total** (counter) - Total DNS queries processed, labeled by query type and status
+-   **owdns_dns_responses_total** (counter) - Total DNS responses, labeled by response code (RCODE: NOERROR, NXDOMAIN, SERVFAIL, etc.)
+-   **owdns_dns_query_type_total** (counter) - Number of queries by DNS record type (A, AAAA, MX, etc.)
+-   **owdns_dns_query_duration_seconds** (histogram) - DNS query processing time
+
+### Upstream Resolver Metrics
+
+-   **owdns_upstream_requests_total** (counter) - Total requests sent to upstream resolvers, labeled by resolver address, protocol, and upstream_group
+-   **owdns_upstream_failures_total** (counter) - Total upstream resolver failures, labeled by failure type (error/timeout), resolver address, and upstream_group
+-   **owdns_upstream_duration_seconds** (histogram) - Upstream query latency, labeled by resolver address, protocol, and upstream_group
+
+### DNS Routing Metrics
+
+-   **owdns_route_results_total** (counter) - Total routing results, labeled by result type (rule_match/blackhole/default)
+-   **owdns_route_rules** (gauge) - Number of active routing rules, labeled by rule type (exact, regex, wildcard, file, url)
+
+### DNSSEC Validation Metrics
+
+-   **owdns_dnssec_validations_total** (counter) - Number of DNSSEC validations performed, labeled by result status (success/failure)
+
+### ECS Processing Metrics
+
+-   **owdns_ecs_processed_total** (counter) - Total ECS (EDNS Client Subnet) operations processed, labeled by strategy (strip/forward/anonymize)
+-   **owdns_ecs_cache_matches_total** (counter) - Number of ECS-aware cache matches
+
+### Cache Persistence Metrics
+
+-   **owdns_cache_persist_operations_total** (counter) - Total cache persistence operations, labeled by operation type (save/load)
+-   **owdns_cache_persist_duration_seconds** (histogram) - Cache persistence operation latency, labeled by operation type (save/load)
+
+These metrics enable detailed monitoring and analysis of Oxide WDNS performance and behavior, making it easier to identify issues, optimize configurations, and ensure the service meets your performance requirements.
+
+## API Endpoints
+
+Oxide WDNS provides the following HTTP API endpoints for DNS resolution and service monitoring:
+
+### RFC 8484 DoH Endpoints
+
+-   **GET /dns-query**
+
+    -   _Content Type_: application/dns-message
+    -   _Parameters_: `dns` (Base64url encoded DNS request)
+    -   _Description_: Query DNS records using RFC 8484 wireformat with the DNS request encoded in base64url
+    -   _Example_: `GET /dns-query?dns=AAABAAABAAAAAAAAA3d3dwdleGFtcGxlA2NvbQAAAQAB`
+
+-   **POST /dns-query**
+    -   _Content Type_: application/dns-message
+    -   _Request Body_: Binary DNS query message
+    -   _Description_: Query DNS records by submitting a raw DNS message in the request body
+    -   _Note_: More efficient for large queries as it avoids base64 encoding overhead
+
+### Google/Cloudflare JSON API Compatible Endpoint
+
+-   **GET /resolve**
+    -   _Content Type_: application/dns-json
+    -   _Parameters_:
+        -   `name` (required): Domain name to query (e.g., example.com)
+        -   `type` (optional): DNS record type as number or string (default: 1 for A record)
+        -   `dnssec` (optional): Enable DNSSEC validation (true/false)
+        -   `cd` (optional): Disable DNSSEC validation checking (true/false)
+        -   `do` (optional): Set DNSSEC OK bit (true/false)
+    -   _Description_: Query DNS records with results returned in JSON format
+    -   _Example_: `GET /resolve?name=example.com&type=A&dnssec=true`
+
+### Monitoring and Health Endpoints
+
+-   **GET /health**
+
+    -   _Description_: Health check endpoint for monitoring services and Kubernetes probes
+    -   _Returns_: 200 OK when service is healthy
+
+-   **GET /metrics**
+    -   _Description_: Prometheus metrics endpoint exposing performance and operational statistics
+    -   _Content Type_: text/plain
+
+### Debug Mode Endpoints
+
+When the server is run with the debug flag `-d`, additional developer tools are available:
+
+-   **GET /scalar**
+    -   _Description_: Interactive API documentation and testing UI
+    -   _Note_: Only available when the server is started in debug mode
+
+![scalar](./images/scalar.png)
+
+These endpoints adhere to standard HTTP status codes:
+
+-   200: Successful query
+-   400: Invalid request parameters
+-   415: Unsupported media type
+-   429: Rate limit exceeded
+-   500: Server error during processing
+
 ## Installation
 
 You can install Oxide WDNS in the following ways:
@@ -523,20 +637,21 @@ You can install Oxide WDNS in the following ways:
     High-performance Secure DNS via HTTP (DoH) Gateway
 
     Key Features:
-    - Full RFC 8484 HTTP-based DNS transport compliance
-    - Google/Cloudflare JSON format compatibility
-    - Advanced DNSSEC validation
-    - Multi-protocol upstream support (UDP, TCP, DoT, DoH)
-    - Performance-optimized LRU caching
-    - Prometheus metrics integration
-    - Native Kubernetes health probes
-    - Enterprise-grade security with rate limiting and input validation
+    - Full RFC 8484 DoH compliance (Wireformat & JSON, GET/POST, HTTP/1.1 & HTTP/2)
+    - Advanced DNSSEC validation for response integrity
+    - Multi-protocol upstream support (UDP, TCP, DoT, DoH) with flexible selection strategies
+    - Powerful DNS routing: rule-based (Exact, Regex, Wildcard, File, URL), multiple upstream groups, loading remote rules
+    - Intelligent LRU caching: includes negative caching and persistent cache (disk load/save, periodic save)
+    - Flexible EDNS Client Subnet (ECS) handling: strip, forward, anonymize strategies; ECS-aware caching
+    - Robust security: built-in IP-based rate limiting and strict input validation
+    - Comprehensive observability: integrated Prometheus metrics, Kubernetes health probes, and structured logging (Tracing)
+    - Cloud-native friendly design with support for graceful shutdown
 
     Author: shengyanli1982
     Email: shengyanlee36@gmail.com
     GitHub: https://github.com/shengyanli1982
 
-    Usage: owdns [OPTIONS]
+    Usage: owdns.exe [OPTIONS]
 
     Options:
       -c, --config <CONFIG>  Server configuration file path (YAML format) [default: config.yaml]

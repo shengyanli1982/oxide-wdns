@@ -54,7 +54,7 @@ async fn owdns_server_subsystem(
     config: ServerConfig,
     doh_server: Arc<DoHServer>,
 ) -> Result<(), anyhow::Error> {
-    let (app_router, dns_cache, _dns_metrics, cache_metrics_handle) =
+    let (app_router, dns_cache) =
         doh_server.build_application_components().await.map_err(|e| {
             error!("Failed to build application components: {}", e);
             anyhow::anyhow!("Failed to build application components: {}", e)
@@ -87,10 +87,6 @@ async fn owdns_server_subsystem(
 
     info!("HTTP server shutdown successfully.");
     
-    // 停止缓存指标任务
-    cache_metrics_handle.abort();
-    debug!("Cache metrics task aborted.");
-
     // 关闭 DNS 缓存
     if let Err(e) = dns_cache.shutdown().await {
         error!("Failed to shutdown DNS cache: {}", e);
@@ -151,8 +147,8 @@ async fn main() {
 
     info!("Initializing Oxide WDNS server...");
     
-    // 创建 DoHServer 实例
-    let doh_server = Arc::new(DoHServer::new(config.clone()));
+    // 创建 DoHServer 实例，传入debug参数
+    let doh_server = Arc::new(DoHServer::new(config.clone(), args.debug));
 
     // 使用 tokio-graceful-shutdown 设置顶层关闭处理
     // 创建并运行顶层控制器

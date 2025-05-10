@@ -150,3 +150,19 @@ pub const IP_HEADER_NAMES: [&str; 3] = [
     "X-Real-IP", 
     "CF-Connecting-IP"
 ]; 
+
+//
+// DoH 路由和格式常量
+//
+
+// DoH JSON API 路径
+pub const DOH_JSON_API_PATH: &str = "/resolve";
+
+// DoH 标准请求路径 (RFC 8484)
+pub const DOH_STANDARD_PATH: &str = "/dns-query";
+
+// DoH JSON格式标识
+pub const DOH_FORMAT_JSON: &str = "json";
+
+// DoH 二进制格式标识
+pub const DOH_FORMAT_WIRE: &str = "wire"; 

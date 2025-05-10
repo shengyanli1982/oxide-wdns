@@ -121,9 +121,9 @@ dns_resolver:
                 "blocked.test should be blackholed");
         
         // 测试不匹配任何规则的域名
-        let decision = router.match_domain("random.example.org").await;
+        let decision = router.match_domain("randoMETRICS.example.org").await;
         assert!(matches!(decision, RouteDecision::UseGlobal), 
-                "random.example.org should use global upstream");
+                "randoMETRICS.example.org should use global upstream");
         
         info!("Test completed: test_routing_exact_match");
     }
@@ -171,10 +171,10 @@ dns_resolver:
         assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "cn_group"), 
                 "example.cn should match to cn_group");
         
-        // 测试匹配.com.cn域名
-        let decision = router.match_domain("example.com.cn").await;
+        // 测试匹配.coMETRICS.cn域名
+        let decision = router.match_domain("example.coMETRICS.cn").await;
         assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "cn_group"), 
-                "example.com.cn should match to cn_group");
+                "example.coMETRICS.cn should match to cn_group");
         
         // 测试不匹配的域名
         let decision = router.match_domain("example.com").await;
