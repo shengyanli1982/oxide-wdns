@@ -13,7 +13,8 @@ RUN apk add --no-cache \
     musl-dev \
     pkgconfig \
     cmake \
-    git
+    git \
+    perl
 
 # 设置工作目录
 WORKDIR /build
@@ -49,7 +50,7 @@ WORKDIR /app
 COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/owdns /app/owdns
 COPY --from=builder /build/target/x86_64-unknown-linux-musl/release/owdns-cli /app/owdns-cli
 
-# (可选) 复制默认配置文件
+# 复制默认配置文件
 # COPY config.default.yaml /app/config.yaml
 
 # 设置运行用户 (保持不变)
@@ -63,4 +64,4 @@ EXPOSE 3053
 # 默认运行服务端程序。
 # 客户端可以通过 `docker exec <container_id> /app/owdns-cli ...` 来运行。
 # 假设服务端需要一个配置文件
-CMD ["./owdns"] # 如果有默认配置文件路径，请修改 
+ENTRYPOINT ["/app/owdns"]
