@@ -39,11 +39,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
-        id: meta
+      - name: Set AMD64 image name
+        run: echo "IMAGE_NAME_AMD64=${{ env.IMAGE_NAME }}-amd64" >> $GITHUB_ENV
+
+      - name: Set ARM64 image name
+        run: echo "IMAGE_NAME_ARM64=${{ env.IMAGE_NAME }}-arm64" >> $GITHUB_ENV
+
+      - name: Extract metadata for Docker (AMD64)
+        id: meta_amd64
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.version_tag && github.event.inputs.version_tag || 'latest' }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Extract metadata for Docker (ARM64)
+        id: meta_arm64
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}
           tags: |
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
@@ -56,9 +72,9 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
-          labels: ${{ steps.meta.outputs.labels }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
+          labels: ${{ steps.meta_amd64.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
@@ -74,9 +90,9 @@ jobs:
           file: ./Dockerfile-arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
-          labels: ${{ steps.meta.outputs.labels }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
+          labels: ${{ steps.meta_arm64.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/arm64
@@ -99,15 +115,15 @@ jobs:
 
           # 确保从 registry 拉取最新构建的镜像
           echo "Pulling amd64 image from registry..."
-          docker pull --platform linux/amd64 "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+          docker pull --platform linux/amd64 "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:$IMAGE_TAG"
 
           # 列出当前 Docker 镜像
           echo "Available Docker images:"
           docker images
 
           # 保存镜像为 tar 文件
-          echo "Saving amd64 image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
-          docker save "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG" > "oxide-wdns-x64-$VERSION.tar"
+          echo "Saving amd64 image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:$IMAGE_TAG"
+          docker save "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:$IMAGE_TAG" > "oxide-wdns-x64-$VERSION.tar"
 
           # 验证 tar 文件是否创建成功
           if [ -f "oxide-wdns-x64-$VERSION.tar" ]; then
@@ -132,15 +148,15 @@ jobs:
 
           # 确保从 registry 拉取最新构建的镜像
           echo "Pulling arm64 image from registry..."
-          docker pull --platform linux/arm64 "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+          docker pull --platform linux/arm64 "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:$IMAGE_TAG"
 
           # 列出当前 Docker 镜像
           echo "Available Docker images:"
           docker images
 
           # 保存镜像为 tar 文件
-          echo "Saving arm64 image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
-          docker save "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG" > "oxide-wdns-arm64-$VERSION.tar"
+          echo "Saving arm64 image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:$IMAGE_TAG"
+          docker save "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:$IMAGE_TAG" > "oxide-wdns-arm64-$VERSION.tar"
 
           # 验证 tar 文件是否创建成功
           if [ -f "oxide-wdns-arm64-$VERSION.tar" ]; then
