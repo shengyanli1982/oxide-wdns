@@ -40,7 +40,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set AMD64 image name
-        run: echo "IMAGE_NAME_AMD64=${{ env.IMAGE_NAME }}-amd64" >> $GITHUB_ENV
+        run: echo "IMAGE_NAME_AMD64=${{ env.IMAGE_NAME }}-x64" >> $GITHUB_ENV
 
       - name: Set ARM64 image name
         run: echo "IMAGE_NAME_ARM64=${{ env.IMAGE_NAME }}-arm64" >> $GITHUB_ENV
