@@ -24,6 +24,33 @@ jobs:
           prerelease: false
           generate_release_notes: true
 
+      - name: Delete existing release assets
+        if: runner.os == 'Windows' || runner.os != 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          echo "Checking for existing release assets..."
+
+          # 获取 release ID
+          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases/tags/$TAG_NAME | jq -r '.id')
+
+          if [ "$RELEASE_ID" != "null" ]; then
+            echo "Found release with ID: $RELEASE_ID"
+            
+            # 获取所有资源并删除匹配的 zip 文件
+            gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets |
+            jq -r '.[] | select(.name | contains("oxide-wdns-") and endswith(".zip")) | .id' |
+            while read asset_id; do
+              if [ ! -z "$asset_id" ]; then
+                echo "Deleting asset ID: $asset_id"
+                gh api -X DELETE repos/${{ github.repository }}/releases/assets/$asset_id
+              fi
+            done
+          else
+            echo "No existing release found for tag: $TAG_NAME"
+          fi
+
   build-release:
     needs: create-release
     strategy:
