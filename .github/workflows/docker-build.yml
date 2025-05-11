@@ -26,6 +26,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -36,25 +39,42 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
-        id: meta
+      - name: Set AMD64 image name
+        run: echo "IMAGE_NAME_AMD64=${{ env.IMAGE_NAME }}-amd64" >> $GITHUB_ENV
+
+      - name: Set ARM64 image name
+        run: echo "IMAGE_NAME_ARM64=${{ env.IMAGE_NAME }}-arm64" >> $GITHUB_ENV
+
+      - name: Extract metadata for Docker (amd64)
+        id: meta_amd64
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}
           tags: |
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ github.event.inputs.version_tag && github.event.inputs.version_tag || 'latest' }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
-      - name: Build and export Docker image
+      - name: Extract metadata for Docker (arm64)
+        id: meta_arm64
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ github.event.inputs.version_tag && github.event.inputs.version_tag || 'latest' }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Build and push Docker image (amd64)
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: ./Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
-          labels: ${{ steps.meta.outputs.labels }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
+          labels: ${{ steps.meta_amd64.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
@@ -63,7 +83,25 @@ jobs:
             OPENSSL_INCLUDE_DIR=/usr/include
             OPENSSL_STATIC=1
 
-      - name: Save Docker image as tar
+      - name: Build and push Docker image (arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile-arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
+          labels: ${{ steps.meta_arm64.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/arm64
+          build-args: |
+            OPENSSL_LIB_DIR=/usr/lib
+            OPENSSL_INCLUDE_DIR=/usr/include
+            OPENSSL_STATIC=1
+
+      - name: Save Docker image as tar (amd64)
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         run: |
           # 获取版本号
@@ -76,21 +114,54 @@ jobs:
           VERSION=$(echo "$IMAGE_TAG" | sed 's/^v//')
 
           # 确保从 registry 拉取最新构建的镜像
-          echo "Pulling image from registry..."
-          docker pull "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
+          echo "Pulling amd64 image from registry..."
+          docker pull --platform linux/amd64 "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:$IMAGE_TAG"
 
           # 列出当前 Docker 镜像
           echo "Available Docker images:"
           docker images
 
           # 保存镜像为 tar 文件
-          echo "Saving image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG"
-          docker save "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG" > "oxide-wdns-alpine-$VERSION.tar"
+          echo "Saving amd64 image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:$IMAGE_TAG"
+          docker save "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_AMD64 }}:$IMAGE_TAG" > "oxide-wdns-x64-$VERSION.tar"
 
           # 验证 tar 文件是否创建成功
-          if [ -f "oxide-wdns-alpine-$VERSION.tar" ]; then
-            echo "Successfully created tar file: oxide-wdns-alpine-$VERSION.tar"
-            ls -lh "oxide-wdns-alpine-$VERSION.tar"
+          if [ -f "oxide-wdns-x64-$VERSION.tar" ]; then
+            echo "Successfully created tar file: oxide-wdns-x64-$VERSION.tar"
+            ls -lh "oxide-wdns-x64-$VERSION.tar"
+          else
+            echo "Failed to create tar file"
+            exit 1
+          fi
+
+      - name: Save Docker image as tar (arm64)
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        run: |
+          # 获取版本号
+          IMAGE_TAG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            IMAGE_TAG="${{ github.event.inputs.version_tag }}"
+          else
+            IMAGE_TAG="${{ github.ref_name }}"
+          fi
+          VERSION=$(echo "$IMAGE_TAG" | sed 's/^v//')
+
+          # 确保从 registry 拉取最新构建的镜像
+          echo "Pulling arm64 image from registry..."
+          docker pull --platform linux/arm64 "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:$IMAGE_TAG"
+
+          # 列出当前 Docker 镜像
+          echo "Available Docker images:"
+          docker images
+
+          # 保存镜像为 tar 文件
+          echo "Saving arm64 image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:$IMAGE_TAG"
+          docker save "${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ARM64 }}:$IMAGE_TAG" > "oxide-wdns-arm64-$VERSION.tar"
+
+          # 验证 tar 文件是否创建成功
+          if [ -f "oxide-wdns-arm64-$VERSION.tar" ]; then
+            echo "Successfully created tar file: oxide-wdns-arm64-$VERSION.tar"
+            ls -lh "oxide-wdns-arm64-$VERSION.tar"
           else
             echo "Failed to create tar file"
             exit 1
@@ -115,7 +186,7 @@ jobs:
             
             # 获取所有资源并删除匹配的 tar 文件
             gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets |
-            jq -r '.[] | select(.name | contains("oxide-wdns-alpine-")) | .id' |
+            jq -r '.[] | select(.name | contains("oxide-wdns-")) | .id' |
             while read asset_id; do
               if [ ! -z "$asset_id" ]; then
                 echo "Deleting asset ID: $asset_id"
@@ -130,6 +201,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
-          files: oxide-wdns-alpine-*.tar
+          files: oxide-wdns-*.tar
           fail_on_unmatched_files: true
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version_tag || github.ref_name }}

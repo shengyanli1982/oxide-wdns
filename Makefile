@@ -25,7 +25,11 @@ else
   UNAME_S := $(shell uname -s)
   ifeq ($(UNAME_S),Linux)
     # Linux
-    TARGET := x86_64-unknown-linux-gnu
+    ifeq ($(UNAME_M),arm64)
+      TARGET := aarch64-unknown-linux-gnu
+    else
+      TARGET := x86_64-unknown-linux-gnu
+    endif
     EXT :=
   else ifeq ($(UNAME_S),Darwin)
     # MacOS
