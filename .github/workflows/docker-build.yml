@@ -45,7 +45,7 @@ jobs:
       - name: Set ARM64 image name
         run: echo "IMAGE_NAME_ARM64=${{ env.IMAGE_NAME }}-arm64" >> $GITHUB_ENV
 
-      - name: Extract metadata for Docker (AMD64)
+      - name: Extract metadata for Docker (amd64)
         id: meta_amd64
         uses: docker/metadata-action@v5
         with:
@@ -55,7 +55,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ github.event.inputs.version_tag && github.event.inputs.version_tag || 'latest' }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
-      - name: Extract metadata for Docker (ARM64)
+      - name: Extract metadata for Docker (arm64)
         id: meta_arm64
         uses: docker/metadata-action@v5
         with:
