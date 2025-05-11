@@ -35,7 +35,7 @@ jobs:
           - os: ubuntu-latest
             name: ["owdns-linux-x64", "owdns-cli-linux-x64"]
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             name: ["owdns-linux-arm64", "owdns-cli-linux-arm64"]
             target: aarch64-unknown-linux-gnu
             arch: arm64
