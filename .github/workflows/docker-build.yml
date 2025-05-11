@@ -186,7 +186,7 @@ jobs:
             
             # 获取所有资源并删除匹配的 tar 文件
             gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets |
-            jq -r '.[] | select(.name | contains("oxide-wdns-")) | .id' |
+            jq -r '.[] | select(.name | contains("oxide-wdns-") and endswith(".tar")) | .id' |
             while read asset_id; do
               if [ ! -z "$asset_id" ]; then
                 echo "Deleting asset ID: $asset_id"
