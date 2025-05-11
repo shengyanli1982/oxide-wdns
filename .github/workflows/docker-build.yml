@@ -167,36 +167,6 @@ jobs:
             exit 1
           fi
 
-      - name: Delete existing release assets
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event.inputs.version_tag && github.event.inputs.version_tag || github.ref_name }}
-        run: |
-          # 获取版本号
-          VERSION=$(echo "$TAG_NAME" | sed 's/^v//')
-
-          echo "Checking for existing release assets..."
-
-          # 获取 release ID
-          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases/tags/$TAG_NAME | jq -r '.id')
-
-          if [ "$RELEASE_ID" != "null" ]; then
-            echo "Found release with ID: $RELEASE_ID"
-            
-            # 获取所有资源并删除匹配的 tar 文件
-            gh api repos/${{ github.repository }}/releases/$RELEASE_ID/assets |
-            jq -r '.[] | select(.name | contains("oxide-wdns-")) | .id' |
-            while read asset_id; do
-              if [ ! -z "$asset_id" ]; then
-                echo "Deleting asset ID: $asset_id"
-                gh api -X DELETE repos/${{ github.repository }}/releases/assets/$asset_id
-              fi
-            done
-          else
-            echo "No existing release found for tag: $TAG_NAME"
-          fi
-
       - name: Upload tar to release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
