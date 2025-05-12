@@ -244,12 +244,24 @@ dns_resolver:
       #     path: "/etc/oxide-wdns/china_domains.txt"
       #   upstream_group: "alidns_doh"
 
-      # # 规则 6: 从远程 URL 加载广告域名列表，使用 __blackhole__ 阻止它们
-      # # 来自 URL 的规则会周期性获取。格式请参考下方说明。
-      # - match:
-      #     type: url
-      #     url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
-      #   upstream_group: "__blackhole__"
+      # 规则 6: 从远程 URL 加载广告域名列表，使用 __blackhole__ 阻止它们
+      # 来自 URL 的规则会周期性获取。格式请参考下方说明。
+      - match:
+          type: url
+          url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
+        # 目标上游组
+        upstream_group: "__blackhole__"
+
+        # --- 当前 rule 周期性加载广告域名列表配置 ---
+        periodic:
+          # 是否启用周期性加载广告域名列表的功能。
+          # 仅在 dns_resolver.routing.enabled: true 时生效。
+          enabled: true
+
+          # 周期性加载广告域名列表的时间间隔（秒）。
+          # 例如: 3600 (1小时)。
+          # 仅在 periodic.enabled: true 时生效。
+          interval_secs: 3600
 
     # --- 默认上游组配置 ---
     # 可选: 指定一个在 'upstream_groups' 中已定义的组名，作为默认的上游处理者。

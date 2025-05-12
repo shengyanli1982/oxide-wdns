@@ -7,14 +7,41 @@ use std::sync::Arc;
 use lazy_static::lazy_static;
 use regex::Regex;
 use tokio::sync::RwLock as AsyncRwLock;
-use tracing::{error, info};
+use tracing::{debug, error, info, warn};
 use reqwest::Client;
 use tokio::time::{Duration, interval};
+use xxhash_rust::xxh64::xxh64;
 
 use crate::server::config::{RoutingConfig, MatchType, MatchCondition};
 use crate::server::error::{ServerError, Result};
-use crate::common::consts::BLACKHOLE_UPSTREAM_GROUP_NAME;
+use crate::common::consts::{
+    BLACKHOLE_UPSTREAM_GROUP_NAME,
+};
 use crate::server::metrics::METRICS;
+
+// 路由规则类型标签值
+const ROUTE_RULE_TYPE_EXACT: &str = "exact";
+const ROUTE_RULE_TYPE_REGEX: &str = "regex";
+const ROUTE_RULE_TYPE_WILDCARD: &str = "wildcard";
+const ROUTE_RULE_TYPE_FILE: &str = "file";
+const ROUTE_RULE_TYPE_URL: &str = "url";
+
+// URL规则类型标签值
+const URL_RULE_TYPE_EXACT: &str = "url_exact";
+const URL_RULE_TYPE_REGEX: &str = "url_regex";
+const URL_RULE_TYPE_WILDCARD: &str = "url_wildcard";
+
+// 路由结果类型标签值
+const ROUTE_RESULT_DISABLED: &str = "disabled";
+const ROUTE_RESULT_BLACKHOLE: &str = "blackhole";
+const ROUTE_RESULT_RULE_MATCH: &str = "rule_match";
+const ROUTE_RESULT_DEFAULT: &str = "default";
+const ROUTE_RESULT_GLOBAL: &str = "global";
+
+// URL规则更新相关常量
+const URL_RULE_UPDATE_STATUS_SUCCESS: &str = "success";         // 状态：成功
+const URL_RULE_UPDATE_STATUS_FAILED: &str = "failed";           // 状态：失败
+const URL_RULE_UPDATE_STATUS_UNCHANGED: &str = "unchanged";     // 状态：未变更
 
 // 路由决策结果
 #[derive(Debug, Clone, PartialEq)]
@@ -46,6 +73,8 @@ enum CompiledMatcher {
     Url {
         url: String,
         rules: Arc<AsyncRwLock<UrlRules>>,
+        // 周期性更新配置
+        periodic: Option<PeriodicConfig>,
     },
 }
 
@@ -60,6 +89,17 @@ struct UrlRules {
     wildcard: Vec<WildcardPattern>,
     // 上次更新时间
     last_updated: Option<std::time::Instant>,
+    // 上次内容哈希值
+    last_hash: Option<u64>,
+}
+
+// 内部周期性更新配置
+#[derive(Debug, Clone)]
+struct PeriodicConfig {
+    // 是否启用周期性更新
+    enabled: bool,
+    // 更新间隔（秒）
+    interval_secs: u64,
 }
 
 // 通配符模式
@@ -141,11 +181,11 @@ impl Router {
         
         // 记录规则计数指标
         {
-            METRICS.route_rules().with_label_values(&["exact"]).set(exact_count as f64);
-            METRICS.route_rules().with_label_values(&["regex"]).set(regex_count as f64);
-            METRICS.route_rules().with_label_values(&["wildcard"]).set(wildcard_count as f64);
-            METRICS.route_rules().with_label_values(&["file"]).set(file_count as f64);
-            METRICS.route_rules().with_label_values(&["url"]).set(url_count as f64);
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_EXACT]).set(exact_count as f64);
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_REGEX]).set(regex_count as f64);
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_WILDCARD]).set(wildcard_count as f64);
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_FILE]).set(file_count as f64);
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_URL]).set(url_count as f64);
         }
         
         // 创建路由器
@@ -156,8 +196,8 @@ impl Router {
             http_client,
         };
         
-        // 启动URL规则更新任务
-        router.start_url_updater().await;
+        // 启动URL规则更新任务，仅当全局路由功能已启用时
+        router.start_url_updaters().await;
         
         Ok(router)
     }
@@ -167,7 +207,7 @@ impl Router {
         // 如果路由未启用，返回使用全局上游
         if !self.enabled {
             {
-                METRICS.route_results_total().with_label_values(&["disabled"]).inc();
+                METRICS.route_results_total().with_label_values(&[ROUTE_RESULT_DISABLED]).inc();
             }
             return RouteDecision::UseGlobal;
         }
@@ -213,14 +253,14 @@ impl Router {
                 // 如果是黑洞，返回黑洞决策
                 if rule.upstream_group == BLACKHOLE_UPSTREAM_GROUP_NAME {
                     {
-                        METRICS.route_results_total().with_label_values(&["blackhole"]).inc();
+                        METRICS.route_results_total().with_label_values(&[ROUTE_RESULT_BLACKHOLE]).inc();
                     }
                     return RouteDecision::Blackhole;
                 }
                 
                 // 否则返回使用特定上游组
                 {
-                    METRICS.route_results_total().with_label_values(&["rule_match"]).inc();
+                    METRICS.route_results_total().with_label_values(&[ROUTE_RESULT_RULE_MATCH]).inc();
                 }
                 return RouteDecision::UseGroup(rule.upstream_group.clone());
             }
@@ -229,14 +269,14 @@ impl Router {
         // 如果没有规则匹配，检查默认上游组
         if let Some(default_group) = &self.default_upstream_group {
             {
-                METRICS.route_results_total().with_label_values(&["default"]).inc();
+                METRICS.route_results_total().with_label_values(&[ROUTE_RESULT_DEFAULT]).inc();
             }
             return RouteDecision::UseGroup(default_group.clone());
         }
         
         // 没有匹配规则且没有默认组，使用全局上游
         {
-            METRICS.route_results_total().with_label_values(&["global"]).inc();
+            METRICS.route_results_total().with_label_values(&[ROUTE_RESULT_GLOBAL]).inc();
         }
         RouteDecision::UseGlobal
     }
@@ -316,9 +356,16 @@ impl Router {
                 // 创建空的初始规则集
                 let rules = Arc::new(AsyncRwLock::new(UrlRules::default()));
                 
+                // 解析周期性更新配置
+                let periodic = condition.periodic.as_ref().map(|p| PeriodicConfig {
+                    enabled: p.enabled,
+                    interval_secs: p.interval_secs,
+                });
+                
                 Ok(CompiledMatcher::Url {
                     url,
                     rules,
+                    periodic,
                 })
             },
         }
@@ -554,7 +601,7 @@ impl Router {
     }
     
     // 从URL加载规则
-    async fn load_rules_from_url(client: &Client, url: &str) -> Result<(HashSet<String>, Vec<Regex>, Vec<WildcardPattern>)> {
+    async fn load_rules_from_url(client: &Client, url: &str) -> Result<(String, HashSet<String>, Vec<Regex>, Vec<WildcardPattern>)> {
         // 发送 HTTP 请求
         let response = match client.get(url).send().await {
             Ok(resp) => resp,
@@ -600,9 +647,9 @@ impl Router {
         {
             // URL规则总数基于下载的规则自动更新
             let _url_rules_count = exact.len() + regex.len() + wildcard.len(); 
-            METRICS.route_rules().with_label_values(&["url_exact"]).set(exact.len() as f64);
-            METRICS.route_rules().with_label_values(&["url_regex"]).set(regex.len() as f64);
-            METRICS.route_rules().with_label_values(&["url_wildcard"]).set(wildcard.len() as f64);
+            METRICS.route_rules().with_label_values(&[URL_RULE_TYPE_EXACT]).set(exact.len() as f64);
+            METRICS.route_rules().with_label_values(&[URL_RULE_TYPE_REGEX]).set(regex.len() as f64);
+            METRICS.route_rules().with_label_values(&[URL_RULE_TYPE_WILDCARD]).set(wildcard.len() as f64);
         }
         
         info!(
@@ -613,56 +660,89 @@ impl Router {
             "Loaded domain rules from URL"
         );
         
-        Ok((exact, regex, wildcard))
+        Ok((text, exact, regex, wildcard))
     }
     
-    // 启动URL规则更新任务
-    async fn start_url_updater(&self) {
+    // 启动所有URL规则更新任务
+    async fn start_url_updaters(&self) {
         // 如果没有HTTP客户端，无法更新URL规则
         let Some(client) = &self.http_client else {
+            warn!("HTTP client not available, URL rules will not be automatically updated");
             return;
         };
         
-        // 收集所有URL规则
-        let mut url_rules = Vec::new();
-        for rule in &self.rules {
-            if let CompiledMatcher::Url { url, rules } = &rule.matcher {
-                url_rules.push((url.to_string(), Arc::clone(rules)));
+        // 收集需要周期性更新的URL规则
+        for (index, rule) in self.rules.iter().enumerate() {
+            if let CompiledMatcher::Url { url, rules, periodic } = &rule.matcher {
+                // 只对配置了周期性更新并启用的规则创建更新任务
+                if let Some(config) = periodic {
+                    if config.enabled {
+                        // 创建HTTP客户端和规则对象的克隆
+                        let client_clone = client.clone();
+                        let url_clone = url.clone();
+                        let rules_clone = Arc::clone(rules);
+                        let interval_secs = config.interval_secs;
+                        let upstream_group = rule.upstream_group.clone();
+                        
+                        // 启动独立的更新任务
+                        tokio::spawn(async move {
+                            // 创建间隔计时器（使用规则自身的更新间隔）
+                            let mut interval_timer = interval(Duration::from_secs(interval_secs));
+                            
+                            info!(
+                                url = url_clone, 
+                                rule_index = index, 
+                                interval_secs = interval_secs,
+                                upstream_group = upstream_group,
+                                "Started URL rule periodic updater"
+                            );
+                            
+                            // 立即执行第一次更新
+                            Self::update_single_url_rule(&client_clone, &url_clone, &rules_clone, &upstream_group).await;
+                            
+                            // 定期更新
+                            loop {
+                                interval_timer.tick().await;
+                                Self::update_single_url_rule(&client_clone, &url_clone, &rules_clone, &upstream_group).await;
+                            }
+                        });
+                    } else {
+                        debug!(url = url, rule_index = index, "URL rule periodic update disabled by config");
+                    }
+                } else {
+                    debug!(url = url, rule_index = index, "URL rule has no periodic update configuration");
+                }
             }
         }
-        
-        // 如果没有URL规则，无需启动更新任务
-        if url_rules.is_empty() {
-            return;
-        }
-        
-        // 创建HTTP客户端的克隆
-        let client = client.clone();
-        
-        // 启动更新任务
-        tokio::spawn(async move {
-            // 创建间隔计时器（每小时更新一次）
-            let mut interval = interval(Duration::from_secs(3600));
-            
-            info!("URL rules updater started - {} URLs", url_rules.len());
-            
-            // 立即执行第一次更新
-            Self::update_url_rules(&client, &url_rules).await;
-            
-            // 定期更新
-            loop {
-                interval.tick().await;
-                Self::update_url_rules(&client, &url_rules).await;
-            }
-        });
     }
     
-    // 更新URL规则
-    async fn update_url_rules(client: &Client, url_rules: &[(String, Arc<AsyncRwLock<UrlRules>>)]) {
-        for (url, rules) in url_rules {
-            // 尝试更新规则
-            match Self::load_rules_from_url(client, url).await {
-                Ok((exact, regex, wildcard)) => {
+    // 更新单个URL规则
+    async fn update_single_url_rule(client: &Client, url: &str, rules: &Arc<AsyncRwLock<UrlRules>>, upstream_group: &str) {
+        let start_time = std::time::Instant::now();
+        let mut status = URL_RULE_UPDATE_STATUS_FAILED;
+        
+        // 尝试获取规则内容并计算哈希
+        match Self::load_rules_from_url(client, url).await {
+            Ok((content, exact, regex, wildcard)) => {
+                // 计算内容哈希
+                let new_hash = xxh64(content.as_bytes(), 0);
+                
+                // 先获取读锁，比较哈希值
+                let need_update = {
+                    let rules_read = rules.read().await;
+                    match rules_read.last_hash {
+                        Some(hash) if hash == new_hash => {
+                            // 内容未变化，无需更新
+                            debug!(url = url, "URL content unchanged (hash match), skipping update");
+                            status = URL_RULE_UPDATE_STATUS_UNCHANGED;
+                            false
+                        },
+                        _ => true
+                    }
+                };
+                
+                // 内容有变化或首次加载，需要更新规则
+                if need_update {
                     // 获取写锁
                     let mut rules_write = rules.write().await;
                     
@@ -671,14 +751,26 @@ impl Router {
                     rules_write.regex = regex;
                     rules_write.wildcard = wildcard;
                     rules_write.last_updated = Some(std::time::Instant::now());
+                    rules_write.last_hash = Some(new_hash);
                     
-                    // 记录成功
-                    info!(url = url, "Updated rules from URL");
-                },
-                Err(e) => {
-                    error!(url = url, error = %e, "Failed to update rules from URL");
+                    status = URL_RULE_UPDATE_STATUS_SUCCESS;
+                    info!(
+                        url = url,
+                        exact_rules = rules_write.exact.len(),
+                        regex_rules = rules_write.regex.len(),
+                        wildcard_rules = rules_write.wildcard.len(),
+                        elapsed_ms = start_time.elapsed().as_millis(),
+                        "Updated URL rules successfully"
+                    );
                 }
+            },
+            Err(e) => {
+                error!(url = url, error = %e, "Failed to update rules from URL");
             }
         }
+        
+        // 更新指标
+        let elapsed = start_time.elapsed().as_secs_f64();
+        METRICS.url_rule_update_duration_seconds().with_label_values(&[status, upstream_group]).observe(elapsed);
     }
 } 
