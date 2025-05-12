@@ -793,7 +793,7 @@ impl ServerConfig {
             MatchType::Exact => {
                 if match_.values.is_none() {
                     return Err(ServerError::Config(format!(
-                        "规则[{}]：Exact 类型的匹配条件需要提供 'values' 数组",
+                        "Rule [{}]: Exact match type requires 'values' array",
                         rule_index
                     )));
                 }
@@ -801,7 +801,7 @@ impl ServerConfig {
             MatchType::Regex => {
                 if match_.values.is_none() {
                     return Err(ServerError::Config(format!(
-                        "规则[{}]：Regex 类型的匹配条件需要提供 'values' 数组",
+                        "Rule [{}]: Regex match type requires 'values' array",
                         rule_index
                     )));
                 }
@@ -810,7 +810,7 @@ impl ServerConfig {
                     for (i, pattern) in values.iter().enumerate() {
                         if let Err(e) = regex::Regex::new(pattern) {
                             return Err(ServerError::Config(format!(
-                                "规则[{}]：Regex 模式 [{}] '{}' 无效：{}",
+                                "Rule [{}]: Regex pattern [{}] '{}' is invalid: {}",
                                 rule_index, i, pattern, e
                             )));
                         }
@@ -820,7 +820,7 @@ impl ServerConfig {
             MatchType::Wildcard => {
                 if match_.values.is_none() {
                     return Err(ServerError::Config(format!(
-                        "规则[{}]：Wildcard 类型的匹配条件需要提供 'values' 数组",
+                        "Rule [{}]: Wildcard match type requires 'values' array",
                         rule_index
                     )));
                 }
@@ -828,7 +828,7 @@ impl ServerConfig {
             MatchType::File => {
                 if match_.path.is_none() {
                     return Err(ServerError::Config(format!(
-                        "规则[{}]：File 类型的匹配条件需要提供 'path' 文件路径",
+                        "Rule [{}]: File match type requires 'path' file path",
                         rule_index
                     )));
                 }
@@ -837,20 +837,20 @@ impl ServerConfig {
                     let path = Path::new(path);
                     if !path.exists() {
                         return Err(ServerError::Config(format!(
-                            "规则[{}]：File 类型的路径 '{}' 不存在",
+                            "Rule [{}]: File type path '{}' does not exist",
                             rule_index, path.display()
                         )));
                     }
                     if !path.is_file() {
                         return Err(ServerError::Config(format!(
-                            "规则[{}]：File 类型的路径 '{}' 不是一个文件",
+                            "Rule [{}]: File type path '{}' is not a file",
                             rule_index, path.display()
                         )));
                     }
                     // 尝试读取文件，验证其可访问性
                     if let Err(e) = fs::read_to_string(path) {
                         return Err(ServerError::Config(format!(
-                            "规则[{}]：无法读取 File 类型的文件 '{}': {}",
+                            "Rule [{}]: Cannot read File type file '{}': {}",
                             rule_index, path.display(), e
                         )));
                     }
@@ -859,7 +859,7 @@ impl ServerConfig {
             MatchType::Url => {
                 if match_.url.is_none() {
                     return Err(ServerError::Config(format!(
-                        "规则[{}]：Url 类型的匹配条件需要提供 'url' 地址",
+                        "Rule [{}]: Url match type requires 'url' address",
                         rule_index
                     )));
                 }
@@ -867,7 +867,7 @@ impl ServerConfig {
                 if let Some(ref url) = match_.url {
                     if let Err(e) = url::Url::parse(url) {
                         return Err(ServerError::Config(format!(
-                            "规则[{}]：Url 类型的 URL '{}' 无效：{}",
+                            "Rule [{}]: Url type URL '{}' is invalid: {}",
                             rule_index, url, e
                         )));
                     }
@@ -879,13 +879,13 @@ impl ServerConfig {
                         // 验证更新间隔是否在合理范围内
                         if periodic.interval_secs < MIN_URL_RULE_UPDATE_INTERVAL_SECS {
                             return Err(ServerError::Config(format!(
-                                "规则[{}]：Url 类型的周期性更新间隔 {} 秒小于最小允许值 {} 秒",
+                                "Rule [{}]: Url type periodic update interval {} seconds is less than the minimum allowed value {} seconds",
                                 rule_index, periodic.interval_secs, MIN_URL_RULE_UPDATE_INTERVAL_SECS
                             )));
                         }
                         if periodic.interval_secs > MAX_URL_RULE_UPDATE_INTERVAL_SECS {
                             return Err(ServerError::Config(format!(
-                                "规则[{}]：Url 类型的周期性更新间隔 {} 秒大于最大允许值 {} 秒",
+                                "Rule [{}]: Url type periodic update interval {} seconds is greater than the maximum allowed value {} seconds",
                                 rule_index, periodic.interval_secs, MAX_URL_RULE_UPDATE_INTERVAL_SECS
                             )));
                         }

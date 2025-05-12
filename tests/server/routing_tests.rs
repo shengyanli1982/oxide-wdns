@@ -76,7 +76,7 @@ mod tests {
     ) -> MockServer {
         let mock_server = MockServer::start().await;
         
-        info!("设置内容变化模拟服务器：初始内容长度={}，更新内容长度={}", 
+        info!("Setting up content change mock server: initial content length={}, updated content length={}", 
               initial_content.len(), updated_content.len());
         
         // 使用一种更简单且可靠的方式：
@@ -98,7 +98,7 @@ mod tests {
             .mount(&mock_server)
             .await;
             
-        info!("模拟服务器设置完成: {}", mock_server.uri());
+        info!("Mock server setup complete: {}", mock_server.uri());
         mock_server
     }
     
@@ -678,29 +678,29 @@ dns_resolver:
         // 验证初始规则工作正常
         let decision = router.match_domain("adserver1.example.com").await;
         assert!(matches!(decision, RouteDecision::Blackhole), 
-                "初始加载后，adserver1.example.com应该被拦截");
+                "After initial loading, adserver1.example.com should be blocked");
                 
         let decision = router.match_domain("test.malware123.example.org").await;
         assert!(matches!(decision, RouteDecision::Blackhole), 
-                "初始加载后，test.malware123.example.org应该被拦截");
+                "After initial loading, test.malware123.example.org should be blocked");
         
         // 等待触发周期性更新（内容相同，不应重新解析规则）
-        info!("等待35秒让周期性更新被触发...");
+        info!("Waiting for 35 seconds to trigger periodic update...");
         sleep(Duration::from_secs(35)).await;
         
         // 验证规则仍然有效（尽管实际上没有重新解析，因为哈希相同）
         let decision = router.match_domain("adserver1.example.com").await;
         assert!(matches!(decision, RouteDecision::Blackhole),
-                "哈希相同时，规则应保持不变，adserver1.example.com应该被拦截");
+                "When hash is the same, rules should remain unchanged, adserver1.example.com should be blocked");
                 
         let decision = router.match_domain("subdomain.tracker.example.net").await;
         assert!(matches!(decision, RouteDecision::Blackhole),
-                "哈希相同时，规则应保持不变，subdomain.tracker.example.net应该被拦截");
+                "When hash is the same, rules should remain unchanged, subdomain.tracker.example.net should be blocked");
         
         // 验证不匹配的域名仍然不被拦截
         let decision = router.match_domain("normal.example.org").await;
         assert!(matches!(decision, RouteDecision::UseGlobal),
-                "哈希相同时，规则应保持不变，normal.example.org不应被拦截");
+                "When hash is the same, rules should remain unchanged, normal.example.org should not be blocked");
         
         info!("Test completed: test_url_rule_hash_comparison_identical_content");
     }
@@ -767,19 +767,19 @@ dns_resolver:
         // 验证初始规则工作正常
         let decision = router.match_domain("adserver1.example.com").await;
         assert!(matches!(decision, RouteDecision::Blackhole), 
-                "初始加载后，adserver1.example.com应该被拦截");
+                "After initial loading, adserver1.example.com should be blocked");
         
         // 验证新规则最初不匹配
         let decision = router.match_domain("newserver.example.com").await;
         assert!(matches!(decision, RouteDecision::UseGlobal), 
-                "初始加载后，newserver.example.com不应被拦截");
+                "After initial loading, newserver.example.com should not be blocked");
                 
         let decision = router.match_domain("sub.malicious.test").await;
         assert!(matches!(decision, RouteDecision::UseGlobal), 
-                "初始加载后，sub.malicious.test不应被拦截");
+                "After initial loading, sub.malicious.test should not be blocked");
         
         // 获取更新后的内容验证
-        info!("获取更新后的内容进行验证...");
+        info!("Getting updated content for verification...");
         let client = Client::new();
         let response = client.get(format!("{}/updated", mock_server.uri())).send().await
             .expect("Failed to get updated content");
@@ -787,11 +787,11 @@ dns_resolver:
         
         // 验证获取到的是更新后的内容
         assert!(updated_text.contains("newserver.example.com"), 
-                "更新内容应包含新服务器域名");
+                "Updated content should contain new server domain");
         assert!(updated_text.contains("wildcard:*.malicious.test"), 
-                "更新内容应包含恶意域名通配符");
+                "Updated content should contain malicious domain wildcard");
         
-        info!("已验证更新内容包含新的域名规则");
+        info!("Verified that updated content contains new domain rules");
         
         // 创建一个新配置，指向更新后的内容URL
         let updated_config_content = format!(r#"
@@ -827,25 +827,25 @@ dns_resolver:
         sleep(Duration::from_millis(1000)).await;
         
         // 验证新规则是否生效
-        info!("使用新配置创建的Router进行测试...");
+        info!("Using new configuration to create Router for testing...");
         
         // 验证原有规则仍然有效
         let decision = updated_router.match_domain("adserver1.example.com").await;
-        info!("更新后检查 adserver1.example.com 的匹配结果: {:?}", decision);
+        info!("After update, checking match result for adserver1.example.com: {:?}", decision);
         assert!(matches!(decision, RouteDecision::Blackhole), 
-                "更新后，adserver1.example.com仍应被拦截");
+                "After update, adserver1.example.com should still be blocked");
         
         // 验证新规则是否生效
         let decision = updated_router.match_domain("newserver.example.com").await;
-        info!("更新后检查 newserver.example.com 的匹配结果: {:?}", decision);
+        info!("After update, checking match result for newserver.example.com: {:?}", decision);
         assert!(matches!(decision, RouteDecision::Blackhole), 
-                "更新后，newserver.example.com应该被拦截");
+                "After update, newserver.example.com should be blocked");
                 
         // 验证新的通配符规则是否生效
         let decision = updated_router.match_domain("sub.malicious.test").await;
-        info!("更新后检查 sub.malicious.test 的匹配结果: {:?}", decision);
+        info!("After update, checking match result for sub.malicious.test: {:?}", decision);
         assert!(matches!(decision, RouteDecision::Blackhole), 
-                "更新后，sub.malicious.test应该被拦截");
+                "After update, sub.malicious.test should be blocked");
         
         info!("Test completed: test_url_rule_hash_comparison_changed_content");
     }
@@ -918,11 +918,11 @@ dns_resolver:
         
         // 更宽松的断言，因为测试可能不稳定
         if matches!(decision, RouteDecision::UseGroup(ref group) if group == "enabled_group") {
-            info!("周期性更新的规则生效: test.example.com -> enabled_group");
+            info!("Periodic update rule is effective: test.example.com -> enabled_group");
         } else if matches!(decision, RouteDecision::UseGroup(ref group) if group == "disabled_group") {
-            info!("禁用周期更新的规则生效: test.example.com -> disabled_group");
+            info!("Disabled periodic update rule is effective: test.example.com -> disabled_group");
         } else {
-            info!("没有匹配任何URL规则: test.example.com -> 全局默认");
+            info!("No URL rules matched: test.example.com -> global default");
         }
         
         // 不再强制断言特定结果，避免不稳定测试
@@ -975,7 +975,7 @@ dns_resolver:
         // 由于URL不可达，不应该匹配任何规则
         let decision = router.match_domain("test.example.com").await;
         assert!(matches!(decision, RouteDecision::UseGlobal),
-                "URL不可达时，不应匹配任何规则");
+                "When URL is unreachable, no rules should match");
         
         info!("Test completed: test_url_rule_error_handling_unreachable");
     }
@@ -1027,15 +1027,15 @@ dns_resolver:
         
         // 放宽测试要求，因为在有一些格式错误的情况下，解析行为可能变化
         if matches!(decision, RouteDecision::Blackhole) {
-            info!("格式部分有效时，有效的规则生效：valid.domain.com被拦截");
+            info!("When format is partially valid, valid rules are effective: valid.domain.com is blocked");
         } else {
-            info!("由于格式错误，规则可能未完全解析：valid.domain.com未被拦截");
+            info!("Due to format errors, rules may not have been fully parsed: valid.domain.com is not blocked");
         }
         
         // 验证格式无效的规则不会导致系统崩溃
         let decision = router.match_domain("other.example.com").await;
         assert!(matches!(decision, RouteDecision::UseGlobal),
-                "格式无效的规则不应匹配");
+                "Invalid format rules should not match");
         
         info!("Test completed: test_url_rule_error_handling_invalid_format");
     }
@@ -1090,7 +1090,7 @@ dns_resolver:
         // 验证所有域名都使用全局上游（因为全局路由功能已禁用）
         let decision = router.match_domain("test.example.com").await;
         assert!(matches!(decision, RouteDecision::UseGlobal),
-                "当全局路由禁用时，即使URL规则配置了周期性更新，所有域名也应使用全局上游");
+                "When global routing is disabled, all domains should use global upstream even if URL rules have periodic updates enabled");
         
         info!("Test completed: test_url_rule_global_routing_disabled");
     }
