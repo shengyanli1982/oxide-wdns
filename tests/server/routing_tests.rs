@@ -240,9 +240,9 @@ dns_resolver:
                 "example.cn should match to cn_group");
         
         // 测试匹配.coMETRICS.cn域名
-        let decision = router.match_domain("example.coMETRICS.cn").await;
+        let decision = router.match_domain("example.com.cn").await;
         assert!(matches!(decision, RouteDecision::UseGroup(name) if name == "cn_group"), 
-                "example.coMETRICS.cn should match to cn_group");
+                "example.com.cn should match to cn_group");
         
         // 测试不匹配的域名
         let decision = router.match_domain("example.com").await;
