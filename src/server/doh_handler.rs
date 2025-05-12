@@ -32,6 +32,30 @@ use crate::server::upstream::{UpstreamManager, UpstreamSelection};
 use crate::server::ecs::{EcsProcessor};
 use crate::server::metrics::METRICS;
 
+// HTTP 方法常量
+const HTTP_METHOD_GET: &str = "GET";
+const HTTP_METHOD_POST: &str = "POST";
+
+// DNS 事件类型常量
+const DNS_EVENT_RECEIVED: &str = "received";
+const DNS_EVENT_PARAMETER_ERROR: &str = "parameter_error";
+const DNS_EVENT_PROCESSING_FAILED: &str = "processing_failed";
+const DNS_EVENT_PARSE_ERROR: &str = "parse_error";
+const DNS_EVENT_BASE64_DECODE_ERROR: &str = "base64_decode_error";
+
+// DNS 查询类型常量
+const DNS_QUERY_TYPE_UNKNOWN: &str = "Unknown";
+
+// DNS 响应相关常量
+const DNS_RESPONSE_NXDOMAIN_BLACKHOLE: &str = "NXDomain_Blackhole";
+
+// 错误消息常量
+const ERROR_INVALID_DNS_MESSAGE: &str = "Invalid DNS message format";
+const ERROR_INVALID_BASE64: &str = "Invalid base64 encoding";
+const ERROR_SERIALIZE_RESPONSE: &str = "Failed to serialize DNS response";
+const ERROR_INVALID_CONTENT_TYPE: &str = "Invalid content type";
+const ERROR_REQUEST_TOO_LARGE: &str = "Request body too large";
+const ERROR_READ_REQUEST_BODY: &str = "Failed to read request body";
 
 // 共享的服务器状态
 #[derive(Clone)]
@@ -172,18 +196,18 @@ async fn handle_dns_json_query(
             let status = StatusCode::BAD_REQUEST.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["GET", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["GET", path, format])
+                    .with_label_values(&[HTTP_METHOD_GET, path, format])
                     .observe(duration);
                 
                 // 记录DNS查询错误
                 METRICS.dns_queries_total()
-                    .with_label_values(&[&params.type_value.to_string(), "parameter_error"])
+                    .with_label_values(&[&params.type_value.to_string(), DNS_EVENT_PARAMETER_ERROR])
                     .inc();
             }
             
@@ -194,7 +218,7 @@ async fn handle_dns_json_query(
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["GET", path])
+                    .with_label_values(&[HTTP_METHOD_GET, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -206,12 +230,12 @@ async fn handle_dns_json_query(
     let query_type = if let Some(q) = query_message.queries().first() {
         format!("{:?}", q.query_type())
     } else {
-        "Unknown".to_string()
+        DNS_QUERY_TYPE_UNKNOWN.to_string()
     };
     
     {
         METRICS.dns_queries_total()
-            .with_label_values(&[&query_type, "received"])
+            .with_label_values(&[&query_type, DNS_EVENT_RECEIVED])
             .inc();
         
         METRICS.dns_query_type_total()
@@ -242,18 +266,18 @@ async fn handle_dns_json_query(
             let status = StatusCode::INTERNAL_SERVER_ERROR.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["GET", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["GET", path, format])
+                    .with_label_values(&[HTTP_METHOD_GET, path, format])
                     .observe(duration);
                 
                 // 记录DNS查询错误
                 METRICS.dns_queries_total()
-                    .with_label_values(&[&query_type, "processing_failed"])
+                    .with_label_values(&[&query_type, DNS_EVENT_PROCESSING_FAILED])
                     .inc();
             }
             
@@ -264,7 +288,7 @@ async fn handle_dns_json_query(
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["GET", path])
+                    .with_label_values(&[HTTP_METHOD_GET, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -289,13 +313,13 @@ async fn handle_dns_json_query(
             let status = StatusCode::INTERNAL_SERVER_ERROR.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["GET", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["GET", path, format])
+                    .with_label_values(&[HTTP_METHOD_GET, path, format])
                     .observe(duration);
             }
             
@@ -306,7 +330,7 @@ async fn handle_dns_json_query(
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["GET", path])
+                    .with_label_values(&[HTTP_METHOD_GET, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -354,12 +378,12 @@ async fn handle_dns_json_query(
     let status = StatusCode::OK.as_u16().to_string();
     {
         METRICS.http_requests_total()
-            .with_label_values(&["GET", path, &status, format, &http_version])
+            .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
             .inc();
         
         // 记录请求持续时间
         METRICS.http_request_duration_seconds()
-            .with_label_values(&["GET", path, format])
+            .with_label_values(&[HTTP_METHOD_GET, path, format])
             .observe(duration.as_secs_f64());
         
         // 记录DNS响应
@@ -384,7 +408,7 @@ async fn handle_dns_json_query(
     // 记录响应大小
     {
         METRICS.http_response_bytes()
-            .with_label_values(&["GET", path])
+            .with_label_values(&[HTTP_METHOD_GET, path])
             .observe(response_size_estimate as f64);
     }
     
@@ -417,7 +441,7 @@ async fn handle_dns_wire_get(
             // 记录请求大小
             {
                 METRICS.http_request_bytes()
-                    .with_label_values(&["GET", path])
+                    .with_label_values(&[HTTP_METHOD_GET, path])
                     .observe(data.len() as f64);
             }
             
@@ -434,29 +458,29 @@ async fn handle_dns_wire_get(
                     let status = StatusCode::BAD_REQUEST.as_u16().to_string();
                     {
                         METRICS.http_requests_total()
-                            .with_label_values(&["GET", path, &status, format, &http_version])
+                            .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
                             .inc();
                         
                         // 记录请求持续时间
                         let duration = start.elapsed().as_secs_f64();
                         METRICS.http_request_duration_seconds()
-                            .with_label_values(&["GET", path, format])
+                            .with_label_values(&[HTTP_METHOD_GET, path, format])
                             .observe(duration);
                         
                         // 记录DNS查询错误
                         METRICS.dns_queries_total()
-                            .with_label_values(&["Unknown", "parse_error"])
+                            .with_label_values(&[DNS_QUERY_TYPE_UNKNOWN, DNS_EVENT_PARSE_ERROR])
                             .inc();
                     }
                     
                     // 返回错误响应
-                    let error_body = "Invalid DNS message format";
+                    let error_body = ERROR_INVALID_DNS_MESSAGE;
                     let response = (StatusCode::BAD_REQUEST, error_body).into_response();
                     
                     // 记录响应大小
                     {
                         METRICS.http_response_bytes()
-                            .with_label_values(&["GET", path])
+                            .with_label_values(&[HTTP_METHOD_GET, path])
                             .observe(error_body.len() as f64);
                     }
                     
@@ -475,29 +499,29 @@ async fn handle_dns_wire_get(
             let status = StatusCode::BAD_REQUEST.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["GET", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["GET", path, format])
+                    .with_label_values(&[HTTP_METHOD_GET, path, format])
                     .observe(duration);
                 
                 // 记录DNS查询错误
                 METRICS.dns_queries_total()
-                    .with_label_values(&["Unknown", "base64_decode_error"])
+                    .with_label_values(&[DNS_QUERY_TYPE_UNKNOWN, DNS_EVENT_BASE64_DECODE_ERROR])
                     .inc();
             }
             
             // 返回错误响应
-            let error_body = "Invalid base64 encoding";
+            let error_body = ERROR_INVALID_BASE64;
             let response = (StatusCode::BAD_REQUEST, error_body).into_response();
             
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["GET", path])
+                    .with_label_values(&[HTTP_METHOD_GET, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -515,12 +539,12 @@ async fn handle_dns_wire_get(
     let query_type = if let Some(q) = query_message.queries().first() {
         format!("{:?}", q.query_type())
     } else {
-        "Unknown".to_string()
+        DNS_QUERY_TYPE_UNKNOWN.to_string()
     };
     
     {
         METRICS.dns_queries_total()
-            .with_label_values(&[&query_type, "received"])
+            .with_label_values(&[&query_type, DNS_EVENT_RECEIVED])
             .inc();
         
         METRICS.dns_query_type_total()
@@ -549,18 +573,18 @@ async fn handle_dns_wire_get(
             let status = StatusCode::INTERNAL_SERVER_ERROR.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["GET", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["GET", path, format])
+                    .with_label_values(&[HTTP_METHOD_GET, path, format])
                     .observe(duration);
                 
                 // 记录DNS查询错误
                 METRICS.dns_queries_total()
-                    .with_label_values(&[&query_type, "processing_failed"])
+                    .with_label_values(&[&query_type, DNS_EVENT_PROCESSING_FAILED])
                     .inc();
             }
             
@@ -571,7 +595,7 @@ async fn handle_dns_wire_get(
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["GET", path])
+                    .with_label_values(&[HTTP_METHOD_GET, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -594,24 +618,24 @@ async fn handle_dns_wire_get(
             let status = StatusCode::INTERNAL_SERVER_ERROR.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["GET", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["GET", path, format])
+                    .with_label_values(&[HTTP_METHOD_GET, path, format])
                     .observe(duration);
             }
             
             // 返回错误响应
-            let error_body = "Failed to serialize DNS response";
+            let error_body = ERROR_SERIALIZE_RESPONSE;
             let response = (StatusCode::INTERNAL_SERVER_ERROR, error_body).into_response();
             
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["GET", path])
+                    .with_label_values(&[HTTP_METHOD_GET, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -648,12 +672,12 @@ async fn handle_dns_wire_get(
     let status = StatusCode::OK.as_u16().to_string();
     {
         METRICS.http_requests_total()
-            .with_label_values(&["GET", path, &status, format, &http_version])
+            .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
             .inc();
         
         // 记录请求持续时间
         METRICS.http_request_duration_seconds()
-            .with_label_values(&["GET", path, format])
+            .with_label_values(&[HTTP_METHOD_GET, path, format])
             .observe(duration.as_secs_f64());
         
         // 记录DNS响应
@@ -663,7 +687,7 @@ async fn handle_dns_wire_get(
         
         // 记录响应大小
         METRICS.http_response_bytes()
-            .with_label_values(&["GET", path])
+            .with_label_values(&[HTTP_METHOD_GET, path])
             .observe(response_bytes.len() as f64);
     }
     
@@ -711,24 +735,24 @@ async fn handle_dns_wire_post(
         let status = StatusCode::UNSUPPORTED_MEDIA_TYPE.as_u16().to_string();
         {
             METRICS.http_requests_total()
-                .with_label_values(&["POST", path, &status, format, &http_version])
+                .with_label_values(&[HTTP_METHOD_POST, path, &status, format, &http_version])
                 .inc();
             
             // 记录请求持续时间
             let duration = start.elapsed().as_secs_f64();
             METRICS.http_request_duration_seconds()
-                .with_label_values(&["POST", path, format])
+                .with_label_values(&[HTTP_METHOD_POST, path, format])
                 .observe(duration);
         }
         
         // 返回错误响应
-        let error_body = "Invalid content type";
+        let error_body = ERROR_INVALID_CONTENT_TYPE;
         let response = (StatusCode::UNSUPPORTED_MEDIA_TYPE, error_body).into_response();
         
         // 记录响应大小
         {
             METRICS.http_response_bytes()
-                .with_label_values(&["POST", path])
+                .with_label_values(&[HTTP_METHOD_POST, path])
                 .observe(error_body.len() as f64);
         }
         
@@ -741,7 +765,7 @@ async fn handle_dns_wire_post(
             // 记录请求大小
             {
                 METRICS.http_request_bytes()
-                    .with_label_values(&["POST", path])
+                    .with_label_values(&[HTTP_METHOD_POST, path])
                     .observe(bytes.len() as f64);
             }
             
@@ -758,24 +782,24 @@ async fn handle_dns_wire_post(
             let status = StatusCode::BAD_REQUEST.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["POST", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_POST, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["POST", path, format])
+                    .with_label_values(&[HTTP_METHOD_POST, path, format])
                     .observe(duration);
             }
             
             // 返回错误响应
-            let error_body = "Failed to read request body";
+            let error_body = ERROR_READ_REQUEST_BODY;
             let response = (StatusCode::BAD_REQUEST, error_body).into_response();
             
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["POST", path])
+                    .with_label_values(&[HTTP_METHOD_POST, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -796,24 +820,24 @@ async fn handle_dns_wire_post(
         let status = StatusCode::PAYLOAD_TOO_LARGE.as_u16().to_string();
         {
             METRICS.http_requests_total()
-                .with_label_values(&["POST", path, &status, format, &http_version])
+                .with_label_values(&[HTTP_METHOD_POST, path, &status, format, &http_version])
                 .inc();
             
             // 记录请求持续时间
             let duration = start.elapsed().as_secs_f64();
             METRICS.http_request_duration_seconds()
-                .with_label_values(&["POST", path, format])
+                .with_label_values(&[HTTP_METHOD_POST, path, format])
                 .observe(duration);
         }
         
         // 返回错误响应
-        let error_body = "Request body too large";
+        let error_body = ERROR_REQUEST_TOO_LARGE;
         let response = (StatusCode::PAYLOAD_TOO_LARGE, error_body).into_response();
         
         // 记录响应大小
         {
             METRICS.http_response_bytes()
-                .with_label_values(&["POST", path])
+                .with_label_values(&[HTTP_METHOD_POST, path])
                 .observe(error_body.len() as f64);
         }
         
@@ -834,18 +858,18 @@ async fn handle_dns_wire_post(
             let status = StatusCode::BAD_REQUEST.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["POST", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_POST, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["POST", path, format])
+                    .with_label_values(&[HTTP_METHOD_POST, path, format])
                     .observe(duration);
                 
                 // 记录DNS查询错误
                 METRICS.dns_queries_total()
-                    .with_label_values(&["Unknown", "parse_error"])
+                    .with_label_values(&[DNS_QUERY_TYPE_UNKNOWN, DNS_EVENT_PARSE_ERROR])
                     .inc();
             }
             
@@ -856,7 +880,7 @@ async fn handle_dns_wire_post(
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["POST", path])
+                    .with_label_values(&[HTTP_METHOD_POST, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -874,12 +898,12 @@ async fn handle_dns_wire_post(
     let query_type = if let Some(q) = query_message.queries().first() {
         format!("{:?}", q.query_type())
     } else {
-        "Unknown".to_string()
+        DNS_QUERY_TYPE_UNKNOWN.to_string()
     };
     
     {
         METRICS.dns_queries_total()
-            .with_label_values(&[&query_type, "received"])
+            .with_label_values(&[&query_type, DNS_EVENT_RECEIVED])
             .inc();
         
         METRICS.dns_query_type_total()
@@ -908,18 +932,18 @@ async fn handle_dns_wire_post(
             let status = StatusCode::INTERNAL_SERVER_ERROR.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["POST", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_POST, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["POST", path, format])
+                    .with_label_values(&[HTTP_METHOD_POST, path, format])
                     .observe(duration);
                 
                 // 记录DNS查询错误
                 METRICS.dns_queries_total()
-                    .with_label_values(&[&query_type, "processing_failed"])
+                    .with_label_values(&[&query_type, DNS_EVENT_PROCESSING_FAILED])
                     .inc();
             }
             
@@ -930,7 +954,7 @@ async fn handle_dns_wire_post(
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["POST", path])
+                    .with_label_values(&[HTTP_METHOD_POST, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -953,24 +977,24 @@ async fn handle_dns_wire_post(
             let status = StatusCode::INTERNAL_SERVER_ERROR.as_u16().to_string();
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&["POST", path, &status, format, &http_version])
+                    .with_label_values(&[HTTP_METHOD_POST, path, &status, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&["POST", path, format])
+                    .with_label_values(&[HTTP_METHOD_POST, path, format])
                     .observe(duration);
             }
             
             // 返回错误响应
-            let error_body = "Failed to serialize DNS response";
+            let error_body = ERROR_SERIALIZE_RESPONSE;
             let response = (StatusCode::INTERNAL_SERVER_ERROR, error_body).into_response();
             
             // 记录响应大小
             {
                 METRICS.http_response_bytes()
-                    .with_label_values(&["POST", path])
+                    .with_label_values(&[HTTP_METHOD_POST, path])
                     .observe(error_body.len() as f64);
             }
             
@@ -1007,12 +1031,12 @@ async fn handle_dns_wire_post(
     let status = StatusCode::OK.as_u16().to_string();
     {
         METRICS.http_requests_total()
-            .with_label_values(&["POST", path, &status, format, &http_version])
+            .with_label_values(&[HTTP_METHOD_POST, path, &status, format, &http_version])
             .inc();
         
         // 记录请求持续时间
         METRICS.http_request_duration_seconds()
-            .with_label_values(&["POST", path, format])
+            .with_label_values(&[HTTP_METHOD_POST, path, format])
             .observe(duration.as_secs_f64());
         
         // 记录DNS响应
@@ -1022,7 +1046,7 @@ async fn handle_dns_wire_post(
         
         // 记录响应大小
         METRICS.http_response_bytes()
-            .with_label_values(&["POST", path])
+            .with_label_values(&[HTTP_METHOD_POST, path])
             .observe(response_bytes.len() as f64);
     }
     
@@ -1131,7 +1155,7 @@ async fn process_query(
             // 记录DNS响应（黑洞）
             {
                 METRICS.dns_responses_total()
-                    .with_label_values(&["NXDomain_Blackhole"])
+                    .with_label_values(&[DNS_RESPONSE_NXDOMAIN_BLACKHOLE])
                     .inc();
             }
             
