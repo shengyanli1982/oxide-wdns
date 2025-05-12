@@ -12,6 +12,14 @@ use crate::server::error::{Result, ServerError};
 use crate::server::metrics::METRICS;
 use std::collections::HashMap;
 
+// ECS处理结果指标标签
+const ECS_RESULT_STRIP: &str = "strip";                    // ECS剥离结果
+const ECS_RESULT_FORWARD: &str = "forward";                // ECS转发结果
+const ECS_RESULT_FORWARD_ADD: &str = "forward_add";        // ECS添加并转发结果
+const ECS_RESULT_ANONYMIZE: &str = "anonymize";            // ECS匿名化结果
+const ECS_RESULT_ANONYMIZE_ADD: &str = "anonymize_add";    // ECS添加并匿名化结果
+const ECS_RESULT_STRIP_UNKNOWN: &str = "strip_unknown";    // 未知策略导致的ECS剥离结果
+
 // EDNS 客户端子网地址协议族，遵循 RFC 7871
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EcsAddressFamily {
@@ -294,7 +302,7 @@ impl EcsProcessor {
                 
                 // 记录ECS剥离指标
                 {
-                    METRICS.ecs_processed_total().with_label_values(&["strip"]).inc();
+                    METRICS.ecs_processed_total().with_label_values(&[ECS_RESULT_STRIP]).inc();
                 }
                 
                 process_and_clone(Self::remove_ecs_from_message)
@@ -307,7 +315,7 @@ impl EcsProcessor {
                     if ecs.source_prefix_length == 0 {
                         // 记录ECS剥离指标（当客户端请求不使用ECS时）
                         {
-                            METRICS.ecs_processed_total().with_label_values(&["strip"]).inc();
+                            METRICS.ecs_processed_total().with_label_values(&[ECS_RESULT_STRIP]).inc();
                         }
                         
                         return process_and_clone(Self::remove_ecs_from_message);
@@ -322,7 +330,7 @@ impl EcsProcessor {
                     
                     // 记录ECS转发指标
                     {
-                        METRICS.ecs_processed_total().with_label_values(&["forward"]).inc();
+                        METRICS.ecs_processed_total().with_label_values(&[ECS_RESULT_FORWARD]).inc();
                     }
                     
                     // 创建新的查询消息并更新ECS
@@ -341,7 +349,7 @@ impl EcsProcessor {
                     
                     // 记录ECS转发（添加）指标
                     {
-                        METRICS.ecs_processed_total().with_label_values(&["forward_add"]).inc();
+                        METRICS.ecs_processed_total().with_label_values(&[ECS_RESULT_FORWARD_ADD]).inc();
                     }
                     
                     // 创建新的查询消息并添加ECS
@@ -361,7 +369,7 @@ impl EcsProcessor {
                     if ecs_data.source_prefix_length == 0 {
                         // 记录ECS剥离指标（当客户端请求不使用ECS时）
                         {
-                            METRICS.ecs_processed_total().with_label_values(&["strip"]).inc();
+                            METRICS.ecs_processed_total().with_label_values(&[ECS_RESULT_STRIP]).inc();
                         }
                         
                         return process_and_clone(Self::remove_ecs_from_message);
@@ -375,7 +383,7 @@ impl EcsProcessor {
                     
                     // 记录ECS匿名化指标
                     {
-                        METRICS.ecs_processed_total().with_label_values(&["anonymize"]).inc();
+                        METRICS.ecs_processed_total().with_label_values(&[ECS_RESULT_ANONYMIZE]).inc();
                     }
                     
                     // 创建新的查询消息，包含匿名化后的 ECS
@@ -400,7 +408,7 @@ impl EcsProcessor {
                     
                     // 记录ECS匿名化（添加）指标
                     {
-                        METRICS.ecs_processed_total().with_label_values(&["anonymize_add"]).inc();
+                        METRICS.ecs_processed_total().with_label_values(&[ECS_RESULT_ANONYMIZE_ADD]).inc();
                     }
                     
                     // 创建新的查询消息，添加匿名化的 ECS
@@ -419,7 +427,7 @@ impl EcsProcessor {
                 
                 // 记录ECS剥离指标（未知策略）
                 {
-                    METRICS.ecs_processed_total().with_label_values(&["strip_unknown"]).inc();
+                    METRICS.ecs_processed_total().with_label_values(&[ECS_RESULT_STRIP_UNKNOWN]).inc();
                 }
                 
                 process_and_clone(Self::remove_ecs_from_message)

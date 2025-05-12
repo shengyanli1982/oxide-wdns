@@ -75,7 +75,7 @@ Oxide WDNS 通过提供加密的 DNS 通道、支持 DNSSEC 验证以及高性�
     -   支持的规则类型：**精确**域名匹配、**正则**表达式匹配、**通配符**匹配 (例如 `*.example.com`)、从本地**文件**加载规则、从远程 **URL** 获取规则。
     -   内置特殊 `__blackhole__` 组用于**阻止/丢弃**特定的 DNS 查询 (例如广告拦截)。
     -   可为未匹配规则的查询配置**默认上游组**，或回退到全局上游配置。
-    -   支持从远程 URL **自动周期性重载**规则。
+    -   支持从远程 URL **自动周期性重载**规则，可为**每个 URL 规则独立配置更新间隔**，并通过高效的基于内容的更新检测机制优化性能。
 -   ⚡ **智能缓存:**
     -   内置高性能 **LRU 缓存** 显著降低延迟，减少上游负载。
     -   支持**负缓存** (Negative Caching)，包括 `__blackhole__` 产生的响应。
@@ -161,6 +161,7 @@ Oxide WDNS 提供了全面的 Prometheus 指标，用于监控服务的性能、
 
 -   **owdns_route_results_total** (计数器) - 路由处理结果总数，按结果类型分类(result="rule_match"/"blackhole"/"default")
 -   **owdns_route_rules** (仪表盘) - 当前活跃路由规则数，按规则类型(exact、regex、wildcard、file、url)分类
+-   **owdns_url_rule_update_duration_seconds** (直方图) - URL 规则更新操作耗时，按操作阶段和结果状态分类(fetch/parse/update, success/failure)
 
 ### DNSSEC 验证指标
 
@@ -469,6 +470,19 @@ Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
               type: url
               url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
             upstream_group: "__blackhole__"
+            # --- URL规则周期性更新配置 ---
+            periodic:
+              # 是否启用此URL规则的周期性更新功能。
+              # 启用后，系统将按指定间隔定期获取并更新规则内容
+              # 默认值: 如未指定则为false
+              enabled: true
+              # 周期性获取更新的时间间隔（秒）（例如，3600 = 1小时）。
+              # 每个URL规则可以配置独立的更新间隔。
+              # 仅在periodic.enabled为true时生效。
+              interval_secs: 3600
+              # 系统实现了基于xxHash(xxh64)的内容变更检测机制，
+              # 在远程内容未发生变化时避免不必要的解析和更新操作，
+              # 最小化资源消耗和写锁竞争。
 
         # 可选：为未匹配任何规则的查询指定默认上游组。
         # 如果在此处指定了 'upstream_groups' 中的一个有效组名（例如 "clean_dns"）：

@@ -166,3 +166,16 @@ pub const DOH_FORMAT_JSON: &str = "json";
 
 // DoH 二进制格式标识
 pub const DOH_FORMAT_WIRE: &str = "wire"; 
+
+//
+// URL规则周期性更新常量
+//
+
+// 默认URL规则更新间隔（秒）
+pub const DEFAULT_URL_RULE_UPDATE_INTERVAL_SECS: u64 = 3600; // 1小时
+
+// URL规则更新间隔的最小值（秒）
+pub const MIN_URL_RULE_UPDATE_INTERVAL_SECS: u64 = 30; // 30秒
+
+// URL规则更新间隔的最大值（秒）
+pub const MAX_URL_RULE_UPDATE_INTERVAL_SECS: u64 = 86400 * 7; // 7天

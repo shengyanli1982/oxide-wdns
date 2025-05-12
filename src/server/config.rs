@@ -30,6 +30,10 @@ use crate::common::consts::{
     MAX_PER_IP_RATE,
     MIN_PER_IP_CONCURRENT,
     MAX_PER_IP_CONCURRENT,
+    // URL规则周期性更新相关常量
+    DEFAULT_URL_RULE_UPDATE_INTERVAL_SECS,
+    MIN_URL_RULE_UPDATE_INTERVAL_SECS,
+    MAX_URL_RULE_UPDATE_INTERVAL_SECS,
 };
 
 // 服务器配置
@@ -285,6 +289,10 @@ pub struct MatchCondition {
     // URL（用于url类型）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    
+    // 周期性更新配置（用于url类型）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub periodic: Option<PeriodicUpdateConfig>,
 }
 
 // 匹配类型
@@ -375,6 +383,18 @@ pub struct EcsAnonymizationConfig {
     // IPv6 地址匿名化保留前缀长度
     #[serde(default = "default_ipv6_prefix_length")]
     pub ipv6_prefix_length: u8,
+}
+
+// URL规则周期性更新配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeriodicUpdateConfig {
+    // 是否启用周期性更新
+    #[serde(default)]
+    pub enabled: bool,
+    
+    // 更新间隔（秒）
+    #[serde(default = "default_url_rule_update_interval")]
+    pub interval_secs: u64,
 }
 
 // 默认值函数 - 使用 consts 中定义的常量
@@ -476,6 +496,11 @@ fn default_ipv4_prefix_length() -> u8 {
 // 默认 IPv6 匿名化前缀长度
 fn default_ipv6_prefix_length() -> u8 {
     DEFAULT_IPV6_PREFIX_LENGTH
+}
+
+// 默认URL规则更新间隔
+fn default_url_rule_update_interval() -> u64 {
+    DEFAULT_URL_RULE_UPDATE_INTERVAL_SECS
 }
 
 impl ServerConfig {
@@ -765,59 +790,108 @@ impl ServerConfig {
     // 验证匹配条件
     fn validate_match_condition(&self, match_: &MatchCondition, rule_index: usize) -> Result<()> {
         match match_.type_ {
-            MatchType::Exact | MatchType::Regex | MatchType::Wildcard => {
-                // 这些类型需要 values 字段
-                if match_.values.is_none() || match_.values.as_ref().unwrap().is_empty() {
+            MatchType::Exact => {
+                if match_.values.is_none() {
                     return Err(ServerError::Config(format!(
-                        "Rule #{} with type {:?} must have non-empty 'values' list", 
-                        rule_index,
-                        match_.type_
+                        "Rule [{}]: Exact match type requires 'values' array",
+                        rule_index
                     )));
                 }
-                
-                // 对于正则表达式类型，验证每个正则表达式的有效性
-                if match_.type_ == MatchType::Regex {
-                    for (j, pattern) in match_.values.as_ref().unwrap().iter().enumerate() {
-                        match regex::Regex::new(pattern) {
-                            Ok(_) => {}, // 正则表达式有效
-                            Err(e) => {
-                                return Err(ServerError::Config(format!(
-                                    "Rule #{} has invalid regex at index {}: '{}' - Error: {}", 
-                                    rule_index, j, pattern, e
-                                )));
-                            }
+            }
+            MatchType::Regex => {
+                if match_.values.is_none() {
+                    return Err(ServerError::Config(format!(
+                        "Rule [{}]: Regex match type requires 'values' array",
+                        rule_index
+                    )));
+                }
+                // 尝试编译正则表达式，验证其有效性
+                if let Some(ref values) = match_.values {
+                    for (i, pattern) in values.iter().enumerate() {
+                        if let Err(e) = regex::Regex::new(pattern) {
+                            return Err(ServerError::Config(format!(
+                                "Rule [{}]: Regex pattern [{}] '{}' is invalid: {}",
+                                rule_index, i, pattern, e
+                            )));
                         }
                     }
                 }
-            },
-            MatchType::File => {
-                // File 类型需要 path 字段
-                if match_.path.is_none() || match_.path.as_ref().unwrap().is_empty() {
+            }
+            MatchType::Wildcard => {
+                if match_.values.is_none() {
                     return Err(ServerError::Config(format!(
-                        "Rule #{} with type File must have non-empty 'path' value", 
+                        "Rule [{}]: Wildcard match type requires 'values' array",
                         rule_index
                     )));
                 }
-            },
-            MatchType::Url => {
-                // Url 类型需要 url 字段，且必须是有效的URL
-                if match_.url.is_none() || match_.url.as_ref().unwrap().is_empty() {
+            }
+            MatchType::File => {
+                if match_.path.is_none() {
                     return Err(ServerError::Config(format!(
-                        "Rule #{} with type Url must have non-empty 'url' value", 
+                        "Rule [{}]: File match type requires 'path' file path",
                         rule_index
                     )));
+                }
+                // 检查文件是否存在且可读
+                if let Some(ref path) = match_.path {
+                    let path = Path::new(path);
+                    if !path.exists() {
+                        return Err(ServerError::Config(format!(
+                            "Rule [{}]: File type path '{}' does not exist",
+                            rule_index, path.display()
+                        )));
+                    }
+                    if !path.is_file() {
+                        return Err(ServerError::Config(format!(
+                            "Rule [{}]: File type path '{}' is not a file",
+                            rule_index, path.display()
+                        )));
+                    }
+                    // 尝试读取文件，验证其可访问性
+                    if let Err(e) = fs::read_to_string(path) {
+                        return Err(ServerError::Config(format!(
+                            "Rule [{}]: Cannot read File type file '{}': {}",
+                            rule_index, path.display(), e
+                        )));
+                    }
+                }
+            }
+            MatchType::Url => {
+                if match_.url.is_none() {
+                    return Err(ServerError::Config(format!(
+                        "Rule [{}]: Url match type requires 'url' address",
+                        rule_index
+                    )));
+                }
+                // 检查 URL 是否有效
+                if let Some(ref url) = match_.url {
+                    if let Err(e) = url::Url::parse(url) {
+                        return Err(ServerError::Config(format!(
+                            "Rule [{}]: Url type URL '{}' is invalid: {}",
+                            rule_index, url, e
+                        )));
+                    }
                 }
                 
-                // 验证URL格式
-                let url_str = match_.url.as_ref().unwrap();
-                if !url_str.starts_with("http://") && !url_str.starts_with("https://") {
-                    return Err(ServerError::Config(format!(
-                        "Rule #{} has invalid URL format (must start with http:// or https://): {}", 
-                        rule_index,
-                        url_str
-                    )));
+                // 验证周期性更新配置（如果存在）
+                if let Some(ref periodic) = match_.periodic {
+                    if periodic.enabled {
+                        // 验证更新间隔是否在合理范围内
+                        if periodic.interval_secs < MIN_URL_RULE_UPDATE_INTERVAL_SECS {
+                            return Err(ServerError::Config(format!(
+                                "Rule [{}]: Url type periodic update interval {} seconds is less than the minimum allowed value {} seconds",
+                                rule_index, periodic.interval_secs, MIN_URL_RULE_UPDATE_INTERVAL_SECS
+                            )));
+                        }
+                        if periodic.interval_secs > MAX_URL_RULE_UPDATE_INTERVAL_SECS {
+                            return Err(ServerError::Config(format!(
+                                "Rule [{}]: Url type periodic update interval {} seconds is greater than the maximum allowed value {} seconds",
+                                rule_index, periodic.interval_secs, MAX_URL_RULE_UPDATE_INTERVAL_SECS
+                            )));
+                        }
+                    }
                 }
-            },
+            }
         }
         
         Ok(())
@@ -1011,6 +1085,15 @@ impl Default for EcsPolicyConfig {
             enabled: false,
             strategy: ECS_POLICY_STRIP.to_string(),
             anonymization: EcsAnonymizationConfig::default(),
+        }
+    }
+}
+
+impl Default for PeriodicUpdateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_secs: DEFAULT_URL_RULE_UPDATE_INTERVAL_SECS,
         }
     }
 }

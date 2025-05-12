@@ -27,7 +27,7 @@ fn create_query_with_ecs(ecs_data: &EcsData) -> Message {
     query.set_recursion_desired(true);
     
     // 添加查询问题
-    let name = Name::from_str("example.coMETRICS.").unwrap();
+    let name = Name::from_str("example.com.").unwrap();
     let mut query_builder = trust_dns_proto::op::Query::new();
     let q = query_builder
         .set_name(name)
@@ -354,7 +354,7 @@ fn test_create_ecs_from_client_ip() {
     query.set_recursion_desired(true);
     
     // 添加查询问题
-    let name = Name::from_str("example.coMETRICS.").unwrap();
+    let name = Name::from_str("example.com.").unwrap();
     let mut query_builder = trust_dns_proto::op::Query::new();
     let q = query_builder
         .set_name(name)
@@ -478,7 +478,7 @@ async fn test_upstream_resolve_variations() {
     query.set_recursion_desired(true);
     
     // 添加查询问题
-    let name = Name::from_str("example.coMETRICS.").unwrap();
+    let name = Name::from_str("example.com.").unwrap();
     let mut query_builder = trust_dns_proto::op::Query::new();
     let q = query_builder
         .set_name(name)
@@ -561,7 +561,7 @@ fn test_create_cache_key_with_ecs() {
     );
     
     // 创建缓存键
-    let name = Name::from_str("example.coMETRICS.").unwrap();
+    let name = Name::from_str("example.com.").unwrap();
     
     // 使用with_ecs方法创建带有ECS的缓存键 
     // 这里我们不直接构造CacheKey以避免处理内部实现细节
@@ -593,7 +593,7 @@ fn test_cache_key_methods() {
     );
     
     // 测试域名
-    let name = Name::from_str("example.coMETRICS.").unwrap();
+    let name = Name::from_str("example.com.").unwrap();
     
     // 测试基本的CacheKey::new
     use oxide_wdns::server::cache::CacheKey;

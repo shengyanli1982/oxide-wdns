@@ -19,6 +19,13 @@ use crate::server::ecs::{EcsProcessor, EcsData};
 use crate::common::consts::CONTENT_TYPE_DNS_MESSAGE;
 use crate::server::metrics::METRICS;
 
+// Metrics 标签常量
+const DNS_QUERY_DESTINATION_UPSTREAM: &str = "sent_to_upstream";
+const UPSTREAM_PROTOCOL_DOH: &str = "DoH";
+const UPSTREAM_FAILURE_REASON_ERROR: &str = "error";
+const DNSSEC_VALIDATION_SUCCESS: &str = "success";
+const DNSSEC_VALIDATION_FAILURE: &str = "failure";
+
 // 上游选择
 #[derive(Debug, Clone)]
 pub enum UpstreamSelection {
@@ -252,7 +259,7 @@ impl UpstreamManager {
         {
             METRICS.dns_queries_total().with_label_values(&[
                 &format!("{:?}", query.query_type()), 
-                "sent_to_upstream"
+                DNS_QUERY_DESTINATION_UPSTREAM
             ]).inc();
             
             METRICS.dns_query_type_total().with_label_values(&[
@@ -271,7 +278,7 @@ impl UpstreamManager {
             // 记录上游请求
             {
                 METRICS.upstream_requests_total().with_label_values(&[
-                    &client.url, "DoH", group_name
+                    &client.url, UPSTREAM_PROTOCOL_DOH, group_name
                 ]).inc();
             }
             
@@ -287,7 +294,7 @@ impl UpstreamManager {
                     // 记录上游查询时间
                     {
                         METRICS.upstream_duration_seconds().with_label_values(&[
-                            &client.url, "DoH", group_name
+                            &client.url, UPSTREAM_PROTOCOL_DOH, group_name
                         ]).observe(upstream_duration);
                     }
                     
@@ -300,11 +307,11 @@ impl UpstreamManager {
                     // 记录查询失败
                     {
                         METRICS.upstream_failures_total().with_label_values(&[
-                            "error", &client.url, group_name
+                            UPSTREAM_FAILURE_REASON_ERROR, &client.url, group_name
                         ]).inc();
                         
                         METRICS.upstream_duration_seconds().with_label_values(&[
-                            &client.url, "DoH", group_name
+                            &client.url, UPSTREAM_PROTOCOL_DOH, group_name
                         ]).observe(upstream_duration);
                     }
                     
@@ -379,7 +386,7 @@ impl UpstreamManager {
                         
                         // 记录DNSSEC验证结果
                         {
-                            let status = if is_validated { "success" } else { "failure" };
+                            let status = if is_validated { DNSSEC_VALIDATION_SUCCESS } else { DNSSEC_VALIDATION_FAILURE };
                             METRICS.dnssec_validations_total().with_label_values(&[status]).inc();
                         }
                     }
@@ -390,7 +397,7 @@ impl UpstreamManager {
                     // 记录查询失败
                     {
                         METRICS.upstream_failures_total().with_label_values(&[
-                            "error", resolver_id, group_name
+                            UPSTREAM_FAILURE_REASON_ERROR, resolver_id, group_name
                         ]).inc();
                     }
                     

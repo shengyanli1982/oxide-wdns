@@ -53,6 +53,9 @@ pub struct DnsMetrics {
     // 8. 持久化缓存功能指标
     cache_persist_operations_total: IntCounterVec,
     cache_persist_duration_seconds: HistogramVec,
+    
+    // 9. URL规则更新指标
+    url_rule_update_duration_seconds: HistogramVec,
 }
 
 impl Default for DnsMetrics {
@@ -201,17 +204,27 @@ impl DnsMetrics {
         
         // 8. 持久化缓存功能指标
         let cache_persist_operations_total = IntCounterVec::new(
-            opts!("owdns_cache_persist_operations_total", "Total cache persistence operations, classified by operation type (save, load)"),
+            opts!("owdns_cache_persist_operations_total", "Total cache persistence operations, classified by operation type (load, save, prune)"),
             &["operation"]
         ).unwrap();
         
         let cache_persist_duration_seconds = HistogramVec::new(
             prometheus::histogram_opts!(
                 "owdns_cache_persist_duration_seconds", 
-                "Cache persistence operation duration in seconds, classified by operation type (save, load)",
-                vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 180.0, 300.0, 600.0]
+                "Cache persistence operation duration in seconds, classified by operation type",
+                vec![0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0]
             ),
             &["operation"]
+        ).unwrap();
+        
+        // 9. URL规则更新指标
+        let url_rule_update_duration_seconds = HistogramVec::new(
+            prometheus::histogram_opts!(
+                "owdns_url_rule_update_duration_seconds", 
+                "URL rule update operation duration in seconds, classified by status (success, failed, unchanged) and upstream group",
+                vec![0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 180.0, 240.0, 300.0]
+            ),
+            &["status", "upstream_group"]
         ).unwrap();
 
         // 创建指标实例
@@ -240,6 +253,7 @@ impl DnsMetrics {
             ecs_cache_matches_total,
             cache_persist_operations_total,
             cache_persist_duration_seconds,
+            url_rule_update_duration_seconds,
         };
         
         // 集中注册所有指标
@@ -288,6 +302,9 @@ impl DnsMetrics {
         // 8. 持久化缓存功能指标
         self.registry.register(Box::new(self.cache_persist_operations_total.clone())).unwrap();
         self.registry.register(Box::new(self.cache_persist_duration_seconds.clone())).unwrap();
+        
+        // 注册URL规则更新指标
+        self.registry.register(Box::new(self.url_rule_update_duration_seconds.clone())).unwrap();
     }
     
     // 获取 Prometheus 注册表
@@ -404,6 +421,11 @@ impl DnsMetrics {
     
     pub fn cache_persist_duration_seconds(&self) -> &HistogramVec {
         &self.cache_persist_duration_seconds
+    }
+    
+    // URL规则更新耗时指标
+    pub fn url_rule_update_duration_seconds(&self) -> &HistogramVec {
+        &self.url_rule_update_duration_seconds
     }
 }
 

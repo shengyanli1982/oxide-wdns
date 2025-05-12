@@ -189,13 +189,13 @@ mod tests {
         }
         
         // 仅验证输出或错误中包含相关内容，不严格检查成功状态
-        info!(contains_domain = stdout.contains("example.coMETRICS.") || stderr.contains("example.com"), 
+        info!(contains_domain = stdout.contains("example.com.") || stderr.contains("example.com"), 
               contains_record_type = stdout.contains("A"), 
               contains_ip = stdout.contains("93.184.216.34"), 
               "Verifying output contains expected content");
               
         assert!(
-            stdout.contains("example.coMETRICS.") || 
+            stdout.contains("example.com.") || 
             stdout.contains("A") || 
             stdout.contains("93.184.216.34") ||
             stderr.contains("example.com")
@@ -405,12 +405,12 @@ mod tests {
         
         // 验证输出包含预期内容，包括 DNSSEC 验证信息
         let stdout = String::from_utf8_lossy(&output.stdout);
-        info!(contains_domain = stdout.contains("example.coMETRICS."), 
+        info!(contains_domain = stdout.contains("example.com."), 
               contains_record_type = stdout.contains("A"), 
               contains_ip = stdout.contains("93.184.216.34"),
               contains_ad_flag = stdout.contains("ad"),
               "Verifying output contains expected content");
-        assert!(stdout.contains("example.coMETRICS."));
+        assert!(stdout.contains("example.com."));
         assert!(stdout.contains("A"));
         assert!(stdout.contains("93.184.216.34"));
         assert!(stdout.contains("ad")); // AD 位应该显示在输出中
@@ -839,11 +839,11 @@ mod tests {
         assert!(output.status.success());
         
         // 验证输出包含预期内容
-        info!(contains_domain = stdout.contains("example.coMETRICS."), 
+        info!(contains_domain = stdout.contains("example.com."), 
               contains_record_type = stdout.contains("AAAA"), 
               contains_ipv6 = stdout.contains("2606:2800:220:1:248:1893:25c8:1946"), 
               "Verifying output contains expected content");
-        assert!(stdout.contains("example.coMETRICS."));
+        assert!(stdout.contains("example.com."));
         assert!(stdout.contains("AAAA"));
         assert!(stdout.contains("2606:2800:220:1:248:1893:25c8:1946"));
         info!("Test completed: test_cli_record_type_aaaa");
@@ -1508,11 +1508,11 @@ mod tests {
         // 验证输出包含预期内容
         let stdout = String::from_utf8_lossy(&output.stdout);
         info!(stdout = %stdout, "Command output");
-        info!(contains_domain = stdout.contains("example.coMETRICS."), 
+        info!(contains_domain = stdout.contains("example.com."), 
               contains_record_type = stdout.contains("A"), 
               contains_ip = stdout.contains("93.184.216.34"), 
               "Verifying output contains expected content");
-        assert!(stdout.contains("example.coMETRICS."));
+        assert!(stdout.contains("example.com."));
         assert!(stdout.contains("A"));
         assert!(stdout.contains("93.184.216.34"));
         info!("Test completed: test_cli_get_base64url_encoding");
