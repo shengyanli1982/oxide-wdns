@@ -75,7 +75,7 @@ The design of `owdns` makes it particularly suitable for environments requiring 
     -   Supported rule types: **Exact** domain match, **Regex** pattern match, **Wildcard** match (e.g., `*.example.com`), rules loaded from local **File**, and rules fetched from remote **URL**.
     -   Special built-in `__blackhole__` group to **block/drop** specific DNS queries (e.g., for ad blocking).
     -   Configure a **default upstream group** for unmatched queries, or fall back to the global upstream configuration.
-    -   Supports **automatic periodic reloading** of rules from remote URLs.
+    -   Supports **automatic periodic reloading** of rules from remote URLs with **independently configurable update intervals** for each URL rule and efficient content-based update detection.
 -   ⚡ **Intelligent Caching:**
     -   Built-in high-performance **LRU cache** significantly reduces latency and upstream load.
     -   Supports **Negative Caching** (including for `__blackhole__` responses).
@@ -161,6 +161,7 @@ Oxide WDNS provides comprehensive Prometheus metrics to monitor the performance,
 
 -   **owdns_route_results_total** (counter) - Total routing results, labeled by result type (rule_match/blackhole/default)
 -   **owdns_route_rules** (gauge) - Number of active routing rules, labeled by rule type (exact, regex, wildcard, file, url)
+-   **owdns_url_rule_update_duration_seconds** (histogram) - URL rule update operation latency, labeled by operation stages and result status (fetch/parse/update, success/failure)
 
 ### DNSSEC Validation Metrics
 
@@ -470,6 +471,19 @@ You can install Oxide WDNS in the following ways:
               type: url
               url: "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
             upstream_group: "__blackhole__"
+            # --- URL Rule Periodic Update Configuration ---
+            periodic:
+              # Enable periodic updating for this URL rule.
+              # When enabled, the system will periodically fetch and update the rule content
+              # Default: false if not specified
+              enabled: true
+              # Update interval in seconds for periodic fetching (e.g., 3600 = 1 hour).
+              # Each URL rule can have its own independent update interval.
+              # Only effective when periodic.enabled is true.
+              interval_secs: 3600
+              # The system implements content-based update detection using xxHash (xxh64)
+              # to avoid unnecessary parsing and updates when remote content hasn't changed,
+              # minimizing resource consumption and write lock contention.
 
         # Optional: Default upstream group for queries not matching any rule.
         # If a valid group name (e.g., "clean_dns") from 'upstream_groups' is specified here:
