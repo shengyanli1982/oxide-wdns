@@ -267,7 +267,9 @@ Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
 
     ```bash
     # 从 Docker Hub 拉取最新镜像
-    docker pull shengyanli1982/oxide-wdns:latest
+    # or docker pull ghcr.io/shengyanli1982/oxide-wdns-arm64:latest
+    docker pull ghcr.io/shengyanli1982/oxide-wdns-x64:latest
+
 
     # 运行容器
     # 将容器的 3053 端口映射到主机的 3053 端口
@@ -276,7 +278,8 @@ Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
       --name owdns \
       -p 3053:3053 \
       -v $(pwd)/config.yaml:/app/config.yaml \
-      shengyanli1982/oxide-wdns:latest
+      ghcr.io/shengyanli1982/oxide-wdns-x64:latest
+    # or ghcr.io/shengyanli1982/oxide-wdns-arm64:latest
 
     # 要在容器中使用客户端工具 (owdns-cli):
     docker exec owdns /app/owdns-cli [选项] [参数]
@@ -667,14 +670,16 @@ Oxide WDNS 提供以下 HTTP API 接口用于 DNS 解析和服务监控：
     2. **拉取并运行 Docker 容器:**
 
         ```bash
-        docker pull shengyanli1982/oxide-wdns:<tag>
+        docker pull ghcr.io/shengyanli1982/oxide-wdns-x64:latest
+        # or docker pull ghcr.io/shengyanli1982/oxide-wdns-arm64:latest
 
         # 使用你的配置文件运行
         docker run -d \
           --name owdns \
           -p 3053:3053 \
           -v $(pwd)/owdns-config/config.yaml:/app/config.yaml \
-          shengyanli1982/oxide-wdns:<tag>
+          ghcr.io/shengyanli1982/oxide-wdns-x64:latest
+        # or ghcr.io/shengyanli1982/oxide-wdns-arm64:latest
         ```
 
         该命令：

@@ -267,7 +267,8 @@ You can install Oxide WDNS in the following ways:
 
     ```bash
     # Pull the latest image from Docker Hub
-    docker pull shengyanli1982/oxide-wdns:latest
+    # or docker pull ghcr.io/shengyanli1982/oxide-wdns-arm64:latest
+    docker pull ghcr.io/shengyanli1982/oxide-wdns-x64:latest
 
     # Run the container
     # Map the container's port 3053 to host port 3053
@@ -276,7 +277,8 @@ You can install Oxide WDNS in the following ways:
       --name owdns \
       -p 3053:3053 \
       -v $(pwd)/config.yaml:/app/config.yaml \
-      shengyanli1982/oxide-wdns:latest
+      ghcr.io/shengyanli1982/oxide-wdns-x64:latest
+    # or ghcr.io/shengyanli1982/oxide-wdns-arm64:latest
 
     # To use the client (owdns-cli) in the container:
     docker exec owdns /app/owdns-cli [options] [arguments]
@@ -670,14 +672,16 @@ You can install Oxide WDNS in the following ways:
     2. **Pull and Run the Docker Container:**
 
         ```bash
-        docker pull shengyanli1982/oxide-wdns:<tag>
+        docker pull ghcr.io/shengyanli1982/oxide-wdns-x64:latest
+        # or docker pull ghcr.io/shengyanli1982/oxide-wdns-arm64:latest
 
         # Run with your configuration file
         docker run -d \
           --name owdns \
           -p 3053:3053 \
           -v $(pwd)/owdns-config/config.yaml:/app/config.yaml \
-          shengyanli1982/oxide-wdns:<tag>
+          ghcr.io/shengyanli1982/oxide-wdns-x64:latest
+        # or ghcr.io/shengyanli1982/oxide-wdns-arm64:latest
         ```
 
         This command:
