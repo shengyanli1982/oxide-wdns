@@ -41,8 +41,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 hyper = { version = "1.4", features = ["http1", "http2"] }
 tower = { version = "0.4", features = ["util"] }
-trust-dns-proto = "0.23"
-trust-dns-resolver = { version = "0.23", features = ["dns-over-native-tls", "dnssec-ring", "tokio-runtime"] }
+hickory-proto = "0.24"
+hickory-resolver = { version = "0.24", features = ["dns-over-native-tls", "dnssec-ring", "tokio-runtime"] }
 native-tls = "0.2"
 moka = { version = "0.12", features = ["future"] }
 prometheus = "0.13"

@@ -22,8 +22,8 @@ use serde::Deserialize;
 use serde_json;
 use std::fmt::Write;
 use std::time::Duration;
-use trust_dns_proto::op::{Message, MessageType, Query, ResponseCode};
-use trust_dns_proto::rr::{DNSClass, Name, RData, Record, RecordType};
+use hickory_proto::op::{Message, MessageType, Query, ResponseCode};
+use hickory_proto::rr::{DNSClass, Name, RData, Record, RecordType};
 
 // DoH JSON 响应格式
 #[derive(Debug, Deserialize)]
@@ -297,7 +297,7 @@ fn parse_json_rdata(record_type: RecordType, data: &str) -> ClientResult<RData> 
         RecordType::NS => {
             // 名称服务器
             if let Ok(name) = Name::from_ascii(data) {
-                let ns = trust_dns_proto::rr::rdata::NS(name);
+                let ns = hickory_proto::rr::rdata::NS(name);
                 Ok(RData::NS(ns))
             } else {
                 Err(ClientError::Other(format!("Invalid NS record data: {}", data)))
@@ -306,7 +306,7 @@ fn parse_json_rdata(record_type: RecordType, data: &str) -> ClientResult<RData> 
         RecordType::CNAME => {
             // 别名
             if let Ok(name) = Name::from_ascii(data) {
-                let cname = trust_dns_proto::rr::rdata::CNAME(name);
+                let cname = hickory_proto::rr::rdata::CNAME(name);
                 Ok(RData::CNAME(cname))
             } else {
                 Err(ClientError::Other(format!("Invalid CNAME record data: {}", data)))
@@ -316,13 +316,13 @@ fn parse_json_rdata(record_type: RecordType, data: &str) -> ClientResult<RData> 
             // 文本记录
             // 创建 TXT 记录，使用字符串向量而不是字节向量
             let data_strings = vec![String::from(data)];
-            let txt = trust_dns_proto::rr::rdata::TXT::new(data_strings); 
+            let txt = hickory_proto::rr::rdata::TXT::new(data_strings); 
             Ok(RData::TXT(txt))
         },
         // 其他记录类型可以根据需要添加
         _ => {
             // 对于不支持的记录类型，使用 NULL 记录
-            let null = trust_dns_proto::rr::rdata::NULL::new();
+            let null = hickory_proto::rr::rdata::NULL::new();
             Ok(RData::NULL(null))
         }
     }

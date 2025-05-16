@@ -22,7 +22,7 @@ pub enum ClientError {
 
     // DNS 协议解析/构建错误
     #[error("DNS protocol error: {0}")]
-    DnsProtoError(#[from] trust_dns_proto::error::ProtoError),
+    DnsProtoError(#[from] hickory_proto::error::ProtoError),
 
     // JSON 序列化/反序列化错误
     #[error("JSON processing error: {0}")]

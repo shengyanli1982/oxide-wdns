@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use reqwest::{Client, header};
 use tracing::{debug, info};
-use trust_dns_resolver::TokioAsyncResolver;
-use trust_dns_resolver::proto::op::{Message, MessageType, OpCode, ResponseCode};
-use trust_dns_resolver::config::{
+use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_resolver::config::{
     NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
 use tokio::time::Instant;
@@ -173,7 +173,7 @@ impl UpstreamManager {
         upstream_config: Arc<UpstreamConfig>, 
         http_client: Client
     ) -> Result<UpstreamGroupConfig> {
-        // 构建 trust-dns-resolver 配置（用于非DoH协议）
+        // 构建 hickory-resolver 配置（用于非DoH协议）
         let (resolver_config, resolver_opts) = Self::build_resolver_config(&upstream_config)?;
         
         // 创建异步解析器
@@ -345,7 +345,7 @@ impl UpstreamManager {
             )?;
             
             // 记录上游请求（使用通用标识）
-            let resolver_id = "trust-dns-resolver";
+            let resolver_id = "hickory-resolver";
             let protocol = match target_config.config.resolvers.first() {
                 Some(r) => format!("{:?}", r.protocol),
                 None => "Unknown".to_string(),
@@ -449,7 +449,7 @@ impl UpstreamManager {
         Ok(response)
     }
     
-    // 构建 trust-dns-resolver 配置
+    // 构建 hickory-resolver 配置
     fn build_resolver_config(
         config: &UpstreamConfig,
     ) -> Result<(ResolverConfig, ResolverOpts)> {
@@ -503,7 +503,7 @@ impl UpstreamManager {
                     });
                 },
                 
-                // DoH 协议 - 不由 trust-dns-resolver 处理，而是由我们自己的 DoHClient 处理
+                // DoH 协议 - 不由 hickory-resolver 处理，而是由我们自己的 DoHClient 处理
                 ResolverProtocol::Doh => {
                     // 什么都不做，DoH 由单独的 DoHClient 处理
                 }

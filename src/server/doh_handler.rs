@@ -12,8 +12,8 @@ use axum::{
 use axum::body::to_bytes;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
-use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
-use trust_dns_proto::rr::{DNSClass, Name, RecordType};
+use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_proto::rr::{DNSClass, Name, RecordType};
 use tracing::{debug, info};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
 use crate::server::error::{ServerError, Result};
@@ -1241,7 +1241,7 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
         Some(class) => {
             // 检查已知有效的 DNS 类型
             match class {
-                1 | 3 | 4 | 254 | 255 => DNSClass::from_u16(class),
+                1 | 3 | 4 | 254 | 255 => Ok::<DNSClass, ServerError>(DNSClass::from(class)),
                 _ => {
                     // 使用静态字符串减少分配
                     let error_msg = format!("Invalid DNS class: {}", class);
@@ -1262,7 +1262,7 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
         .set_recursion_desired(true);
         
     // 添加查询
-    let query = trust_dns_proto::op::Query::query(name, rtype);
+    let query = hickory_proto::op::Query::query(name, rtype);
     message.add_query(query);
     
     Ok(message)
