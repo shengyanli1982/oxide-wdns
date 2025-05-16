@@ -8,8 +8,8 @@ mod tests {
     use std::num::NonZeroU32;
     use reqwest::{Client, StatusCode, header::HeaderValue};
     use tokio::sync::oneshot;
-    use trust_dns_proto::op::{Message, MessageType, OpCode};
-    use trust_dns_proto::rr::{Name, RecordType};
+    use hickory_proto::op::{Message, MessageType, OpCode};
+    use hickory_proto::rr::{Name, RecordType};
     use tracing::{info, warn};
     use wiremock::{MockServer, Mock, matchers::{method, path, header}, ResponseTemplate};
     use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
@@ -92,7 +92,7 @@ mod tests {
         query.set_id(1234)
              .set_message_type(MessageType::Query)
              .set_op_code(OpCode::Query)
-             .add_query(trust_dns_proto::op::Query::query(name, record_type));
+             .add_query(hickory_proto::op::Query::query(name, record_type));
         query
     }
 
@@ -401,7 +401,7 @@ mod tests {
         // d. 测试黑洞组 (blocked.example.com)
         info!("Testing blackhole routing (blocked.example.com)...");
         let response = query_doh(&client, &server_addr, "blocked.example.com", RecordType::A).await;
-        assert_eq!(response.response_code(), trust_dns_proto::op::ResponseCode::NXDomain, 
+        assert_eq!(response.response_code(), hickory_proto::op::ResponseCode::NXDomain, 
                    "blocked.example.com should be blackholed (return NXDomain)");
         
         // 关闭服务器
@@ -435,7 +435,7 @@ mod tests {
         message.answers()
             .iter()
             .filter_map(|answer| {
-                if let Some(trust_dns_proto::rr::RData::A(ipv4)) = answer.data() {
+                if let Some(hickory_proto::rr::RData::A(ipv4)) = answer.data() {
                     Some(ipv4.to_string())
                 } else {
                     None

@@ -6,9 +6,9 @@ mod tests {
     use oxide_wdns::client::args::{CliArgs, DohFormat, HttpMethod};
     
     
-    use trust_dns_proto::op::{Header, ResponseCode};
+    use hickory_proto::op::{Header, ResponseCode};
     
-    use trust_dns_proto::serialize::binary::BinEncodable;
+    use hickory_proto::serialize::binary::BinEncodable;
     use url::Url;
     use std::io;
     
@@ -603,13 +603,13 @@ mod tests {
         let mut header = Header::new();
         header.set_response_code(ResponseCode::ServFail);
         
-        let mut message = trust_dns_proto::op::Message::new();
+        let mut message = hickory_proto::op::Message::new();
         message.set_header(header);
         
         // 将消息序列化为二进制
         info!("Serializing DNS message to binary...");
         let mut buffer = Vec::new();
-        let mut encoder = trust_dns_proto::serialize::binary::BinEncoder::new(&mut buffer);
+        let mut encoder = hickory_proto::serialize::binary::BinEncoder::new(&mut buffer);
         message.emit(&mut encoder).unwrap();
         info!(buffer_size = buffer.len(), "DNS message serialized successfully");
         

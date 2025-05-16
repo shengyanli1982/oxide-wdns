@@ -6,8 +6,8 @@ mod tests {
     use std::sync::Arc;
     
     use tracing::info;
-    use trust_dns_proto::op::ResponseCode;
-    use trust_dns_proto::rr::RecordType;
+    use hickory_proto::op::ResponseCode;
+    use hickory_proto::rr::RecordType;
     use reqwest::Client;
     
     use oxide_wdns::server::config::{ResolverConfig, ResolverProtocol, ServerConfig};

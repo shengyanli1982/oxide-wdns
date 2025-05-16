@@ -5,9 +5,9 @@ use std::str::FromStr;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use trust_dns_proto::op::{Message, MessageType, OpCode};
-use trust_dns_proto::rr::{Name, RecordType, RData, Record, DNSClass};
-use trust_dns_proto::rr::rdata::opt::OPT;
+use hickory_proto::op::{Message, MessageType, OpCode};
+use hickory_proto::rr::{Name, RecordType, RData, Record, DNSClass};
+use hickory_proto::rr::rdata::opt::OPT;
 use reqwest::Client;
 
 use oxide_wdns::server::config::{EcsPolicyConfig, EcsAnonymizationConfig, ServerConfig};
@@ -28,7 +28,7 @@ fn create_query_with_ecs(ecs_data: &EcsData) -> Message {
     
     // 添加查询问题
     let name = Name::from_str("example.com.").unwrap();
-    let mut query_builder = trust_dns_proto::op::Query::new();
+    let mut query_builder = hickory_proto::op::Query::new();
     let q = query_builder
         .set_name(name)
         .set_query_type(RecordType::A)
@@ -355,7 +355,7 @@ fn test_create_ecs_from_client_ip() {
     
     // 添加查询问题
     let name = Name::from_str("example.com.").unwrap();
-    let mut query_builder = trust_dns_proto::op::Query::new();
+    let mut query_builder = hickory_proto::op::Query::new();
     let q = query_builder
         .set_name(name)
         .set_query_type(RecordType::A)
@@ -479,7 +479,7 @@ async fn test_upstream_resolve_variations() {
     
     // 添加查询问题
     let name = Name::from_str("example.com.").unwrap();
-    let mut query_builder = trust_dns_proto::op::Query::new();
+    let mut query_builder = hickory_proto::op::Query::new();
     let q = query_builder
         .set_name(name)
         .set_query_type(RecordType::A)

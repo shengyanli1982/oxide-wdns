@@ -6,8 +6,8 @@ mod tests {
     
     
     use std::str::FromStr;
-    use trust_dns_proto::op::Message;
-    use trust_dns_proto::rr::RecordType;
+    use hickory_proto::op::Message;
+    use hickory_proto::rr::RecordType;
     
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;

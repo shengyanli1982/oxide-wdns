@@ -34,9 +34,9 @@ use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use serde::Serialize;
 use serde_json;
 use std::str::FromStr;
-use trust_dns_proto::op::{Message, MessageType, OpCode, Query};
-use trust_dns_proto::rr::{Name, RecordType, DNSClass};
-use trust_dns_proto::serialize::binary::{BinEncodable, BinEncoder};
+use hickory_proto::op::{Message, MessageType, OpCode, Query};
+use hickory_proto::rr::{Name, RecordType, DNSClass};
+use hickory_proto::serialize::binary::{BinEncodable, BinEncoder};
 use rand::random;
 
 // DoH JSON 请求格式
@@ -139,7 +139,7 @@ fn create_dns_query(args: &CliArgs) -> ClientResult<Message> {
         message.set_checking_disabled(true);
         
         // 为 DNSSEC 添加 EDNS(0) 和 DO 位支持
-        let mut edns = trust_dns_proto::op::Edns::new();
+        let mut edns = hickory_proto::op::Edns::new();
         edns.set_dnssec_ok(true);
         message.set_edns(edns);
     }

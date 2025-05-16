@@ -6,10 +6,10 @@ mod tests {
     use oxide_wdns::server::config::{CacheConfig, TtlConfig, PersistenceCacheConfig};
     use std::time::Duration;
     use tokio::time::sleep;
-    use trust_dns_proto::op::{Message, ResponseCode};
-    use trust_dns_proto::rr::{Record, Name, RecordType, RData, DNSClass};
-    use trust_dns_proto::op::Query;
-    use trust_dns_proto::rr::rdata::A;
+    use hickory_proto::op::{Message, ResponseCode};
+    use hickory_proto::rr::{Record, Name, RecordType, RData, DNSClass};
+    use hickory_proto::op::Query;
+    use hickory_proto::rr::rdata::A;
     use tracing::info;
     
     use std::fs;
@@ -54,11 +54,11 @@ mod tests {
         // 设置消息头
         message
             .set_response_code(if ip.is_some() { ResponseCode::NoError } else { ResponseCode::NXDomain })
-            .set_message_type(trust_dns_proto::op::MessageType::Response)
+            .set_message_type(hickory_proto::op::MessageType::Response)
             .set_id(1234);
             
         // 添加查询部分
-        let query = trust_dns_proto::op::Query::query(domain.clone(), record_type);
+        let query = hickory_proto::op::Query::query(domain.clone(), record_type);
         message.add_query(query);
         
         // 如果提供了IP，添加应答记录

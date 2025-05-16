@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use trust_dns_proto::op::{Message, MessageType};
-use trust_dns_proto::rr::{RData, Record, RecordType};
-use trust_dns_proto::rr::rdata::opt::{EdnsCode, EdnsOption, OPT};
+use hickory_proto::op::{Message, MessageType};
+use hickory_proto::rr::{RData, Record, RecordType, Name};
+use hickory_proto::rr::rdata::opt::{EdnsCode, EdnsOption, OPT};
 use tracing::{warn};
 use crate::common::consts::{
     ECS_POLICY_STRIP, ECS_POLICY_FORWARD, ECS_POLICY_ANONYMIZE,
@@ -114,8 +114,8 @@ impl EcsData {
         
         // 预先计算需要的字节数
         let address_bytes_needed = match self.address {
-            IpAddr::V4(_) => (self.source_prefix_length as usize + 7) / 8,
-            IpAddr::V6(_) => (self.source_prefix_length as usize + 7) / 8,
+            IpAddr::V4(_) => (self.source_prefix_length as usize).div_ceil(8),
+            IpAddr::V6(_) => (self.source_prefix_length as usize).div_ceil(8),
         };
         
         // 预分配合适的容量: 4字节固定头 + 地址字节
@@ -192,7 +192,7 @@ impl EcsData {
         
         // 计算地址字节数
         let address_bytes = &data[4..];
-        let expected_bytes = (source_prefix_length as usize + 7) / 8;
+        let expected_bytes = (source_prefix_length as usize).div_ceil(8);
         
         // 验证地址字节数
         if address_bytes.len() < expected_bytes {
@@ -581,7 +581,7 @@ impl EcsProcessor {
             
             // 创建新的 OPT 记录
             let new_opt_record = Record::from_rdata(
-                trust_dns_proto::rr::Name::root(),
+                Name::root(),
                 0,
                 RData::OPT(new_opt)
             );

@@ -3,8 +3,8 @@
 use std::io;
 use std::result;
 use thiserror::Error;
-use trust_dns_proto::error::ProtoError;
-use trust_dns_resolver::error::ResolveError;
+use hickory_proto::error::ProtoError;
+use hickory_resolver::error::ResolveError;
 
 // 服务器错误类型
 #[derive(Debug, Error)]

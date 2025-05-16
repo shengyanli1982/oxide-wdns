@@ -1,6 +1,6 @@
 [package]
 name = "oxide-wdns"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 
 [profile.release]
@@ -41,8 +41,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 hyper = { version = "1.4", features = ["http1", "http2"] }
 tower = { version = "0.4", features = ["util"] }
-trust-dns-proto = "0.23"
-trust-dns-resolver = { version = "0.23", features = ["dns-over-native-tls", "dnssec-ring", "tokio-runtime"] }
+hickory-proto = "0.24"
+hickory-resolver = { version = "0.24", features = ["dns-over-native-tls", "dnssec-ring", "tokio-runtime"] }
 native-tls = "0.2"
 moka = { version = "0.12", features = ["future"] }
 prometheus = "0.13"
@@ -81,5 +81,5 @@ assert_cmd = "2.0" # 用于测试命令行程序
 wiremock = "0.6"   # 用于模拟 HTTP 服务器
 predicates = "3.0" # 用于 assert_cmd 的断言
 uuid = { version = "1.4", features = ["v4"] } # 用于生成唯一ID
-windows-sys = { version = "0.52", features = ["Win32_System_Console"] } # 用于 Windows 特定测试
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] } # 用于 Windows 特定测试
 nix = "0.30"

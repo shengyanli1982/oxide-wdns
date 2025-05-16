@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use reqwest::{Client, header};
 use tracing::{debug, info};
-use trust_dns_resolver::TokioAsyncResolver;
-use trust_dns_resolver::proto::op::{Message, MessageType, OpCode, ResponseCode};
-use trust_dns_resolver::config::{
+use hickory_resolver::TokioAsyncResolver;
+use hickory_resolver::proto::op::{Message, MessageType, OpCode, ResponseCode};
+use hickory_resolver::config::{
     NameServerConfig, Protocol, ResolverConfig, ResolverOpts,
 };
 use tokio::time::Instant;
@@ -25,6 +25,9 @@ const UPSTREAM_PROTOCOL_DOH: &str = "DoH";
 const UPSTREAM_FAILURE_REASON_ERROR: &str = "error";
 const DNSSEC_VALIDATION_SUCCESS: &str = "success";
 const DNSSEC_VALIDATION_FAILURE: &str = "failure";
+
+// ECS 处理结果标签常量
+const ECS_PROCESSED_DETECTED: &str = "processed";
 
 // 上游选择
 #[derive(Debug, Clone)]
@@ -54,11 +57,14 @@ impl DoHClient {
         // 将DNS消息转换为二进制格式
         let dns_wire = dns_message.to_vec()?;
         
+        // 构建请求 - 提前创建内容类型变量避免重复创建
+        let content_type = CONTENT_TYPE_DNS_MESSAGE;
+        
         // 构建请求
         let response = self.client
             .post(&self.url)
-            .header(header::CONTENT_TYPE, CONTENT_TYPE_DNS_MESSAGE)
-            .header(header::ACCEPT, CONTENT_TYPE_DNS_MESSAGE)
+            .header(header::CONTENT_TYPE, content_type)
+            .header(header::ACCEPT, content_type)
             .body(dns_wire)
             .send()
             .await
@@ -73,15 +79,15 @@ impl DoHClient {
         }
         
         // 验证内容类型
-        let content_type = response.headers()
+        let response_content_type = response.headers()
             .get(header::CONTENT_TYPE)
             .and_then(|h| h.to_str().ok())
             .unwrap_or("");
             
-        if content_type != CONTENT_TYPE_DNS_MESSAGE {
+        if response_content_type != content_type {
             return Err(ServerError::Upstream(format!(
                 "DoH server returned invalid content type: {}", 
-                content_type
+                response_content_type
             )));
         }
         
@@ -167,7 +173,7 @@ impl UpstreamManager {
         upstream_config: Arc<UpstreamConfig>, 
         http_client: Client
     ) -> Result<UpstreamGroupConfig> {
-        // 构建 trust-dns-resolver 配置（用于非DoH协议）
+        // 构建 hickory-resolver 配置（用于非DoH协议）
         let (resolver_config, resolver_opts) = Self::build_resolver_config(&upstream_config)?;
         
         // 创建异步解析器
@@ -241,7 +247,14 @@ impl UpstreamManager {
             client_ip,
             client_ecs
         )? {
-            Some(new_query) => new_query,
+            Some(new_query) => {
+                // 如果ECS处理生成了新的查询，记录处理指标
+                METRICS.ecs_processed_total()
+                    .with_label_values(&[ECS_PROCESSED_DETECTED])
+                    .inc();
+                    
+                new_query
+            },
             None => query_message.clone(), // 这里的克隆是必要的
         };
         
@@ -298,6 +311,13 @@ impl UpstreamManager {
                         ]).observe(upstream_duration);
                     }
                     
+                    // 如果启用了DNSSEC，记录验证结果
+                    if target_config.config.enable_dnssec {
+                        let is_validated = resp.authentic_data();
+                        let status = if is_validated { DNSSEC_VALIDATION_SUCCESS } else { DNSSEC_VALIDATION_FAILURE };
+                        METRICS.dnssec_validations_total().with_label_values(&[status]).inc();
+                    }
+                    
                     resp
                 }
                 Err(e) => {
@@ -325,7 +345,7 @@ impl UpstreamManager {
             )?;
             
             // 记录上游请求（使用通用标识）
-            let resolver_id = "trust-dns-resolver";
+            let resolver_id = "hickory-resolver";
             let protocol = match target_config.config.resolvers.first() {
                 Some(r) => format!("{:?}", r.protocol),
                 None => "Unknown".to_string(),
@@ -429,7 +449,7 @@ impl UpstreamManager {
         Ok(response)
     }
     
-    // 构建 trust-dns-resolver 配置
+    // 构建 hickory-resolver 配置
     fn build_resolver_config(
         config: &UpstreamConfig,
     ) -> Result<(ResolverConfig, ResolverOpts)> {
@@ -483,7 +503,7 @@ impl UpstreamManager {
                     });
                 },
                 
-                // DoH 协议 - 不由 trust-dns-resolver 处理，而是由我们自己的 DoHClient 处理
+                // DoH 协议 - 不由 hickory-resolver 处理，而是由我们自己的 DoHClient 处理
                 ResolverProtocol::Doh => {
                     // 什么都不做，DoH 由单独的 DoHClient 处理
                 }

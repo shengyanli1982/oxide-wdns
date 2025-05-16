@@ -23,8 +23,8 @@ use regex::Regex;
 use reqwest::Client;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-use trust_dns_proto::op::ResponseCode;
-use trust_dns_proto::rr::RecordType;
+use hickory_proto::op::ResponseCode;
+use hickory_proto::rr::RecordType;
 
 // 解析 ResponseCode 的方式
 fn parse_response_code(code: &str) -> Result<ResponseCode, ClientError> {

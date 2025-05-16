@@ -13,8 +13,8 @@ mod tests {
     use tokio::time::sleep;
     use tracing::info;
     
-    use trust_dns_proto::op::{Message, MessageType, OpCode};
-    use trust_dns_proto::rr::{Name, RecordType};
+    use hickory_proto::op::{Message, MessageType, OpCode};
+    use hickory_proto::rr::{Name, RecordType};
     use wiremock::{Mock, MockServer, ResponseTemplate};
     use wiremock::matchers::{method, path};
     
@@ -43,7 +43,7 @@ mod tests {
         query.set_id(1234)
              .set_message_type(MessageType::Query)
              .set_op_code(OpCode::Query)
-             .add_query(trust_dns_proto::op::Query::query(name, record_type));
+             .add_query(hickory_proto::op::Query::query(name, record_type));
         query
     }
     
