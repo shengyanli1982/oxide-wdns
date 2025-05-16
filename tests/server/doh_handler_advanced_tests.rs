@@ -8,8 +8,8 @@ mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::{Method, Request, header, StatusCode};
     use tower::util::ServiceExt; // 用于oneshot方法的trait
-    use trust_dns_proto::op::{Message, MessageType, OpCode};
-    use trust_dns_proto::rr::{Name, RecordType};
+    use hickory_proto::op::{Message, MessageType, OpCode};
+    use hickory_proto::rr::{Name, RecordType};
     use wiremock::MockServer;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_ENGINE};
     use oxide_wdns::common::consts::CONTENT_TYPE_DNS_MESSAGE;
@@ -75,7 +75,7 @@ mod tests {
         query.set_id(1234)
              .set_message_type(MessageType::Query)
              .set_op_code(OpCode::Query)
-             .add_query(trust_dns_proto::op::Query::query(name, record_type));
+             .add_query(hickory_proto::op::Query::query(name, record_type));
         query
     }
     
@@ -573,7 +573,7 @@ mod tests {
         let dns_response = decode_dns_response(&body_bytes).await.unwrap();
         
         // 验证NXDomain响应
-        assert_eq!(dns_response.response_code(), trust_dns_proto::op::ResponseCode::NXDomain, 
+        assert_eq!(dns_response.response_code(), hickory_proto::op::ResponseCode::NXDomain, 
                    "Blackhole response should return NXDomain");
         
         // 验证ID与查询ID匹配
@@ -761,7 +761,7 @@ mod tests {
         // 在answers中查找A记录
         let ip1 = dns_response1.answers().iter()
             .find_map(|answer| {
-                if let Some(trust_dns_proto::rr::RData::A(ipv4)) = answer.data() {
+                if let Some(hickory_proto::rr::RData::A(ipv4)) = answer.data() {
                     Some(ipv4.to_string())
                 } else {
                     None
@@ -791,7 +791,7 @@ mod tests {
         // 在answers中查找A记录
         let ip2 = dns_response2.answers().iter()
             .find_map(|answer| {
-                if let Some(trust_dns_proto::rr::RData::A(ipv4)) = answer.data() {
+                if let Some(hickory_proto::rr::RData::A(ipv4)) = answer.data() {
                     Some(ipv4.to_string())
                 } else {
                     None

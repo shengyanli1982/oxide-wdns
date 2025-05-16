@@ -3,8 +3,8 @@
 use std::net::Ipv4Addr;
 use std::sync::{Arc, Mutex};
 
-use trust_dns_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
-use trust_dns_proto::rr::{Name, RData, Record, RecordType, rdata::A};
+use hickory_proto::op::{Message, MessageType, OpCode, Query, ResponseCode};
+use hickory_proto::rr::{Name, RData, Record, RecordType, rdata::A};
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
 use oxide_wdns::common::consts::CONTENT_TYPE_DNS_MESSAGE;
 

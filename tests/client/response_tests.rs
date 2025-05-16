@@ -7,10 +7,10 @@ mod tests {
     use oxide_wdns::common::consts::{CONTENT_TYPE_DNS_JSON, CONTENT_TYPE_DNS_MESSAGE};
     use reqwest::StatusCode;
     
-    use trust_dns_proto::op::{Message, MessageType, OpCode, ResponseCode};
-    use trust_dns_proto::rr::{Name, Record, RecordType, RData, DNSClass};
-    use trust_dns_proto::rr::rdata::A;
-    use trust_dns_proto::serialize::binary::{BinEncodable, BinEncoder};
+    use hickory_proto::op::{Message, MessageType, OpCode, ResponseCode};
+    use hickory_proto::rr::{Name, Record, RecordType, RData, DNSClass};
+    use hickory_proto::rr::rdata::A;
+    use hickory_proto::serialize::binary::{BinEncodable, BinEncoder};
     use wiremock::{Mock, MockServer, ResponseTemplate};
     use wiremock::matchers::{method, path};
     use tracing::info;
@@ -28,7 +28,7 @@ mod tests {
         
         // 添加查询部分
         let name = Name::from_ascii("example.com").unwrap();
-        let mut query = trust_dns_proto::op::Query::new();
+        let mut query = hickory_proto::op::Query::new();
         query.set_name(name.clone());
         query.set_query_type(RecordType::A);
         query.set_query_class(DNSClass::IN);
