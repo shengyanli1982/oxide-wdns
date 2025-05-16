@@ -1,6 +1,6 @@
 [package]
 name = "oxide-wdns"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 
 [profile.release]
@@ -81,5 +81,5 @@ assert_cmd = "2.0" # 用于测试命令行程序
 wiremock = "0.6"   # 用于模拟 HTTP 服务器
 predicates = "3.0" # 用于 assert_cmd 的断言
 uuid = { version = "1.4", features = ["v4"] } # 用于生成唯一ID
-windows-sys = { version = "0.52", features = ["Win32_System_Console"] } # 用于 Windows 特定测试
+windows-sys = { version = "0.59", features = ["Win32_System_Console"] } # 用于 Windows 特定测试
 nix = "0.30"

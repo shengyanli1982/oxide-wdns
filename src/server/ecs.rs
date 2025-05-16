@@ -114,8 +114,8 @@ impl EcsData {
         
         // 预先计算需要的字节数
         let address_bytes_needed = match self.address {
-            IpAddr::V4(_) => (self.source_prefix_length as usize + 7) / 8,
-            IpAddr::V6(_) => (self.source_prefix_length as usize + 7) / 8,
+            IpAddr::V4(_) => (self.source_prefix_length as usize).div_ceil(8),
+            IpAddr::V6(_) => (self.source_prefix_length as usize).div_ceil(8),
         };
         
         // 预分配合适的容量: 4字节固定头 + 地址字节
@@ -192,7 +192,7 @@ impl EcsData {
         
         // 计算地址字节数
         let address_bytes = &data[4..];
-        let expected_bytes = (source_prefix_length as usize + 7) / 8;
+        let expected_bytes = (source_prefix_length as usize).div_ceil(8);
         
         // 验证地址字节数
         if address_bytes.len() < expected_bytes {

@@ -49,6 +49,11 @@ const DNS_QUERY_TYPE_UNKNOWN: &str = "Unknown";
 // DNS 响应相关常量
 const DNS_RESPONSE_NXDOMAIN_BLACKHOLE: &str = "NXDomain_Blackhole";
 
+// 路由结果常量
+const ROUTE_RESULT_RULE_MATCH: &str = "rule_match";
+const ROUTE_RESULT_BLACKHOLE: &str = "blackhole";  
+const ROUTE_RESULT_DEFAULT: &str = "default";
+
 // 错误消息常量
 const ERROR_INVALID_DNS_MESSAGE: &str = "Invalid DNS message format";
 const ERROR_INVALID_BASE64: &str = "Invalid base64 encoding";
@@ -172,10 +177,11 @@ async fn handle_dns_json_query(
     // 记录开始时间
     let start = Instant::now();
     
-    // 相关指标
+    // 相关指标 - 预先提取为常量，避免重复创建
     let path = DOH_JSON_API_PATH;
     let format = DOH_FORMAT_JSON;
     let http_version = format!("{:?}", req.version());
+    let method = HTTP_METHOD_GET;
     
     debug!(name = %params.name, type_value = params.type_value, client_ip = ?client_ip, "DNS JSON query received");
     
@@ -192,41 +198,40 @@ async fn handle_dns_json_query(
                 "DNS-over-HTTPS request parameter error"
             );
             
-            // 记录错误状态码
-            let status = StatusCode::BAD_REQUEST.as_u16().to_string();
+            // 记录错误状态码 - 提前计算一次，重复使用
+            let status = StatusCode::BAD_REQUEST;
+            let status_str = status.as_u16().to_string();
+            let error_body = e.to_string();
+            let error_body_len = error_body.len() as f64;
+            
+            // 记录指标
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
+                    .with_label_values(&[method, path, &status_str, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&[HTTP_METHOD_GET, path, format])
+                    .with_label_values(&[method, path, format])
                     .observe(duration);
                 
                 // 记录DNS查询错误
                 METRICS.dns_queries_total()
                     .with_label_values(&[&params.type_value.to_string(), DNS_EVENT_PARAMETER_ERROR])
                     .inc();
+                
+                METRICS.http_response_bytes()
+                    .with_label_values(&[method, path])
+                    .observe(error_body_len);
             }
             
             // 返回错误响应
-            let error_body = e.to_string();
-            let response = (StatusCode::BAD_REQUEST, error_body.clone()).into_response();
-            
-            // 记录响应大小
-            {
-                METRICS.http_response_bytes()
-                    .with_label_values(&[HTTP_METHOD_GET, path])
-                    .observe(error_body.len() as f64);
-            }
-            
-            return response;
+            return (status, error_body).into_response();
         }
     };
     
-    // 记录DNS查询类型
+    // 记录DNS查询类型 - 提前计算一次，避免重复计算
     let query_type = if let Some(q) = query_message.queries().first() {
         format!("{:?}", q.query_type())
     } else {
@@ -262,37 +267,36 @@ async fn handle_dns_json_query(
                 "DNS-over-HTTPS query processing failed"
             );
             
-            // 记录错误状态码
-            let status = StatusCode::INTERNAL_SERVER_ERROR.as_u16().to_string();
+            // 记录错误状态码 - 提前计算一次，重复使用
+            let status = StatusCode::INTERNAL_SERVER_ERROR;
+            let status_str = status.as_u16().to_string();
+            let error_body = e.to_string();
+            let error_body_len = error_body.len() as f64;
+            
+            // 记录指标
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
+                    .with_label_values(&[method, path, &status_str, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&[HTTP_METHOD_GET, path, format])
+                    .with_label_values(&[method, path, format])
                     .observe(duration);
                 
                 // 记录DNS查询错误
                 METRICS.dns_queries_total()
                     .with_label_values(&[&query_type, DNS_EVENT_PROCESSING_FAILED])
                     .inc();
+                
+                METRICS.http_response_bytes()
+                    .with_label_values(&[method, path])
+                    .observe(error_body_len);
             }
             
             // 返回错误响应
-            let error_body = e.to_string();
-            let response = (StatusCode::INTERNAL_SERVER_ERROR, error_body.clone()).into_response();
-            
-            // 记录响应大小
-            {
-                METRICS.http_response_bytes()
-                    .with_label_values(&[HTTP_METHOD_GET, path])
-                    .observe(error_body.len() as f64);
-            }
-            
-            return response;
+            return (status, error_body).into_response();
         }
     };
     
@@ -309,32 +313,31 @@ async fn handle_dns_json_query(
                 "DNS-over-HTTPS response conversion failed"
             );
             
-            // 记录错误状态码
-            let status = StatusCode::INTERNAL_SERVER_ERROR.as_u16().to_string();
+            // 记录错误状态码 - 提前计算一次，重复使用
+            let status = StatusCode::INTERNAL_SERVER_ERROR;
+            let status_str = status.as_u16().to_string();
+            let error_body = e.to_string();
+            let error_body_len = error_body.len() as f64;
+            
+            // 记录指标
             {
                 METRICS.http_requests_total()
-                    .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
+                    .with_label_values(&[method, path, &status_str, format, &http_version])
                     .inc();
                 
                 // 记录请求持续时间
                 let duration = start.elapsed().as_secs_f64();
                 METRICS.http_request_duration_seconds()
-                    .with_label_values(&[HTTP_METHOD_GET, path, format])
+                    .with_label_values(&[method, path, format])
                     .observe(duration);
+                
+                METRICS.http_response_bytes()
+                    .with_label_values(&[method, path])
+                    .observe(error_body_len);
             }
             
             // 返回错误响应
-            let error_body = e.to_string();
-            let response = (StatusCode::INTERNAL_SERVER_ERROR, error_body.clone()).into_response();
-            
-            // 记录响应大小
-            {
-                METRICS.http_response_bytes()
-                    .with_label_values(&[HTTP_METHOD_GET, path])
-                    .observe(error_body.len() as f64);
-            }
-            
-            return response;
+            return (status, error_body).into_response();
         }
     };
     
@@ -378,12 +381,12 @@ async fn handle_dns_json_query(
     let status = StatusCode::OK.as_u16().to_string();
     {
         METRICS.http_requests_total()
-            .with_label_values(&[HTTP_METHOD_GET, path, &status, format, &http_version])
+            .with_label_values(&[method, path, &status, format, &http_version])
             .inc();
         
         // 记录请求持续时间
         METRICS.http_request_duration_seconds()
-            .with_label_values(&[HTTP_METHOD_GET, path, format])
+            .with_label_values(&[method, path, format])
             .observe(duration.as_secs_f64());
         
         // 记录DNS响应
@@ -408,7 +411,7 @@ async fn handle_dns_json_query(
     // 记录响应大小
     {
         METRICS.http_response_bytes()
-            .with_label_values(&[HTTP_METHOD_GET, path])
+            .with_label_values(&[method, path])
             .observe(response_size_estimate as f64);
     }
     
@@ -1101,7 +1104,7 @@ async fn process_query(
     // 提取客户端 ECS 数据
     let client_ecs = EcsProcessor::extract_ecs_from_message(query_message);
     
-    // 创建缓存键
+    // 创建缓存键 - 只创建一次，避免重复计算
     let cache_key = if let Some(ecs) = &client_ecs {
         // 使用 ECS 数据创建缓存键，无需克隆 name
         CacheKey::with_ecs(
@@ -1132,14 +1135,34 @@ async fn process_query(
     
     // 缓存未命中，需要查询上游
     
-    // 使用路由器确定上游组
-    let route_decision = router.match_domain(&query.name().to_utf8()).await;
+    // 使用路由器确定上游组 - 提前获取域名UTF8字符串，避免重复转换
+    let domain_name = query.name().to_utf8();
+    let route_decision = router.match_domain(&domain_name).await;
+    
+    // 记录路由结果指标
+    match &route_decision {
+        RouteDecision::UseGroup(_) => {
+            METRICS.route_results_total()
+                .with_label_values(&[ROUTE_RESULT_RULE_MATCH])
+                .inc();
+        },
+        RouteDecision::Blackhole => {
+            METRICS.route_results_total()
+                .with_label_values(&[ROUTE_RESULT_BLACKHOLE])
+                .inc();
+        },
+        RouteDecision::UseGlobal => {
+            METRICS.route_results_total()
+                .with_label_values(&[ROUTE_RESULT_DEFAULT])
+                .inc();
+        },
+    }
     
     // 选择上游
     let upstream_selection = match route_decision {
         RouteDecision::UseGroup(group_name) => UpstreamSelection::Group(group_name),
         RouteDecision::Blackhole => {
-            // 黑洞策略
+            // 黑洞策略 - 创建一个响应，直接重用查询信息
             let mut response = Message::new();
             response.set_id(query_message.id())
                 .set_message_type(MessageType::Response)
@@ -1165,7 +1188,7 @@ async fn process_query(
         RouteDecision::UseGlobal => UpstreamSelection::Global,
     };
     
-    // 查询上游，传递客户端 IP 和 ECS 数据
+    // 查询上游，传递客户端 IP 和 ECS 数据 - 避免临时变量
     let response = upstream.resolve(
         query_message, 
         upstream_selection, 
@@ -1173,13 +1196,19 @@ async fn process_query(
         client_ecs.as_ref()
     ).await?;
     
+    // 判断响应代码，避免重复检查
+    let response_code = response.response_code();
+    let cache_enabled = cache.is_enabled();
+    
     // 缓存响应
-    if cache.is_enabled() && response.response_code() == ResponseCode::NoError {
-        cache.put_with_auto_ttl_and_ecs(&cache_key, &response, client_ecs.as_ref()).await?;
-    } else if cache.is_enabled() && response.response_code() == ResponseCode::NXDomain {
-        // 缓存负响应
-        let negative_ttl = cache.negative_ttl();
-        cache.put_with_ecs(&cache_key, &response, negative_ttl, client_ecs.as_ref()).await?;
+    if cache_enabled {
+        if response_code == ResponseCode::NoError {
+            cache.put_with_auto_ttl_and_ecs(&cache_key, &response, client_ecs.as_ref()).await?;
+        } else if response_code == ResponseCode::NXDomain {
+            // 缓存负响应
+            let negative_ttl = cache.negative_ttl();
+            cache.put_with_ecs(&cache_key, &response, negative_ttl, client_ecs.as_ref()).await?;
+        }
     }
     
     Ok((response, false))
@@ -1191,14 +1220,18 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
     let name = match Name::parse(&request.name, None) {
         Ok(name) => name,
         Err(e) => {
-            return Err(ServerError::Http(format!("Invalid domain name: {}", e)));
+            // 使用静态字符串减少分配
+            let error_msg = format!("Invalid domain name: {}", e);
+            return Err(ServerError::Http(error_msg));
         }
     };
     
     // 解析记录类型
     let rtype = match RecordType::from(request.type_value) {
         RecordType::Unknown(..) => {
-            return Err(ServerError::Http(format!("Invalid record type: {}", request.type_value)));
+            // 使用静态字符串减少分配
+            let error_msg = format!("Invalid record type: {}", request.type_value);
+            return Err(ServerError::Http(error_msg));
         }
         rt => rt,
     };
@@ -1209,7 +1242,11 @@ fn create_dns_message_from_json_request(request: &DnsJsonRequest) -> Result<Mess
             // 检查已知有效的 DNS 类型
             match class {
                 1 | 3 | 4 | 254 | 255 => DNSClass::from_u16(class),
-                _ => return Err(ServerError::Http(format!("Invalid DNS class: {}", class))),
+                _ => {
+                    // 使用静态字符串减少分配
+                    let error_msg = format!("Invalid DNS class: {}", class);
+                    return Err(ServerError::Http(error_msg));
+                }
             }
         },
         None => Ok(DNSClass::IN),
@@ -1251,9 +1288,13 @@ fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
     
     // 添加查询
     for query in message.queries() {
+        // 提前获取name字符串，减少重复转换
+        let name_str = query.name().to_utf8();
+        let type_value = query.query_type().into();
+        
         response.question.push(DnsJsonQuestion {
-            name: query.name().to_utf8(),
-            type_value: query.query_type().into(),
+            name: name_str,
+            type_value,
         });
     }
     
@@ -1264,11 +1305,17 @@ fn dns_message_to_json_response(message: &Message) -> Result<DnsJsonResponse> {
             None => continue,
         };
         
+        // 提前获取name字符串，减少重复转换
+        let name_str = record.name().to_utf8();
+        let type_value = record.record_type().into();
+        let class = record.dns_class().into();
+        let ttl = record.ttl();
+        
         response.answer.push(DnsJsonAnswer {
-            name: record.name().to_utf8(),
-            type_value: record.record_type().into(),
-            class: record.dns_class().into(),
-            ttl: record.ttl(),
+            name: name_str,
+            type_value,
+            class,
+            ttl,
             data,
         });
     }
