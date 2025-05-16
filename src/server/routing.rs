@@ -26,11 +26,6 @@ const ROUTE_RULE_TYPE_WILDCARD: &str = "wildcard";
 const ROUTE_RULE_TYPE_FILE: &str = "file";
 const ROUTE_RULE_TYPE_URL: &str = "url";
 
-// URL规则类型标签值
-const URL_RULE_TYPE_EXACT: &str = "url_exact";
-const URL_RULE_TYPE_REGEX: &str = "url_regex";
-const URL_RULE_TYPE_WILDCARD: &str = "url_wildcard";
-
 // 路由结果类型标签值
 const ROUTE_RESULT_DISABLED: &str = "disabled";
 const ROUTE_RESULT_BLACKHOLE: &str = "blackhole";
@@ -258,7 +253,7 @@ impl Router {
             }
         }
         
-        // 记录规则计数指标
+        // 记录规则计数指标 - 确保所有类型的计数都被更新
         {
             METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_EXACT]).set(exact_count as f64);
             METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_REGEX]).set(regex_count as f64);
@@ -294,8 +289,8 @@ impl Router {
         }
         
         // 规范化域名（转换为小写，去除尾部的点）
-        let domain_lowercase = domain.to_lowercase();
-        let domain_normalized = domain_lowercase.trim_end_matches('.');
+        let domain_lower = domain.to_lowercase();
+        let domain_normalized = domain_lower.trim_end_matches('.');
         
         // 1. 首先尝试匹配核心规则 (高效的数据结构)
         if let Some((upstream_group, pattern, rule_type)) = self.core.match_domain(domain_normalized) {
@@ -505,6 +500,12 @@ impl Router {
             }
         }
         
+        // 更新文件规则指标
+        {
+            // 注意：这里使用文件规则类型标签，与URL规则区分
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_FILE]).set((exact.len() + regex.len() + wildcard.len()) as f64);
+        }
+        
         info!(
             file = path,
             exact_rules = exact.len(),
@@ -576,10 +577,10 @@ impl Router {
     // 解析通配符模式
     fn parse_wildcard_pattern(pattern: &str) -> WildcardPattern {
         // 去除前后空白，转为小写
-        let pattern = pattern.trim().to_lowercase();
+        let pattern_lower = pattern.trim().to_lowercase();
         
         // 处理特殊情况：*
-        if pattern == "*" {
+        if pattern_lower == "*" {
             return WildcardPattern {
                 pattern: "*".to_string(),
                 prefix: None,
@@ -588,28 +589,28 @@ impl Router {
         }
         
         // 处理特殊情况：*.domain.com
-        if let Some(suffix) = pattern.strip_prefix("*.") {
+        if let Some(suffix) = pattern_lower.strip_prefix("*.") {
             return WildcardPattern {
-                pattern: pattern.clone(),
+                pattern: pattern_lower.clone(),
                 prefix: None,
                 suffix: Some(suffix.to_string()),
             };
         }
         
         // 处理特殊情况：prefix.*
-        if pattern.ends_with(".*") {
-            let prefix_len = pattern.len() - 2;
-            let prefix = pattern[..prefix_len].to_string();
+        if pattern_lower.ends_with(".*") {
+            let prefix_len = pattern_lower.len() - 2;
+            let prefix = pattern_lower[..prefix_len].to_string();
             return WildcardPattern {
-                pattern: pattern.clone(),
+                pattern: pattern_lower.clone(),
                 prefix: Some(prefix),
                 suffix: None,
             };
         }
         
-        // 处理一般情况：将*替换为正则表达式
+        // 处理一般情况
         WildcardPattern {
-            pattern,
+            pattern: pattern_lower.clone(),
             prefix: None,
             suffix: None,
         }
@@ -642,9 +643,28 @@ impl Router {
             }
             
             // 正则风格的通配符模式（将 * 转换为 .* 进行正则匹配）
-            else if let Ok(re) = Self::wildcard_to_regex(&pattern.pattern) {
-                if re.is_match(domain) {
-                    return true;
+            else {
+                // 使用已经预先解析的正则表达式
+                lazy_static! {
+                    static ref PATTERN_REGEX_CACHE: std::sync::Mutex<HashMap<String, Option<Regex>>> = 
+                        std::sync::Mutex::new(HashMap::new());
+                }
+                
+                // 尝试从缓存获取，如果没有则创建并缓存
+                let regex_opt = {
+                    let mut cache = PATTERN_REGEX_CACHE.lock().unwrap();
+                    if !cache.contains_key(&pattern.pattern) {
+                        let regex_result = Self::wildcard_to_regex(&pattern.pattern);
+                        cache.insert(pattern.pattern.clone(), regex_result.ok());
+                    }
+                    cache.get(&pattern.pattern).unwrap().clone()
+                };
+                
+                // 如果有正则表达式，尝试匹配
+                if let Some(re) = regex_opt {
+                    if re.is_match(domain) {
+                        return true;
+                    }
                 }
             }
         }
@@ -656,6 +676,19 @@ impl Router {
     fn wildcard_to_regex(pattern: &str) -> Result<Regex> {
         lazy_static! {
             static ref SPECIAL_CHARS: Regex = Regex::new(r"[.+^$(){}|\[\]\\]").unwrap();
+        }
+        
+        // 快速路径：检查是否有特殊字符或星号
+        let has_special = pattern.contains('*') || 
+                          pattern.chars().any(|c| ".+^$(){}|[]\\".contains(c));
+                          
+        if !has_special {
+            // 简单情况：无特殊字符，直接添加锚点
+            let regex_str = format!("^{}$", pattern);
+            return Regex::new(&regex_str).map_err(|e| ServerError::RegexCompilation(format!(
+                "Failed to compile wildcard pattern regex '{}': {}",
+                regex_str, e
+            )));
         }
         
         // 预估结果字符串的大小，为原大小的2倍加上锚点字符的长度
@@ -670,7 +703,7 @@ impl Router {
             // 添加前面未处理的部分
             let start = mat.start();
             if start > last_pos {
-                // 检查并处理星号
+                // 处理从last_pos到start的内容
                 for c in pattern[last_pos..start].chars() {
                     if c == '*' {
                         result.push_str(".*");
@@ -774,12 +807,12 @@ impl Router {
             }
         }
         
-        // 更新路由规则指标
+        // 更新路由规则指标 - 使用统一的标签值
         {
-            // URL规则总数基于下载的规则自动更新
-            METRICS.route_rules().with_label_values(&[URL_RULE_TYPE_EXACT]).set(url_rules.exact.len() as f64);
-            METRICS.route_rules().with_label_values(&[URL_RULE_TYPE_REGEX]).set(url_rules.regex.len() as f64);
-            METRICS.route_rules().with_label_values(&[URL_RULE_TYPE_WILDCARD]).set(url_rules.wildcard.len() as f64);
+            // 使用标准标签记录URL规则计数
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_EXACT]).set(url_rules.exact.len() as f64);
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_REGEX]).set(url_rules.regex.len() as f64);
+            METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_WILDCARD]).set(url_rules.wildcard.len() as f64);
         }
         
         info!(
@@ -890,6 +923,11 @@ impl Router {
                         elapsed_ms = start_time.elapsed().as_millis(),
                         "Updated URL rules successfully"
                     );
+                    
+                    // 更新指标统计 - 使用统一的标签值进行计数
+                    METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_EXACT]).set(rules_write.exact.len() as f64);
+                    METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_REGEX]).set(rules_write.regex.len() as f64);
+                    METRICS.route_rules().with_label_values(&[ROUTE_RULE_TYPE_WILDCARD]).set(rules_write.wildcard.len() as f64);
                 }
             },
             Err(e) => {
@@ -923,27 +961,26 @@ impl RouterCore {
     
     // 添加通配符规则
     fn add_wildcard_rule(&mut self, pattern: String, upstream_group: String) {
+        // 全局通配符特殊处理
         if pattern == "*" {
             self.global_wildcard = Some(upstream_group);
             return;
         }
         
+        // 处理标准通配符格式: *.domain.com
         if let Some(suffix) = pattern.strip_prefix("*.") {
-            // 通配符格式: *.domain.com
             let reversed_suffix = Self::reverse_domain_labels(suffix);
             self.wildcard_rules.insert(reversed_suffix, (upstream_group, pattern));
+            return;
         }
-        // 其他通配符格式暂不支持优化索引，将使用正则表达式匹配
-        else {
-            // 将其他通配符格式转换为正则表达式
-            if let Ok(regex) = Router::wildcard_to_regex(&pattern) {
-                let index = self.regex_rules.len();
-                let pattern_clone = pattern.clone();
-                self.regex_rules.push((regex, upstream_group, pattern));
-                
-                // 添加到预筛选映射
-                self.add_to_prefilter(index, &pattern_clone);
-            }
+        
+        // 将其他通配符格式转换为正则表达式
+        if let Ok(regex) = Router::wildcard_to_regex(&pattern) {
+            let index = self.regex_rules.len();
+            self.regex_rules.push((regex, upstream_group, pattern.clone()));
+            
+            // 添加到预筛选映射
+            self.add_to_prefilter(index, &pattern);
         }
     }
     
@@ -962,7 +999,7 @@ impl RouterCore {
         // 1. 添加全局通配符作为兜底
         self.regex_prefilter
             .entry("*".to_string())
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(rule_index);
             
         // 2. 尝试提取TLD和SLD作为预筛选键
@@ -971,7 +1008,7 @@ impl RouterCore {
                 // 使用TLD作为特征(如 .com, .org)
                 self.regex_prefilter
                     .entry(tld.to_string())
-                    .or_insert_with(HashSet::new)
+                    .or_default()
                     .insert(rule_index);
                     
                 // 尝试提取二级域名
@@ -980,7 +1017,7 @@ impl RouterCore {
                         // 使用SLD.TLD作为特征(如 .example.com)
                         self.regex_prefilter
                             .entry(sld_tld.to_string())
-                            .or_insert_with(HashSet::new)
+                            .or_default()
                             .insert(rule_index);
                     }
                 }
@@ -990,41 +1027,63 @@ impl RouterCore {
     
     // 匹配域名 - 核心匹配逻辑
     fn match_domain(&self, domain: &str) -> Option<(String, String, &'static str)> {
-        let domain_lowercase = domain.to_lowercase();
-        let domain_normalized = domain_lowercase.trim_end_matches('.');
-        
         // 1. 优先尝试精确匹配 (O(1)复杂度)
-        if let Some(upstream_group) = self.exact_rules.get(domain_normalized) {
-            return Some((upstream_group.clone(), domain_normalized.to_string(), ROUTE_RULE_TYPE_EXACT));
+        if let Some(upstream_group) = self.exact_rules.get(domain) {
+            return Some((upstream_group.clone(), domain.to_string(), ROUTE_RULE_TYPE_EXACT));
         }
         
         // 2. 然后尝试通配符匹配 (O(log n)复杂度)
         // 仅处理标准通配符格式 *.domain.com
-        let domain_parts: Vec<&str> = domain_normalized.split('.').collect();
-        if domain_parts.len() >= 2 {
-            // 从最长可能的后缀开始，按特定性从高到低查找
-            for i in 1..domain_parts.len() {
-                let suffix = domain_parts[i..].join(".");
-                let reversed_suffix = Self::reverse_domain_labels(&suffix);
+        // 避免创建临时Vec，直接使用迭代器
+        let mut part_count = 0;
+        let mut suffix_start_index = 0;
+        
+        // 首先计算域名部分数量
+        for (i, c) in domain.chars().enumerate() {
+            if c == '.' {
+                part_count += 1;
+                if part_count == 1 {
+                    suffix_start_index = i + 1;
+                }
+            }
+        }
+        part_count += 1; // 加上最后一个部分
+        
+        if part_count >= 2 {
+            // 尝试匹配各级子域名
+            let mut current_suffix = &domain[suffix_start_index..];
+            let mut current_suffix_rev = Self::reverse_domain_labels(current_suffix);
+            
+            // 检查当前后缀是否匹配
+            if let Some((upstream_group, pattern)) = self.wildcard_rules.get(&current_suffix_rev) {
+                return Some((upstream_group.clone(), pattern.clone(), ROUTE_RULE_TYPE_WILDCARD));
+            }
+            
+            // 继续查找更高级别的域名
+            let mut next_dot = current_suffix.find('.');
+            while let Some(dot_pos) = next_dot {
+                current_suffix = &current_suffix[dot_pos + 1..];
+                current_suffix_rev = Self::reverse_domain_labels(current_suffix);
                 
-                // 在通配符树中查找匹配
-                if let Some((upstream_group, pattern)) = self.wildcard_rules.get(&reversed_suffix) {
+                if let Some((upstream_group, pattern)) = self.wildcard_rules.get(&current_suffix_rev) {
                     return Some((upstream_group.clone(), pattern.clone(), ROUTE_RULE_TYPE_WILDCARD));
                 }
+                
+                next_dot = current_suffix.find('.');
             }
         }
         
         // 3. 最后尝试正则表达式匹配 (使用预筛选优化)
         let mut candidate_indices: HashSet<usize> = HashSet::new();
         
-        // 尝试提取TLD和SLD作为查询键
-        let domain_parts: Vec<&str> = domain_normalized.split('.').collect();
-        let parts_len = domain_parts.len();
-        
         // 添加全局通配符索引
         if let Some(indices) = self.regex_prefilter.get("*") {
             candidate_indices.extend(indices);
         }
+        
+        // 预筛选优化 - 基于TLD和SLD
+        let domain_parts: Vec<&str> = domain.split('.').collect();
+        let parts_len = domain_parts.len();
         
         // 提取TLD作为特征
         if parts_len >= 1 {
@@ -1045,7 +1104,7 @@ impl RouterCore {
         // 尝试匹配候选正则表达式
         for &index in &candidate_indices {
             let (regex, upstream_group, pattern): &(Regex, String, String) = &self.regex_rules[index];
-            if regex.is_match(domain_normalized) {
+            if regex.is_match(domain) {
                 return Some((upstream_group.clone(), pattern.clone(), ROUTE_RULE_TYPE_REGEX));
             }
         }
