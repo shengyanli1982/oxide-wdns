@@ -6,6 +6,22 @@ English | [中文](./README_CN.md)
     <img src="./images/logo.png" alt="logo">
 </div>
 
+<p align="center">
+  <a href="#introduction">Introduction</a>
+  |
+  <a href="#key-features">Key Features</a>
+  |
+  <a href="#cache-persistence-performance-considerations">Cache Persistence</a>
+  |
+  <a href="#prometheus-metrics">Prometheus Metrics</a>
+  |
+  <a href="#api-endpoints">API Endpoints</a>
+  |
+  <a href="#installation">Installation</a>
+  |
+  <a href="#usage">Usage</a>
+</p>
+
 [![Build Status](https://github.com/shengyanli1982/oxide-wdns/actions/workflows/release.yml/badge.svg)](https://github.com/shengyanli1982/oxide-wdns/actions)
 
 ## Introduction
@@ -498,6 +514,90 @@ You can install Oxide WDNS in the following ways:
     ```
 
     _Please modify the configuration according to your needs. Note that the `routing` section provides powerful control over DNS resolution behavior._
+
+1.5. **Configuration Options Reference:**
+
+Below are detailed reference tables for all configuration options available in `config.yaml`:
+
+##### HTTP Server Configuration
+
+| Option                                     | Type    | Default            | Description                                                |
+| ------------------------------------------ | ------- | ------------------ | ---------------------------------------------------------- |
+| `http_server.listen_addr`                  | String  | `"127.0.0.1:3053"` | Server listen address and port                             |
+| `http_server.timeout`                      | Integer | 120                | Server connection timeout in seconds                       |
+| `http_server.rate_limit.enabled`           | Boolean | false              | Whether to enable rate limiting                            |
+| `http_server.rate_limit.per_ip_rate`       | Integer | 100                | Maximum requests per second per IP address (range: 1-1000) |
+| `http_server.rate_limit.per_ip_concurrent` | Integer | 10                 | Maximum concurrent requests per IP address (range: 1-100)  |
+
+##### DNS Resolver Configuration
+
+###### HTTP Client Options
+
+| Option                                               | Type     | Default                                              | Description                                             |
+| ---------------------------------------------------- | -------- | ---------------------------------------------------- | ------------------------------------------------------- |
+| `dns_resolver.http_client.timeout`                   | Integer  | 120                                                  | HTTP client request timeout in seconds                  |
+| `dns_resolver.http_client.pool.idle_timeout`         | Integer  | 30                                                   | Maximum idle time for connections in the pool (seconds) |
+| `dns_resolver.http_client.pool.max_idle_connections` | Integer  | 10                                                   | Maximum number of idle connections to keep in the pool  |
+| `dns_resolver.http_client.request.user_agent`        | String   | "Mozilla/5.0 ..."                                    | User-Agent header for HTTP requests                     |
+| `dns_resolver.http_client.request.ip_header_names`   | String[] | ["X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP"] | Header names to identify client IP, checked in order    |
+
+###### Cache Options
+
+| Option                                                      | Type    | Default       | Description                                                  |
+| ----------------------------------------------------------- | ------- | ------------- | ------------------------------------------------------------ |
+| `dns_resolver.cache.enabled`                                | Boolean | false         | Whether to enable DNS caching                                |
+| `dns_resolver.cache.size`                                   | Integer | 10000         | Maximum number of entries in the cache                       |
+| `dns_resolver.cache.ttl.min`                                | Integer | 60            | Minimum TTL for cache entries in seconds                     |
+| `dns_resolver.cache.ttl.max`                                | Integer | 86400         | Maximum TTL for cache entries in seconds (86400 = 1 day)     |
+| `dns_resolver.cache.ttl.negative`                           | Integer | 300           | TTL for negative responses (e.g., NXDOMAIN) in seconds       |
+| `dns_resolver.cache.persistence.enabled`                    | Boolean | false         | Whether to enable cache persistence to disk                  |
+| `dns_resolver.cache.persistence.path`                       | String  | "./cache.dat" | Path to the cache persistence file                           |
+| `dns_resolver.cache.persistence.load_on_startup`            | Boolean | true          | Whether to load cache from disk on startup                   |
+| `dns_resolver.cache.persistence.max_items_to_save`          | Integer | 0             | Maximum items to save (0 = unlimited, limited by cache.size) |
+| `dns_resolver.cache.persistence.skip_expired_on_load`       | Boolean | true          | Whether to skip expired entries when loading from disk       |
+| `dns_resolver.cache.persistence.shutdown_save_timeout_secs` | Integer | 30            | Maximum time allowed for saving cache during shutdown        |
+| `dns_resolver.cache.persistence.periodic.enabled`           | Boolean | false         | Whether to periodically save cache to disk                   |
+| `dns_resolver.cache.persistence.periodic.interval_secs`     | Integer | 3600          | Interval between periodic cache saves in seconds             |
+
+###### Upstream DNS Configuration
+
+| Option                                       | Type    | Default | Description                                                             |
+| -------------------------------------------- | ------- | ------- | ----------------------------------------------------------------------- |
+| `dns_resolver.upstream.enable_dnssec`        | Boolean | false   | Whether to enable DNSSEC validation globally                            |
+| `dns_resolver.upstream.query_timeout`        | Integer | 30      | Global DNS query timeout in seconds                                     |
+| `dns_resolver.upstream.resolvers`            | Array   | -       | List of upstream DNS resolvers                                          |
+| `dns_resolver.upstream.resolvers[].address`  | String  | -       | Resolver address (format depends on protocol)                           |
+| `dns_resolver.upstream.resolvers[].protocol` | String  | "udp"   | Protocol: "udp", "tcp", "dot" (DNS-over-TLS), or "doh" (DNS-over-HTTPS) |
+
+###### EDNS Client Subnet (ECS) Options
+
+| Option                                                     | Type    | Default | Description                                               |
+| ---------------------------------------------------------- | ------- | ------- | --------------------------------------------------------- |
+| `dns_resolver.ecs_policy.enabled`                          | Boolean | false   | Whether to enable ECS processing                          |
+| `dns_resolver.ecs_policy.strategy`                         | String  | "strip" | ECS handling strategy: "strip", "forward", or "anonymize" |
+| `dns_resolver.ecs_policy.anonymization.ipv4_prefix_length` | Integer | 24      | IPv4 prefix length to preserve for anonymization (1-32)   |
+| `dns_resolver.ecs_policy.anonymization.ipv6_prefix_length` | Integer | 48      | IPv6 prefix length to preserve for anonymization (1-128)  |
+
+###### DNS Routing Options
+
+| Option                                                      | Type     | Default    | Description                                                |
+| ----------------------------------------------------------- | -------- | ---------- | ---------------------------------------------------------- |
+| `dns_resolver.routing.enabled`                              | Boolean  | false      | Whether to enable DNS routing                              |
+| `dns_resolver.routing.upstream_groups`                      | Array    | -          | List of upstream DNS server groups                         |
+| `dns_resolver.routing.upstream_groups[].name`               | String   | -          | Name of the upstream group                                 |
+| `dns_resolver.routing.upstream_groups[].enable_dnssec`      | Boolean  | (inherits) | Whether to enable DNSSEC for this group                    |
+| `dns_resolver.routing.upstream_groups[].query_timeout`      | Integer  | (inherits) | Query timeout for this group in seconds                    |
+| `dns_resolver.routing.upstream_groups[].resolvers`          | Array    | -          | List of resolvers in this group                            |
+| `dns_resolver.routing.upstream_groups[].ecs_policy`         | Object   | (inherits) | ECS policy for this group (same structure as global)       |
+| `dns_resolver.routing.rules`                                | Array    | -          | List of routing rules                                      |
+| `dns_resolver.routing.rules[].match.type`                   | String   | -          | Match type: "exact", "regex", "wildcard", "file", or "url" |
+| `dns_resolver.routing.rules[].match.values`                 | String[] | -          | List of domain values for exact/regex/wildcard match types |
+| `dns_resolver.routing.rules[].match.path`                   | String   | -          | Path to file for "file" match type                         |
+| `dns_resolver.routing.rules[].match.url`                    | String   | -          | URL to fetch rules for "url" match type                    |
+| `dns_resolver.routing.rules[].match.periodic.enabled`       | Boolean  | false      | Whether to periodically update URL rules                   |
+| `dns_resolver.routing.rules[].match.periodic.interval_secs` | Integer  | 3600       | Interval for updating URL rules in seconds                 |
+| `dns_resolver.routing.rules[].upstream_group`               | String   | -          | Target upstream group for matching domains                 |
+| `dns_resolver.routing.default_upstream_group`               | String   | -          | Default group for unmatched queries                        |
 
 2.  **Domain List File Format**
 
