@@ -24,6 +24,14 @@
 
 [![构建状态](https://github.com/shengyanli1982/oxide-wdns/actions/workflows/release.yml/badge.svg)](https://github.com/shengyanli1982/oxide-wdns/actions)
 
+## 重要提示
+
+`Oxide WDNS` 目前正处于积极开发阶段，其 API 和核心功能未来可能会经历重大调整或重构，因此**目前尚未准备好用于生产环境**。
+
+对于寻求稳定、高性能且可立即部署的 DoH 解决方案的用户，我们强烈推荐您关注另一个项目：[**LoadAnts**](https://github.com/shengyanli1982/load-ants)。
+
+`LoadAnts` 是一个同样由 Rust 编写的轻量级 DoH 转发器，它提供了与 `Oxide WDNS` 相似的核心功能，但在设计上更侧重于极致的性能和稳定性，是理想的生产环境替代方案。
+
 ## 简介
 
 ### 🤔 为什么需要安全 DNS？
